@@ -27,6 +27,8 @@ assert.equal(python({kind: 'operator', op: 'and', args: [
   {kind: 'comparison', ops: ['>='], args: [variable('applicant.age'), {kind: 'number', value: '18'}]},
 ]}), '((household_income <= poverty_limit) and (applicant.age >= 18))');
 assert.equal(python({kind: 'comparison', ops: ['<', '<='], args: [variable('low'), variable('middle'), variable('high')]}), '(low < middle <= high)');
+assert.equal(python({kind: 'comparison', ops: ['is'], args: [variable('value'), {kind: 'none', value: 'None'}]}), '(value is None)');
+assert.equal(python({kind: 'comparison', ops: ['is not'], args: [variable('value'), {kind: 'none', value: 'None'}]}), '(value is not None)');
 assert.equal(python({kind: 'text', value: 'quote "\n\\😀'}), '"quote \\"\\n\\\\😀"');
 assert.equal(python({kind: 'tuple', args: [variable('x')]}), '(x,)');
 assert.equal(python({kind: 'function', name: 'today', args: []}), 'today()');

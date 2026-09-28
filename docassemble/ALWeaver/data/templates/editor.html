@@ -277,6 +277,17 @@
                    value="Update from Weaver" autocomplete="off" maxlength="500" required>
           </div>
           <p class="small text-muted mb-0 mt-3">Every visible file in this Playground project is included, along with the workflows and <code>pyproject.toml</code> set in the other tabs. Weaver uses Docassemble's GitHub connection to create the commit and push it to the selected repository.</p>
+          <div class="mt-3" id="github-publish-preview" hidden>
+            <div class="alert alert-secondary py-2" id="github-publish-preview-summary"
+                 role="status" aria-live="polite"></div>
+            <div class="small fw-semibold mb-1">Files in the package</div>
+            <details class="mb-2">
+              <summary><span id="github-publish-preview-file-count">0 files</span></summary>
+              <ul class="small font-monospace mt-2 mb-0" id="github-publish-preview-files"></ul>
+            </details>
+            <div class="small fw-semibold mb-1">Changes on the selected branch</div>
+            <div class="border rounded p-2 small" id="github-publish-preview-changes"></div>
+          </div>
         </div>
         <div class="modal-footer justify-content-between">
           <a class="btn btn-sm btn-outline-secondary d-none" id="github-configure-link">Configure GitHub</a>
@@ -286,6 +297,9 @@
              target="_blank" rel="noopener">View commit</a>
           <div class="d-flex gap-2 ms-auto">
             <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" id="github-publish-preview-button" disabled>
+              Preview changes
+            </button>
             <button type="submit" class="btn btn-sm btn-primary" id="github-publish-submit" disabled>
               <i class="fa-brands fa-github me-1" aria-hidden="true"></i>Publish to GitHub
             </button>
@@ -949,7 +963,7 @@
       </div>
       <div class="modal-body editor-screen-preview-body">
         <div class="editor-screen-preview-stage" id="screen-preview-stage">
-          <iframe class="editor-screen-preview-frame" id="screen-preview-frame" title="Screen preview" sandbox="allow-same-origin allow-scripts"></iframe>
+          <iframe class="editor-screen-preview-frame" id="screen-preview-frame" title="Screen preview" sandbox="allow-scripts"></iframe>
         </div>
       </div>
       <div class="modal-footer justify-content-between">

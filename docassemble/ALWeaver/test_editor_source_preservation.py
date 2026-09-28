@@ -5,10 +5,13 @@ import json
 from pathlib import Path
 import subprocess
 import unittest
+from unittest.mock import patch
 
 import yaml
+from docassemble.ALWeaver.editor_utils import _YAML_DOCUMENT_SEPARATOR_RE
 
 from .editor_utils import (
+    _safe_load_interview_document,
     add_object_declaration,
     inserted_block_id_by_position,
     is_comment_only_yaml,
@@ -20,6 +23,7 @@ from .editor_utils import (
     reorder_blocks_in_yaml,
     update_block_in_yaml,
 )
+from . import editor_agent_validation
 
 SOURCE = (
     "# file header\n"
@@ -43,6 +47,103 @@ SOURCE = (
 
 
 class TestEditorSourcePreservation(unittest.TestCase):
+    def test_fast_safe_loader_matches_python_safe_loader_semantics(self):
+        corpus = (
+            "metadata:\n  title: Dates and YAML booleans\n"
+            "date: 2026-09-26\nanswer: yes\nmap: {Yes: true, No: false}\n",
+            "base: &base {name: Example, count: 2}\n" "copy: {<<: *base, count: 3}\n",
+            "id: question\nquestion: ${ user.name }\n"
+            "fields:\n  - label: Name\n    field: user.name\n",
+        )
+        for raw_yaml in corpus:
+            with self.subTest(raw_yaml=raw_yaml):
+                self.assertEqual(
+                    _safe_load_interview_document(raw_yaml), yaml.safe_load(raw_yaml)
+                )
+
+        unsafe_tag = "value: !!python/object/apply:os.system ['echo unsafe']\n"
+        with self.assertRaises(yaml.YAMLError):
+            _safe_load_interview_document(unsafe_tag)
+
+    def test_fast_yaml_syntax_errors_keep_python_diagnostic_text(self):
+        malformed = "a: [1, 2\n"
+        with self.assertRaises(yaml.YAMLError) as expected:
+            list(yaml.compose_all(malformed))
+        findings = editor_agent_validation._yaml_stream_findings(malformed, "main.yml")
+        self.assertEqual(findings[0]["message"], expected.exception.problem)
+        self.assertEqual(findings[0]["line_number"], 2)
+
+    def test_deep_yaml_returns_bounded_validation_diagnostic(self):
+        raw_yaml = "value: " + "{item: " * 400 + "nested" + "}" * 400 + "\n"
+        parsed = parse_interview_yaml(raw_yaml)
+        self.assertEqual(len(parsed["blocks"]), 1)
+        self.assertEqual(parsed["blocks"][0]["title"], "Unparseable block")
+        findings = editor_agent_validation.validate_source_text(raw_yaml, "deep.yml")
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["level"], "error")
+        self.assertEqual(findings[0]["source"], "yaml-parser")
+        self.assertEqual(
+            findings[0]["message"],
+            "YAML nesting exceeds the supported validation depth.",
+        )
+
+    def test_large_interview_keeps_exact_block_line_ranges(self):
+        source = "\n---\n".join(
+            f"id: block_{index}\nquestion: Question {index}\n" for index in range(1000)
+        )
+        blocks = parse_interview_yaml(source)["blocks"]
+        self.assertEqual(len(blocks), 1000)
+        expected_ranges = []
+        body_start = 0
+        for separator in _YAML_DOCUMENT_SEPARATOR_RE.finditer(source):
+            body = source[body_start : separator.start()]
+            start_line = source.count("\n", 0, body_start) + 1
+            expected_ranges.append(
+                (start_line, start_line + len(body.splitlines()) - 1)
+            )
+            body_start = separator.end()
+        body = source[body_start:]
+        start_line = source.count("\n", 0, body_start) + 1
+        expected_ranges.append((start_line, start_line + len(body.splitlines()) - 1))
+        self.assertEqual(
+            [(block["line_start"], block["line_end"]) for block in blocks],
+            expected_ranges,
+        )
+
+    def test_block_patch_reuses_supplied_full_source_model(self):
+        model = parse_interview_yaml(SOURCE)
+        with patch(
+            "docassemble.ALWeaver.editor_utils.parse_interview_yaml",
+            side_effect=AssertionError("unexpected full-source reparse"),
+        ):
+            updated = update_block_in_yaml(
+                SOURCE,
+                "intro",
+                "id: intro\nquestion: Updated\nfields:\n  - Name: user_name\n",
+                parsed_model=model,
+            )
+        self.assertIn("question: Updated", updated)
+        self.assertIn("# code lead", updated)
+
+    def test_source_validation_reuses_supplied_candidate_model(self):
+        model = parse_interview_yaml(SOURCE)
+        with (
+            patch(
+                "docassemble.ALWeaver.editor_utils.parse_interview_yaml",
+                side_effect=AssertionError("unexpected full-source reparse"),
+            ),
+            patch.object(
+                editor_agent_validation, "_yaml_stream_findings", return_value=[]
+            ),
+            patch.object(
+                editor_agent_validation, "dayamlchecker_findings", return_value=[]
+            ),
+        ):
+            findings = editor_agent_validation.validate_source_text(
+                SOURCE, "main.yml", parsed_model=model
+            )
+        self.assertEqual(findings, [])
+
     def test_expression_edit_in_anonymous_question_keeps_sibling_comment(self):
         source = (
             "question: Income\nfields:\n"

@@ -7,10 +7,13 @@ for reading/writing interview files.
 
 from __future__ import annotations
 
+import ast
 import copy
 import hashlib
+import io
 import os
 import re
+import tokenize
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import yaml
@@ -89,6 +92,48 @@ _METADATA_DOCUMENT_TYPES = {
 _YAML_DOCUMENT_SEPARATOR_RE = re.compile(
     r"(?m)^---[ \t]*(?:#[^\r\n]*)?(?:\r\n|\n|\r|$)"
 )
+_FAST_SAFE_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+MAX_EDITOR_YAML_NESTING_DEPTH = 100
+
+
+def _yaml_value_exceeds_supported_depth(value: Any) -> bool:
+    """Check parsed YAML depth iteratively, without recursive Python calls."""
+    pending = [(value, 0)]
+    deepest_seen: Dict[int, int] = {}
+    while pending:
+        current, depth = pending.pop()
+        if depth > MAX_EDITOR_YAML_NESTING_DEPTH:
+            return True
+        if not isinstance(current, (dict, list, tuple)):
+            continue
+        identity = id(current)
+        if deepest_seen.get(identity, -1) >= depth:
+            continue
+        deepest_seen[identity] = depth
+        if isinstance(current, dict):
+            for key, item in current.items():
+                pending.append((key, depth + 1))
+                pending.append((item, depth + 1))
+        else:
+            pending.extend((item, depth + 1) for item in current)
+    return False
+
+
+def _safe_load_interview_document(raw_yaml: str) -> Any:
+    """Load one interview document with the safe C parser when available."""
+    try:
+        if _FAST_SAFE_YAML_LOADER is yaml.SafeLoader:
+            loaded = yaml.safe_load(raw_yaml)
+        else:
+            loaded = yaml.load(raw_yaml, Loader=_FAST_SAFE_YAML_LOADER)
+    except RecursionError as exc:
+        raise yaml.YAMLError(
+            "YAML nesting exceeds the supported validation depth."
+        ) from exc
+    if _yaml_value_exceeds_supported_depth(loaded):
+        raise yaml.YAMLError("YAML nesting exceeds the supported validation depth.")
+    return loaded
+
 
 _BLOCK_KEY_ORDER = [
     "metadata",
@@ -720,9 +765,9 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
 
     segments: List[Dict[str, Any]] = []
     body_start = 0
+    start_line = 1
     for separator in _YAML_DOCUMENT_SEPARATOR_RE.finditer(raw_yaml):
         body = raw_yaml[body_start : separator.start()]
-        start_line = raw_yaml.count("\n", 0, body_start) + 1
         segments.append(
             {
                 "start_line": start_line,
@@ -730,9 +775,12 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
                 "text": body,
             }
         )
+        # Advance once over this segment and its separator. Counting every
+        # prefix from the beginning for each document made a large interview
+        # quadratic in its total source length.
+        start_line += raw_yaml.count("\n", body_start, separator.end())
         body_start = separator.end()
     body = raw_yaml[body_start:]
-    start_line = raw_yaml.count("\n", 0, body_start) + 1
     segments.append(
         {
             "start_line": start_line,
@@ -758,7 +806,7 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
         if is_comment_only_yaml(segment_text_raw):
             uncommented = _uncomment_yaml_block(segment_text)
             try:
-                parsed_commented = yaml.safe_load(uncommented)
+                parsed_commented = _safe_load_interview_document(uncommented)
             except yaml.YAMLError:
                 parsed_commented = None
             if not isinstance(parsed_commented, dict):
@@ -809,7 +857,7 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
             continue
 
         try:
-            doc = yaml.safe_load(segment_text_raw)
+            doc = _safe_load_interview_document(segment_text_raw)
         except yaml.YAMLError:
             blocks.append(
                 {
@@ -833,8 +881,17 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
         if not isinstance(doc, dict):
             doc = {"_raw": str(doc)}
 
-        block_type = _detect_block_type(doc)
-        block_id = _stable_block_id(i, doc)
+        try:
+            block_type = _detect_block_type(doc)
+            block_id = _stable_block_id(i, doc)
+        except RecursionError:
+            # A parser can materialize a very deeply nested mapping, but stable
+            # ID serialization and downstream editor rendering are still
+            # bounded by Python's recursion limit. Keep its raw source editable
+            # as an unparseable block instead of failing the entire file load.
+            doc = {"_unparseable": True, "_raw": segment_text}
+            block_type = BLOCK_TYPE_OTHER
+            block_id = _stable_block_id(i, doc)
         editor_objects = (
             _build_editor_objects(doc.get("objects")) if "objects" in doc else []
         )
@@ -1005,12 +1062,15 @@ def serialize_blocks_to_yaml(blocks: Sequence[Dict[str, Any]]) -> str:
 
 
 def _unique_block_document(
-    full_yaml: str, block_id: str
+    full_yaml: str,
+    block_id: str,
+    *,
+    parsed_model: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Dict[str, Any], int, int, str]:
     """Return one block and its exact document-body source range."""
     matches = [
         block
-        for block in parse_interview_yaml(full_yaml)["blocks"]
+        for block in (parsed_model or parse_interview_yaml(full_yaml))["blocks"]
         if block["id"] == block_id
     ]
     if not matches:
@@ -1297,13 +1357,17 @@ def update_block_in_yaml(
     new_block_yaml: str,
     *,
     preserve_unchanged_annotations: bool = False,
+    allow_nontext_yaml_keys: bool = False,
+    parsed_model: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Replace a single block in a full interview YAML by its id.
 
     Locates the block matching *block_id* and replaces only its exact source
     range.  Other documents and separators are never serialized again.
     """
-    _block, start, end, original_body = _unique_block_document(full_yaml, block_id)
+    _block, start, end, original_body = _unique_block_document(
+        full_yaml, block_id, parsed_model=parsed_model
+    )
     edited_body = (
         new_block_yaml.lstrip("\r\n")
         if preserve_unchanged_annotations
@@ -1314,6 +1378,31 @@ def update_block_in_yaml(
         # The question controls do not serialize attachments. Retain their
         # exact source when saving a question carrying one or more documents.
         original_data = _block.get("data") or {}
+
+        visited: set[int] = set()
+
+        def has_nontext_keys(value: Any) -> bool:
+            if isinstance(value, (dict, list)):
+                if id(value) in visited:
+                    return False
+                visited.add(id(value))
+            if isinstance(value, dict):
+                return any(
+                    not isinstance(key, str) or has_nontext_keys(item)
+                    for key, item in value.items()
+                )
+            if isinstance(value, list):
+                return any(has_nontext_keys(item) for item in value)
+            return False
+
+        # JSON object keys cannot carry YAML boolean/numeric key types. The
+        # browser therefore cannot safely round-trip these mappings.
+        if has_nontext_keys(original_data) and not allow_nontext_yaml_keys:
+            raise ValueError(
+                "This block contains non-text YAML mapping keys (for example, "
+                "unquoted Yes/No labels). Edit it in YAML mode, or quote the "
+                "labels there before using graphical controls."
+            )
         edited_data = yaml.safe_load(edited_body)
         if (
             "question" in original_data
@@ -1597,8 +1686,6 @@ STEP_CONDITION = "condition"
 STEP_RAW = "raw"
 
 # Patterns for parsing order code lines
-_RE_SET_PARTS = re.compile(r"""set_parts\(\s*subtitle\s*=\s*['"](.+?)['"]\s*\)""")
-_RE_NAV_SET_SECTION = re.compile(r"""nav\.set_section\(\s*['"](.+?)['"]\s*\)""")
 _RE_SET_PROGRESS = re.compile(r"set_progress\(\s*(\d+)\s*\)")
 _RE_GATHER = re.compile(r"(\S+)\.gather\(\)")
 _RE_FUNCTION_CALL = re.compile(r"(\S+\(.*\))")
@@ -1649,6 +1736,102 @@ def _join_continuation_lines(lines: list) -> list:
 
 
 def parse_order_code(code: str) -> List[Dict[str, Any]]:
+    """Expose only losslessly understood statements to the guided order editor.
+
+    AST statement boundaries keep unsupported suites and continuations intact.
+    Guided candidates must reproduce the Python AST, not a particular quoting
+    or indentation style. Keep their original source separately for lossless
+    no-op saves and narrow edits. Unsupported syntax and comments remain raw.
+    Whitespace belongs to neighboring steps rather than empty raw cards.
+    """
+
+    def raw(source: str) -> Dict[str, Any]:
+        return {
+            "kind": STEP_RAW,
+            "label": "Raw Python",
+            "summary": source[:80],
+            "code": source,
+        }
+
+    try:
+        body = ast.parse(code).body
+    except SyntaxError:
+        return [dict(raw(code), id="step-1")]
+    if not code.strip():
+        return []
+    lines = code.split("\n")
+    steps: List[Dict[str, Any]] = []
+    cursor = 0
+    for node in body:
+        start = (
+            min(
+                [node.lineno]
+                + [item.lineno for item in getattr(node, "decorator_list", [])]
+            )
+            - 1
+        )
+        end = node.end_lineno or node.lineno
+        # Semicolon-separated statements share a physical line: preserve the
+        # whole source rather than duplicating or slicing that line incorrectly.
+        if start < cursor:
+            steps = [raw(code)]
+            break
+        prefix = ""
+        if start > cursor:
+            gap = "\n".join(lines[cursor:start])
+            if gap.strip():
+                steps.append(raw(gap))
+            else:
+                prefix = gap + "\n"
+        source = "\n".join(lines[start:end])
+        candidate = _parse_simple_order_code(source)
+        rendered = serialize_order_steps(candidate)
+        try:
+            equivalent = ast.dump(ast.parse(rendered)) == ast.dump(ast.parse(source))
+        except SyntaxError:
+            equivalent = False
+        has_comments = any(
+            token.type == tokenize.COMMENT
+            for token in tokenize.generate_tokens(io.StringIO(source).readline)
+        )
+        if (
+            equivalent
+            and len(candidate) == 1
+            and (not has_comments or rendered == source)
+        ):
+            step = candidate[0]
+            if step.get("kind") == STEP_RAW:
+                step = raw(source)
+            else:
+                step["_order_source"] = source
+        else:
+            step = raw(source)
+        if prefix:
+            step["_order_prefix"] = prefix
+        steps.append(step)
+        cursor = end
+    else:
+        if cursor < len(lines):
+            tail = "\n".join(lines[cursor:])
+            if tail.strip() or not steps:
+                steps.append(raw(tail))
+            else:
+                steps[-1]["_order_suffix"] = "\n" + tail
+    counter = 0
+
+    def assign_ids(items: Sequence[Dict[str, Any]]) -> None:
+        nonlocal counter
+        for item in items:
+            counter += 1
+            item["id"] = f"step-{counter}"
+            assign_ids(item.get("children") or [])
+            assign_ids(item.get("else_children") or [])
+
+    assign_ids(steps)
+    return steps
+
+
+def _parse_simple_order_code(code: str) -> List[Dict[str, Any]]:
     """Parse a mandatory code block's body into structured order steps.
 
     Recognises:
@@ -1678,25 +1861,40 @@ def parse_order_code(code: str) -> List[Dict[str, Any]]:
         return parent_indent + 2
 
     def _parse_line(stripped_line: str, step_id: str) -> Dict[str, Any]:
-        m = _RE_SET_PARTS.search(stripped_line)
-        if m:
-            return {
-                "id": step_id,
-                "kind": STEP_SECTION,
-                "label": "Start section",
-                "summary": f"Set section to {m.group(1)}",
-                "value": m.group(1),
-            }
-
-        m = _RE_NAV_SET_SECTION.search(stripped_line)
-        if m:
-            return {
-                "id": step_id,
-                "kind": STEP_SECTION,
-                "label": "Start section",
-                "summary": f"Set section to {m.group(1)}",
-                "value": m.group(1),
-            }
+        try:
+            expression = ast.parse(stripped_line).body[0]
+        except (SyntaxError, IndexError):
+            expression = None
+        if isinstance(expression, ast.Expr) and isinstance(expression.value, ast.Call):
+            call = expression.value
+            value = None
+            call_name = None
+            if (
+                isinstance(call.func, ast.Name)
+                and call.func.id == "set_parts"
+                and not call.args
+                and len(call.keywords) == 1
+                and call.keywords[0].arg == "subtitle"
+            ):
+                value, call_name = call.keywords[0].value, "set_parts"
+            elif (
+                isinstance(call.func, ast.Attribute)
+                and call.func.attr == "set_section"
+                and isinstance(call.func.value, ast.Name)
+                and call.func.value.id == "nav"
+                and len(call.args) == 1
+                and not call.keywords
+            ):
+                value, call_name = call.args[0], "nav.set_section"
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                return {
+                    "id": step_id,
+                    "kind": STEP_SECTION,
+                    "label": "Start section",
+                    "summary": f"Set section to {value.value}",
+                    "value": value.value,
+                    "call": call_name,
+                }
 
         m = _RE_SET_PROGRESS.search(stripped_line)
         if m:
@@ -1881,7 +2079,97 @@ def parse_order_code(code: str) -> List[Dict[str, Any]]:
     return parsed_steps
 
 
-def serialize_order_steps(steps: Sequence[Dict[str, Any]]) -> str:
+def _patch_order_statement_source(source: str, rendered: str) -> str:
+    """Patch changed AST nodes using UTF-8 offsets; retain untouched formatting.
+
+    When a subtree changes shape (for example adding a branch), replace that
+    subtree. Never use source metadata unless the final AST matches the model.
+    """
+    try:
+        old_tree, new_tree = ast.parse(source), ast.parse(rendered)
+    except SyntaxError:
+        return rendered
+    encoded = source.encode("utf-8")
+    offsets = [0]
+    for line in encoded.splitlines(keepends=True):
+        offsets.append(offsets[-1] + len(line))
+
+    def patches(old: ast.AST, new: ast.AST) -> Optional[list]:
+        if ast.dump(old) == ast.dump(new):
+            return []
+        edits = []
+        compatible = type(old) is type(new)
+        if compatible:
+            for name, old_value in ast.iter_fields(old):
+                new_value = getattr(new, name)
+                if isinstance(old_value, ast.AST) and isinstance(new_value, ast.AST):
+                    child_edits = patches(old_value, new_value)
+                elif isinstance(old_value, list) and isinstance(new_value, list):
+                    child_edits = []
+                    if len(old_value) != len(new_value):
+                        child_edits = None
+                    else:
+                        for old_child, new_child in zip(old_value, new_value):
+                            if not isinstance(old_child, ast.AST) or not isinstance(
+                                new_child, ast.AST
+                            ):
+                                if old_child != new_child:
+                                    child_edits = None
+                                    break
+                                continue
+                            nested = patches(old_child, new_child)
+                            if nested is None:
+                                child_edits = None
+                                break
+                            child_edits.extend(nested)
+                else:
+                    child_edits = [] if old_value == new_value else None
+                if child_edits is None:
+                    compatible = False
+                    break
+                edits.extend(child_edits)
+        if compatible:
+            return edits
+        replacement = ast.get_source_segment(rendered, new)
+        start_line = getattr(old, "lineno", None)
+        start_column = getattr(old, "col_offset", None)
+        end_line = getattr(old, "end_lineno", None)
+        end_column = getattr(old, "end_col_offset", None)
+        if (
+            replacement is None
+            or not isinstance(start_line, int)
+            or not isinstance(start_column, int)
+            or not isinstance(end_line, int)
+            or not isinstance(end_column, int)
+        ):
+            return None
+        indent = " " * start_column
+        replacement = replacement.replace("\n", "\n" + indent)
+        return [
+            (
+                offsets[start_line - 1] + start_column,
+                offsets[end_line - 1] + end_column,
+                replacement.encode("utf-8"),
+            )
+        ]
+
+    edits = patches(old_tree, new_tree)
+    if edits is None:
+        return rendered
+    for start, end, replacement in sorted(edits, reverse=True):
+        encoded = encoded[:start] + replacement + encoded[end:]
+    result = encoded.decode("utf-8")
+    try:
+        if ast.dump(ast.parse(result)) == ast.dump(new_tree):
+            return result
+    except SyntaxError:
+        pass
+    return rendered
+
+
+def serialize_order_steps(
+    steps: Sequence[Dict[str, Any]], *, _preserve_source: bool = True
+) -> str:
     """Convert structured order steps back into Python code for a mandatory
     code block."""
     lines: List[str] = []
@@ -1924,10 +2212,28 @@ def serialize_order_steps(steps: Sequence[Dict[str, Any]]) -> str:
     def _append_steps(step_list: Sequence[Dict[str, Any]], indent: int) -> None:
         prefix = " " * indent
         for step in step_list:
+            if _preserve_source and any(
+                key in step
+                for key in ("_order_source", "_order_prefix", "_order_suffix")
+            ):
+                rendered = serialize_order_steps([step], _preserve_source=False)
+                source = step.get("_order_source")
+                if isinstance(source, str):
+                    rendered = _patch_order_statement_source(source, rendered)
+                rendered = (
+                    str(step.get("_order_prefix", ""))
+                    + rendered
+                    + str(step.get("_order_suffix", ""))
+                )
+                lines.extend(prefix + line for line in rendered.split("\n"))
+                continue
             kind = step.get("kind", STEP_RAW)
             if kind == STEP_SECTION:
                 value = step.get("value", "")
-                lines.append(f"{prefix}nav.set_section('{value}')")
+                if step.get("call") == "set_parts":
+                    lines.append(f"{prefix}set_parts(subtitle={value!r})")
+                else:
+                    lines.append(f"{prefix}nav.set_section({value!r})")
             elif kind == STEP_PROGRESS:
                 value = step.get("value", "0")
                 lines.append(f"{prefix}set_progress({value})")
@@ -1941,7 +2247,7 @@ def serialize_order_steps(steps: Sequence[Dict[str, Any]]) -> str:
                 _append_condition(step, indent, "if")
             elif kind == STEP_RAW:
                 code = step.get("code", "")
-                for raw_line in str(code).splitlines() or [""]:
+                for raw_line in str(code).split("\n"):
                     lines.append(f"{prefix}{raw_line}")
 
     _append_steps(steps, 0)
@@ -2103,7 +2409,15 @@ def playground_read_yaml(user_id: int, project: str, filename: str) -> str:
             raise FileNotFoundError(
                 f"File {filename!r} not found in project {project!r}"
             )
-        content = pg.read_file(filename)
+        # Playground.read_file uses universal-newline translation, which turns
+        # CRLF into LF before the source-preserving patcher ever sees it.
+        path = pg.get_file(filename)
+        if path is None:
+            raise FileNotFoundError(
+                f"File {filename!r} not found in project {project!r}"
+            )
+        with open(path, "r", encoding="utf-8", newline="") as source:
+            content = source.read()
     return content or ""
 
 
@@ -2182,6 +2496,62 @@ def _al_individual_primitive_groups(model: Dict[str, Any]) -> Dict[str, List[str
     return result
 
 
+def _playground_symbols_without_execution(pg, user_id, project, filename):
+    """Parse the selected project without assembling or running author code."""
+    from docassemble.base.parse import Interview
+
+    try:
+        from docassemble.base.interview_source import InterviewSourceFile
+    except ImportError:  # Docassemble 1.9
+        from docassemble.base.parse import InterviewSourceFile
+
+    path = pg.get_file(filename)
+    if path is None:
+        raise FileNotFoundError(filename)
+    with open(path, encoding="utf-8", newline="") as source_file:
+        content = source_file.read()
+    package = "docassemble.playground" + str(user_id)
+    if project != "default":
+        package += project
+    source = InterviewSourceFile(
+        filepath=path,
+        path=package + ":" + filename,
+        package=package,
+        testing=True,
+    )
+    # String sources cannot append relative includes, even with a directory.
+    source.set_content(content)
+    interview = Interview(source=source)
+    names = set(interview.names_used)
+    fields = set()
+    origins: Dict[str, List[str]] = {}
+    for question in interview.questions_list:
+        question_names = set(getattr(question, "names_used", ()))
+        question_names.update(getattr(question, "mako_names", ()))
+        question_names.update(getattr(question, "fields_used", ()))
+        names.update(question_names)
+        fields.update(getattr(question, "fields_used", ()))
+        origin = str(getattr(getattr(question, "from_source", None), "path", ""))
+        for name in question_names:
+            if origin and origin not in origins.setdefault(str(name), []):
+                origins[str(name)].append(origin)
+    fields.update(interview.questions)
+    names.update(fields)
+    names.difference_update(
+        {"_internal", "url_args", "device_local", "session_local", "user_local"}
+    )
+    return (
+        {
+            "all_names_reduced": names,
+            "fields_used": fields,
+            "names_used": names,
+            "undefined_names": names - fields,
+        },
+        interview_function_catalog(interview),
+        origins,
+    )
+
+
 def playground_get_variables(
     user_id: int, project: str, filename: str
 ) -> Dict[str, Any]:
@@ -2192,22 +2562,12 @@ def playground_get_variables(
             raise FileNotFoundError(
                 f"File {filename!r} not found in project {project!r}"
             )
-        variable_info = pg.variables_from_file(filename)
-        # Reuse the interview tree the playground just assembled for symbol
-        # discovery. Its module questions include all transitive YAML includes.
-        function_catalog = {}
-        try:
-            try:
-                from docassemble.base.thread_context import this_thread
-            except ImportError:
-                from docassemble.base.functions import this_thread
-
-            function_catalog = interview_function_catalog(this_thread.interview)
-        except Exception:
-            # Optional help must never break variable discovery: the catalog
-            # introspects whatever modules the author's interview imported, so
-            # any failure there leaves the rest of the symbols intact.
-            pass
+        # variables_from_file() creates a default-project Playground internally
+        # and variables_from() assembles it. Neither is safe symbol discovery:
+        # includes resolve in the wrong project and mandatory code may execute.
+        variable_info, function_catalog, variable_origins = (
+            _playground_symbols_without_execution(pg, user_id, project, filename)
+        )
 
     if not isinstance(variable_info, dict):
         variable_info = {}
@@ -2368,6 +2728,7 @@ def playground_get_variables(
         "classes": sorted(classes),
         "functions": sorted(functions),
         "function_catalog": list(function_catalog.values()),
+        "variable_origins": variable_origins,
         "yaml_files": yaml_files,
         "template_files": template_files,
         "static_files": static_files,

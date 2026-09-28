@@ -7,6 +7,7 @@ from unittest.mock import patch
 from .docassemble_compat import TargetActionResult, TargetSession
 from .runtime_sessions import (
     RUNTIME_SESSION_KEY_PREFIX,
+    RUNTIME_SESSION_EXPIRE_SECONDS,
     create_runtime_record,
     delete_runtime_record,
     load_runtime_record,
@@ -109,6 +110,136 @@ class TestEditorRuntimeApi(unittest.TestCase):
             "docassemble.playground7:main.yml", secret=None, url_args=None
         )
 
+    def test_runtime_inspector_disabled_is_a_feature_disabled_404(self):
+        patches = self._base_patches()
+        with (
+            patches[0],
+            patch.object(api_editor, "_runtime_inspector_enabled", return_value=False),
+            patches[2],
+            patches[3],
+            patch.object(api_editor, "playground_read_yaml") as read_yaml,
+            patch.object(api_editor, "create_target_session") as create_target,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/runtime/sessions",
+                method="POST",
+                json={"project": "default", "filename": "main.yml"},
+            ):
+                response = api_editor.editor_api_runtime_create_session()
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            response.get_json()["error"]["code"], "runtime_inspector_disabled"
+        )
+        read_yaml.assert_not_called()
+        create_target.assert_not_called()
+
+    def test_other_user_cannot_inspect_or_seed_runtime_session(self):
+        self._record(owner=7)
+        patches = self._base_patches(user_id=99)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patch.object(api_editor, "get_target_variables") as get_variables,
+            patch.object(api_editor, "set_target_variables") as set_variables,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/runtime/sessions/weaver-session/variables"
+            ):
+                response = api_editor.editor_api_runtime_variables("weaver-session")
+
+            with api_editor.app.test_request_context(
+                "/al/editor/api/runtime/sessions/weaver-session/variables",
+                method="POST",
+                json={"variables": {"canary": "must not be seeded"}},
+            ):
+                seed_response = api_editor.editor_api_runtime_variables(
+                    "weaver-session"
+                )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(seed_response.status_code, 404)
+        self.assertEqual(
+            response.get_json()["error"]["code"], "runtime_session_not_found"
+        )
+        self.assertEqual(
+            seed_response.get_json()["error"]["code"], "runtime_session_not_found"
+        )
+        self.assertNotIn("must not be seeded", json.dumps(seed_response.get_json()))
+        get_variables.assert_not_called()
+        set_variables.assert_not_called()
+
+    def test_expired_runtime_record_resolves_to_not_found(self):
+        self._record()
+        self.assertEqual(self.redis.expiry, RUNTIME_SESSION_EXPIRE_SECONDS)
+        # Redis removes the record when its configured lifetime elapses.
+        self.redis.delete(RUNTIME_SESSION_KEY_PREFIX + "weaver-session")
+        patches = self._base_patches()
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/runtime/sessions/weaver-session", method="GET"
+            ):
+                response = api_editor.editor_api_runtime_session("weaver-session")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            response.get_json()["error"]["code"], "runtime_session_not_found"
+        )
+
+    def test_fresh_browser_receives_the_key_used_for_its_target_session(self):
+        target = TargetSession(
+            "docassemble.playground7:main.yml",
+            "raw-target-id",
+            secret="generated-browser-key",
+        )
+        patches = self._base_patches()
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patch.object(
+                api_editor, "playground_read_yaml", return_value="id: intro\n"
+            ),
+            patch.object(api_editor, "bump_interview_source_index"),
+            patch.object(
+                api_editor, "create_target_session", return_value=target
+            ) as create,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/runtime/sessions",
+                method="POST",
+                json={"project": "default", "filename": "main.yml"},
+            ):
+                response = api_editor.editor_api_runtime_create_session()
+
+        self.assertEqual(response.status_code, 201)
+        set_cookie_headers = response.headers.getlist("Set-Cookie")
+        self.assertEqual(len(set_cookie_headers), 1)
+        self.assertTrue(
+            set_cookie_headers[0].startswith("secret=generated-browser-key;")
+        )
+        self.assertIn("HttpOnly", set_cookie_headers[0])
+        self.assertIn("Path=/", set_cookie_headers[0])
+        self.assertNotIn("generated-browser-key", json.dumps(response.get_json()))
+        stored = json.loads(
+            self.redis.get(
+                RUNTIME_SESSION_KEY_PREFIX
+                + response.get_json()["data"]["weaver_session_id"]
+            )
+        )
+        self.assertEqual(stored["encrypted_secret"], "generated-browser-key")
+        create.assert_called_once_with(
+            "docassemble.playground7:main.yml", secret=None, url_args=None
+        )
+
     def test_the_debuggers_iframe_can_decrypt_the_session_weaver_created(self):
         """Docassemble decrypts a session only with the visitor's own cookie.
 
@@ -159,7 +290,9 @@ class TestEditorRuntimeApi(unittest.TestCase):
         self.assertNotIn("browser-key", json.dumps(stored))
 
     def test_variable_read_filters_internal_values_by_default(self):
-        self._record()
+        record = self._record()
+        record.seeded_variables = ["answer"]
+        store_runtime_record(self.redis, record)
         patches = self._base_patches()
         with (
             patches[0],
@@ -179,6 +312,7 @@ class TestEditorRuntimeApi(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.get_json()["data"]
         self.assertEqual(data["variables"], {"answer": 42})
+        self.assertEqual(data["seeded_variables"], ["answer"])
         self.assertEqual(data["fact_source"], "observed_runtime")
 
     def test_variable_write_never_processes_objects(self):
@@ -199,6 +333,37 @@ class TestEditorRuntimeApi(unittest.TestCase):
                 response = api_editor.editor_api_runtime_variables("weaver-session")
         self.assertEqual(response.status_code, 200)
         self.assertFalse(set_variables.call_args.kwargs["process_objects"])
+        stored = json.loads(
+            self.redis.get(RUNTIME_SESSION_KEY_PREFIX + "weaver-session")
+        )
+        self.assertEqual(stored["seeded_variables"], ["status"])
+        scenario_events = [
+            item for item in stored["history"] if item["event"] == "scenario_applied"
+        ]
+        self.assertEqual(scenario_events[-1]["seeded_variables"], ["status"])
+        self.assertEqual(scenario_events[-1]["deleted_variables"], ["old_value"])
+
+    def test_invalid_scenario_yaml_is_a_validation_error_without_mutation(self):
+        self._record()
+        patches = self._base_patches()
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patch.object(api_editor, "set_target_variables") as set_variables,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/runtime/sessions/weaver-session/variables",
+                method="POST",
+                json={"scenario_yaml": "[malformed"},
+            ):
+                response = api_editor.editor_api_runtime_variables("weaver-session")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.get_json()["error"]["code"], "invalid_runtime_variable_request"
+        )
+        set_variables.assert_not_called()
 
     def test_arbitrary_actions_are_rejected(self):
         self._record()

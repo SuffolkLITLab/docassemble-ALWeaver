@@ -2,7 +2,8 @@
 
 Python remains the stored source. The shared editor offers comparisons,
 AND/OR/NOT, arithmetic, nested groups, variable/attribute/index references,
-text/numbers/booleans/None, lists/tuples, and function calls. Dates use
+comparisons including `is None` and `is not None`, text/numbers/booleans/None,
+lists/tuples, and function calls. Dates use
 `as_datetime("2026-09-18")` or `today()`. Variable inputs search the interview's
 existing symbol catalog. No intermediate variables are created.
 

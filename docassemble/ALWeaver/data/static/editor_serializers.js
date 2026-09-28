@@ -9,12 +9,12 @@
 
   function escapeYamlStr(str) {
     if (str === undefined || str === null) return str;
-    str = String(str);
-    if (str.indexOf('\n') !== -1) {
-      return '|\n  ' + str.replace(/\n/g, '\n  ');
-    }
-    if (/[:\#\{\}\[\],&*!>|'"%@`]/.test(str) || str.trim() !== str || str === '') {
-      return '"' + str.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+    if (typeof str !== 'string') return JSON.stringify(str);
+    // JSON strings are valid YAML scalars at every nesting depth. Quote text
+    // that YAML 1.1 could resolve as a boolean, null, number, date or key.
+    if (/[:\#\{\}\[\],&*!>|'"%@`\\\n\r\t]/.test(str) || str.trim() !== str || str === '' ||
+        /^(?:[-?:](?:\s|$)|~$|(?:y|n|yes|no|true|false|on|off|null)$|[-+.]?\d|[-+]?\.(?:inf|nan)$)/i.test(str)) {
+      return JSON.stringify(str);
     }
     return str;
   }
@@ -117,6 +117,87 @@
     return data;
   }
 
+  function fieldChoicesText(choices) {
+    if (!Array.isArray(choices)) return '';
+    // Typed/mapped choices use an explicit structured form, never a lossy
+    // label: value projection. Plain text remains convenient for simple lists.
+    if (!choices.length || choices.some(function (choice) { return typeof choice !== 'string' || !choice || choice.trim() !== choice || /[\r\n]/.test(choice); }) ||
+        (choices.length && choices[0].trim().startsWith('['))) return JSON.stringify(choices, null, 2);
+    return choices.join('\n');
+  }
+
+  function readFieldChoices(text) {
+    if (text.trim().startsWith('[')) {
+      var choices;
+      try { choices = JSON.parse(text); } catch (_) { throw new Error('Options beginning with [ must be a valid JSON array.'); }
+      if (!Array.isArray(choices)) throw new Error('Options must be an array.');
+      return choices;
+    }
+    return text.split('\n').map(function (choice) { return choice.trim(); }).filter(Boolean);
+  }
+
+  function appendFieldChoices(yaml, text) {
+    var choices = readFieldChoices(text);
+    if (!choices.length) return yaml + '    choices: []\n';
+    yaml += '    choices:\n';
+    choices.forEach(function (choice) {
+      yaml += '      - ' + (typeof choice === 'string' ? escapeYamlStr(choice) : JSON.stringify(choice)) + '\n';
+    });
+    return yaml;
+  }
+
+  function appendFieldChoicesExpression(yaml, expression) {
+    var value = String(expression === undefined || expression === null ? '' : expression).trim();
+    if (!value) return yaml;
+    return yaml + '    choices: ' + JSON.stringify(value) + '\n';
+  }
+
+  function appendUnmodeledFieldProperties(yaml, field, handledKeys) {
+    if (!field || typeof field !== 'object' || Array.isArray(field)) return yaml;
+    var handled = new Set([
+      'label', 'question', 'field', 'variable', 'datatype', 'type',
+      'choices', 'code', 'required',
+    ]);
+    (handledKeys || []).forEach(function (key) { handled.add(key); });
+    var variableName = field.field || field.variable;
+    Object.keys(field).forEach(function (key) {
+      if (handled.has(key) || field[key] === undefined) return;
+      // Compact field syntax (`- Age: age`) reaches the editor with both
+      // the original label key and the normalized field binding. The key is
+      // syntax, not an extra modifier, and must not be appended beside a new
+      // `label:` after an author renames it.
+      if (
+        typeof variableName === 'string' &&
+        typeof field[key] === 'string' &&
+        field[key] === variableName
+      ) return;
+      yaml += '    ' + escapeYamlStr(key) + ': ' + JSON.stringify(field[key]) + '\n';
+    });
+    return yaml;
+  }
+
+  // These controls express typed YAML settings, not choice labels or prose.
+  function fieldModifierYamlValue(key, value) {
+    if (typeof value !== 'string') return JSON.stringify(value);
+    var text = value.trim();
+    if (['shuffle', 'disable others', 'uncheck others', 'check others', 'none of the above', 'all of the above'].indexOf(key) !== -1 && /^(true|false)$/i.test(text)) {
+      return text.toLowerCase();
+    }
+    if (['min', 'max', 'minlength', 'maxlength', 'step'].indexOf(key) !== -1 && /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(text)) {
+      return JSON.stringify(Number(text));
+    }
+    // These modifiers accept lists of variable names as well as booleans.
+    if (['disable others', 'uncheck others', 'check others'].indexOf(key) !== -1 && text.startsWith('[')) {
+      var names;
+      try { names = JSON.parse(text); } catch (_) { throw new Error(key + ' must be True, False, or a JSON array of variable names.'); }
+      if (!Array.isArray(names) || names.some(function (name) { return typeof name !== 'string'; })) {
+        throw new Error(key + ' must be True, False, or a JSON array of variable names.');
+      }
+      return JSON.stringify(names);
+    }
+    return escapeYamlStr(value);
+  }
+
   function serializeQuestionToYaml(block, options) {
     var document = options.document;
     var screenData = readScreenControls((block && block.data) || {}, document);
@@ -128,6 +209,12 @@
       var wasMapping = originalField && originalField[key] && typeof originalField[key] === 'object';
       var appliedMapping = input && input.dataset && input.dataset.expressionMapping === 'true';
       var appliedExpression = input && input.dataset && input.dataset.expressionApplied === 'true';
+      if (
+        ['shuffle', 'disable others', 'uncheck others', 'check others'].indexOf(key) !== -1 &&
+        /^(true|false)$/i.test(String(value).trim())
+      ) {
+        return '    ' + key + ': ' + String(value).trim().toLowerCase() + '\n';
+      }
       if ((wasMapping || appliedMapping) && ['show if', 'hide if', 'enable if', 'disable if', 'default'].indexOf(key) !== -1) {
         try {
           var structured = JSON.parse(value);
@@ -140,7 +227,13 @@
       if (['validate', 'disabled', 'exclude', 'accept', 'rows', 'maximum image size', 'persistent', 'private', 'object labeler', 'address autocomplete', 'label above field', 'floating label'].indexOf(key) !== -1 && (appliedExpression || (originalField && typeof originalField[key] === 'string'))) {
         return '    ' + key + ': ' + JSON.stringify(value) + '\n';
       }
-      return '    ' + key + ': ' + escapeYamlStr(value) + '\n';
+      if (originalField && originalField[key] !== undefined && typeof originalField[key] !== 'string' && String(originalField[key]) === value) {
+        return '    ' + key + ': ' + JSON.stringify(originalField[key]) + '\n';
+      }
+      if (originalField && typeof originalField[key] === 'string' && originalField[key] === value) {
+        return '    ' + key + ': ' + escapeYamlStr(value) + '\n';
+      }
+      return '    ' + key + ': ' + fieldModifierYamlValue(key, value) + '\n';
     }
     var appendYamlValue = options.appendYamlValue;
     var appendYamlBlockValue = options.appendYamlBlockValue;
@@ -204,6 +297,11 @@
           sfmodInputs[key] = el;
         });
         var hasCodeExpr = codeEl && codeEl.value.trim();
+        var originalField = block && block.data && block.data.fields && block.data.fields[Number(rowIdx)];
+        var choiceExpression = Boolean(
+          choicesEl && choicesEl.dataset &&
+          (choicesEl.dataset.choiceExpression === 'true' || choicesEl.dataset.expressionApplied === 'true')
+        ) || Boolean(originalField && typeof originalField.choices === 'string');
         var hasChoices = choicesEl && choicesEl.value.trim() && choiceTypes.indexOf(type) !== -1;
         var showIfVal = showIfEl ? showIfEl.value.trim() : '';
         var showIfKey = showIfKeyEl ? showIfKeyEl.value : 'show if';
@@ -222,10 +320,9 @@
         if (isStandaloneType) {
           yaml = appendYamlBlockValue(yaml, '  - ' + type, label);
           if (hasChoices) {
-            yaml += '    choices:\n';
-            choicesEl.value.split('\n').forEach(function (choice) {
-              if (choice.trim()) yaml += '      - ' + escapeYamlStr(choice.trim()) + '\n';
-            });
+            yaml = choiceExpression
+              ? appendFieldChoicesExpression(yaml, choicesEl.value)
+              : appendFieldChoices(yaml, choicesEl.value);
           }
           if (hasCodeExpr) {
             var standaloneCode = codeEl.value.trim();
@@ -236,6 +333,11 @@
           else if (!isRequired) yaml += '    required: False\n';
           if (showIfVal) yaml += modifierYaml(showIfKey, showIfVal, showIfEl, rowIdx);
           Object.keys(sfmods).forEach(function (key) { yaml += modifierYaml(key, sfmods[key], sfmodInputs[key], rowIdx); });
+          yaml = appendUnmodeledFieldProperties(
+            yaml,
+            originalField,
+            Object.keys(sfmodInputs).concat([showIfKey, type]),
+          );
           continue;
         }
         if (isMultiLineLabel || hasMods) {
@@ -247,10 +349,9 @@
         }
         if (type && type !== 'text') yaml += '    datatype: ' + type + '\n';
         if (hasChoices) {
-          yaml += '    choices:\n';
-          choicesEl.value.split('\n').forEach(function (choice) {
-            if (choice.trim()) yaml += '      - ' + escapeYamlStr(choice.trim()) + '\n';
-          });
+          yaml = choiceExpression
+            ? appendFieldChoicesExpression(yaml, choicesEl.value)
+            : appendFieldChoices(yaml, choicesEl.value);
         }
         if (hasCodeExpr) {
           var codeText = codeEl.value.trim();
@@ -265,6 +366,11 @@
         else if (!isRequired) yaml += '    required: False\n';
         if (showIfVal) yaml += modifierYaml(showIfKey, showIfVal, showIfEl, rowIdx);
         Object.keys(sfmods).forEach(function (key) { yaml += modifierYaml(key, sfmods[key], sfmodInputs[key], rowIdx); });
+        yaml = appendUnmodeledFieldProperties(
+          yaml,
+          originalField,
+          Object.keys(sfmodInputs).concat([showIfKey]),
+        );
       }
     } else if (state.questionBlockTab !== 'screen' && block && block.data && Array.isArray(block.data.fields) && block.data.fields.length > 0) {
       yaml += 'fields:\n';
@@ -649,6 +755,11 @@
 
   return {
     enabledExpressionValue: enabledExpressionValue,
+    fieldModifierYamlValue: fieldModifierYamlValue,
+    fieldChoicesText: fieldChoicesText,
+    readFieldChoices: readFieldChoices,
+    appendFieldChoicesExpression: appendFieldChoicesExpression,
+    appendUnmodeledFieldProperties: appendUnmodeledFieldProperties,
     escapeYamlStr: escapeYamlStr,
     appendYamlText: appendYamlText,
     serializeQuestionToYaml: serializeQuestionToYaml,

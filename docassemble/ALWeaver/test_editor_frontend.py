@@ -8,6 +8,7 @@ import subprocess
 import unittest
 
 NODE_TESTS = (
+    "test_editor_controls.js",
     "test_editor_expressions.js",
     "test_editor_attachments.js",
     "test_editor_order_lookup.js",
@@ -104,6 +105,24 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("blankQuestionNeedsDecision() ||", source)
         self.assertIn("Add a question label before saving.", source)
 
+    def test_check_and_uncheck_others_have_logic_tab_boolean_controls(self):
+        source = (Path(__file__).parent / "data/static/editor.js").read_text()
+        logic = source.split("    function renderLogicTab() {", 1)[1]
+        logic = logic.split("    function renderHelpTab() {", 1)[0]
+        self.assertIn("'yesno',", logic)
+        self.assertIn("'yesnowide',", logic)
+        self.assertIn("'noyes',", logic)
+        self.assertIn("'noyeswide'", logic)
+        self.assertIn("'object_radio'", logic)
+        self.assertIn("'object_checkboxes'", logic)
+        self.assertIn("modifierOrNotice(", logic)
+        self.assertIn("sourceOnlyModifierNotice(key)", logic)
+        self.assertIn("the source value <code>", logic)
+        self.assertIn("Edit it in Full YAML.", logic)
+        self.assertIn("(default)", logic)
+        self.assertIn(">Yes</option>", logic)
+        self.assertIn(">No</option>", logic)
+
     def test_github_partial_publish_shows_warning_and_setup_guidance(self):
         source = (Path(__file__).parent / "data/static/editor.js").read_text()
         self.assertIn("warnings.length ? 'warning' : 'success'", source)
@@ -112,6 +131,12 @@ class TestEditorFrontend(unittest.TestCase):
             "https://assemblyline.suffolklitlab.org/docs/components/ALKiln/setup/",
             source,
         )
+
+    def test_upload_generation_warnings_are_shown_to_the_author(self):
+        source = (Path(__file__).parent / "data/static/editor.js").read_text()
+        self.assertIn("_newProjectGenerationWarnings(jobData)", source)
+        self.assertIn("_showWarningBanner(", source)
+        self.assertIn("generationWarnings.map(esc).join(' ')", source)
 
     def test_github_modal_manages_workflows_and_pyproject(self):
         root = Path(__file__).parent / "data"
@@ -194,6 +219,14 @@ class TestEditorFrontend(unittest.TestCase):
             self.assertLess(template.index(module), template.index("editor.js"))
         self.assertNotIn("monaco", editor.lower())
         self.assertNotIn("cdn.jsdelivr.net", editor)
+
+    def test_screen_preview_sandbox_does_not_share_editor_origin(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        preview_frame = template.split('id="screen-preview-frame"', 1)[1].split(">", 1)[
+            0
+        ]
+        self.assertIn('sandbox="allow-scripts"', preview_frame)
+        self.assertNotIn("allow-same-origin", preview_frame)
 
     def test_transient_tools_are_closed_by_editor_navigation(self):
         """A late debugger poll and an open assistant must not undo navigation."""

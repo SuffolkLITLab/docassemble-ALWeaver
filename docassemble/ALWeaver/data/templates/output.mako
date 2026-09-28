@@ -490,7 +490,11 @@ event: ${ interview.interview_label }_download
 question: |
   All done
 subquestion: |
-  Thank you <%text>${users}</%text>. Your form is ready to download and deliver.
+  <%text>%</%text> if defined("users[0]"):
+  Thank you <%text>${ users }</%text>. Your form is ready to download and deliver.
+  <%text>%</%text> else:
+  Thank you. Your form is ready to download and deliver.
+  <%text>%</%text> endif
 
   Use the options on this page to view, download and send your form. Use the
   "Edit answers" button to fix any mistakes.
@@ -546,59 +550,59 @@ code: |
 # ALDocument objects specify the metadata for each template
 objects:
   % if interview.include_next_steps:
-  - ${ interview.interview_label }_Post_interview_instructions: ALDocument.using(filename="${ interview.interview_label }_next_steps.docx", enabled=al_next_steps_enabled, has_addendum=False)
+  - ${ interview.interview_label }_Post_interview_instructions: ALDocument.using(filename="${ interview.interview_label }_next_steps.docx", title=str(${ interview.interview_label }_Post_interview_instructions_title), enabled=al_next_steps_enabled, has_addendum=False)
   % endif
   % if len(interview.uploaded_templates) == 1:
-  - ${ interview.interview_label }_attachment: ALDocument.using(filename="${ interview.interview_label }", ${ aldocument_kwargs })
+  - ${ interview.interview_label }_attachment: ALDocument.using(filename="${ interview.interview_label }", title=str(${ interview.interview_label }_attachment_title), ${ aldocument_kwargs })
   % else:
   % for document in interview.uploaded_templates:
-  - ${ document_name_for[document.filename].variable }: ALDocument.using(filename="${ document_name_for[document.filename].filename }", ${ aldocument_kwargs })
+  - ${ document_name_for[document.filename].variable }: ALDocument.using(filename="${ document_name_for[document.filename].filename }", title=str(${ document_name_for[document.filename].variable }_title), ${ aldocument_kwargs })
   % endfor
   % endif
 ---
 # Bundles group the ALDocuments into separate downloads, such as for court and for the user
 objects:
   % if interview.include_next_steps:
-  - al_user_bundle: ALDocumentBundle.using(elements=[${ f"{ interview.interview_label }_Post_interview_instructions"}, ${ interview.attachment_varnames()}], filename="${interview.interview_label}", enabled=True)
+  - al_user_bundle: ALDocumentBundle.using(elements=[${ f"{ interview.interview_label }_Post_interview_instructions"}, ${ interview.attachment_varnames()}], filename="${interview.interview_label}", enabled=True, title=str(al_user_bundle_title))
   % else:
-  - al_user_bundle: ALDocumentBundle.using(elements=[${ interview.attachment_varnames()}], filename="${interview.interview_label}", enabled=True)
+  - al_user_bundle: ALDocumentBundle.using(elements=[${ interview.attachment_varnames()}], filename="${interview.interview_label}", enabled=True, title=str(al_user_bundle_title))
   % endif
   % if interview.court_related:
-  - al_court_bundle: ALDocumentBundle.using(elements=[${ interview.attachment_varnames() }], filename="${interview.interview_label}", enabled=True)
+  - al_court_bundle: ALDocumentBundle.using(elements=[${ interview.attachment_varnames() }], filename="${interview.interview_label}", enabled=True, title=str(al_court_bundle_title))
   % else:
-  - al_recipient_bundle: ALDocumentBundle.using(elements=[${ interview.attachment_varnames() }], filename="${interview.interview_label}", enabled=True)
+  - al_recipient_bundle: ALDocumentBundle.using(elements=[${ interview.attachment_varnames() }], filename="${interview.interview_label}", enabled=True, title=str(al_recipient_bundle_title))
   % endif
 % if interview.include_next_steps:
 ---
-template: ${ interview.interview_label }_Post_interview_instructions.title
+template: ${ interview.interview_label }_Post_interview_instructions_title
 content: |
   Instructions
 % endif
 % if len(interview.uploaded_templates) == 1:
 ---
-template: ${ interview.interview_label }_attachment.title
+template: ${ interview.interview_label }_attachment_title
 content: |
 ${ indent(str(interview.title), by=2) }
 % else:
 % for document in interview.uploaded_templates:
 ---
-template: ${ document_name_for[document.filename].variable }.title
+template: ${ document_name_for[document.filename].variable }_title
 content: |
   ${ document_name_for[document.filename].filename.capitalize().replace("_", " ") }
 % endfor
 % endif
 ---
-template: al_user_bundle.title
+template: al_user_bundle_title
 content: |
   All forms to download for your records
 % if interview.court_related:
 ---
-template: al_court_bundle.title
+template: al_court_bundle_title
 content: |
   All forms to deliver to court
 % else:
 ---
-template: al_recipient_bundle.title
+template: al_recipient_bundle_title
 content: |
   All forms to file
 % endif

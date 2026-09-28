@@ -2,9 +2,11 @@
 
 """Saving Playground Python modules, and the deferred restart that loads them."""
 
+import hashlib
 import json
 import os
 import tempfile
+import threading
 import types
 import unittest
 from unittest.mock import patch
@@ -24,11 +26,31 @@ from .editor_modules import (
 from .test_editor_api import api_editor
 
 
+class FakeRedisLock:
+    _locks: dict[str, threading.RLock] = {}
+    _guard = threading.Lock()
+
+    def __init__(self, name):
+        with self._guard:
+            self._lock = self._locks.setdefault(name, threading.RLock())
+
+    def acquire(self, blocking=True, blocking_timeout=None):
+        if blocking_timeout is None:
+            return self._lock.acquire(blocking=blocking)
+        return self._lock.acquire(blocking=blocking, timeout=blocking_timeout)
+
+    def release(self):
+        self._lock.release()
+
+
 class FakeRedis:
     """Enough Redis for the dirty flag and the restart-status record."""
 
     def __init__(self):
         self.values = {}
+
+    def lock(self, name, **_kwargs):
+        return FakeRedisLock(name)
 
     def get(self, key):
         return self.values.get(key)
@@ -173,12 +195,29 @@ class TestPendingRestartState(unittest.TestCase):
         )
 
     def test_a_restart_from_anywhere_clears_the_flag(self):
-        # The stock Playground, a package install, or our own restart all move
-        # START_TIME forward, and any of them loads the module.
+        # A newer process clears a flag when its module copy is verified.
         mark_modules_dirty(self.redis, 7, "default", "util.py", server_start_time=100.0)
         self.assertIsNone(
-            read_modules_dirty(self.redis, 7, "default", server_start_time=200.0)
+            read_modules_dirty(
+                self.redis,
+                7,
+                "default",
+                server_start_time=200.0,
+                copy_ready=lambda _state: True,
+            )
         )
+
+    def test_restart_does_not_clear_a_failed_module_copy(self):
+        mark_modules_dirty(self.redis, 7, "default", "util.py", server_start_time=100.0)
+        state = read_modules_dirty(
+            self.redis,
+            7,
+            "default",
+            server_start_time=200.0,
+            copy_ready=lambda _state: False,
+        )
+        self.assertEqual(state["files"][0]["filename"], "util.py")
+        self.assertIn("da:weaver:modules_dirty:7:default", self.redis.values)
 
     def test_projects_do_not_share_a_flag(self):
         mark_modules_dirty(self.redis, 7, "Housing", "util.py", server_start_time=100.0)
@@ -432,6 +471,45 @@ class TestBulkModuleWrites(unittest.TestCase):
             read_modules_dirty(self.redis, 7, "default", server_start_time=100.0)
         )
 
+    def test_renaming_an_installed_module_moves_it_and_marks_old_name_pending(self):
+        self._write("helper.py", "VALUE = 1\n")
+        self._reconcile()
+        os.rename(
+            os.path.join(self.storage, "helper.py"),
+            os.path.join(self.storage, "renamed_helper.py"),
+        )
+        redis_patch, storage_patch, root_patch, time_patch = self._patched()
+        with redis_patch, storage_patch, root_patch, time_patch:
+            outcome = api_editor._rename_module_file(
+                7, "default", "helper.py", "renamed_helper.py", self.storage
+            )
+
+        self.assertTrue(outcome["restart_required"])
+        self.assertFalse(os.path.exists(self._installed("helper.py")))
+        with open(self._installed("renamed_helper.py"), encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), "VALUE = 1\n")
+        state = read_modules_dirty(self.redis, 7, "default", server_start_time=100.0)
+        self.assertEqual(
+            [(entry["filename"], entry["reason"]) for entry in state["files"]],
+            [("helper.py", "renamed")],
+        )
+
+    def test_deleting_an_installed_module_removes_it_and_marks_it_pending(self):
+        self._write("helper.py", "VALUE = 1\n")
+        self._reconcile()
+        os.remove(os.path.join(self.storage, "helper.py"))
+        redis_patch, _storage_patch, root_patch, time_patch = self._patched()
+        with redis_patch, root_patch, time_patch:
+            outcome = api_editor._delete_module_file(7, "default", "helper.py")
+
+        self.assertTrue(outcome["restart_required"])
+        self.assertFalse(os.path.exists(self._installed("helper.py")))
+        state = read_modules_dirty(self.redis, 7, "default", server_start_time=100.0)
+        self.assertEqual(
+            [(entry["filename"], entry["reason"]) for entry in state["files"]],
+            [("helper.py", "deleted")],
+        )
+
 
 class TestRestartApi(unittest.TestCase):
     def setUp(self):
@@ -458,6 +536,41 @@ class TestRestartApi(unittest.TestCase):
         self.assertTrue(data["restart_allowed"])
         self.assertEqual(data["disruption_seconds"], [10, 30])
 
+    def test_restart_state_waits_for_saved_module_bytes_after_server_start(self):
+        with tempfile.TemporaryDirectory() as root:
+            storage = os.path.join(root, "storage")
+            packages = os.path.join(root, "packages")
+            installed = module_package_directory(packages, 7, "default")
+            os.makedirs(storage)
+            os.makedirs(installed)
+            with open(os.path.join(storage, "util.py"), "w") as module_file:
+                module_file.write("VALUE = 'v2'\n")
+            with open(os.path.join(installed, "util.py"), "w") as module_file:
+                module_file.write("VALUE = 'v1'\n")
+            mark_modules_dirty(
+                self.redis, 7, "default", "util.py", server_start_time=100.0
+            )
+            with (
+                patch.object(api_editor, "r", self.redis),
+                patch.object(api_editor, "server_start_time", return_value=200.0),
+                patch.object(
+                    api_editor,
+                    "_editor_storage_directory",
+                    return_value=(None, storage),
+                ),
+                patch.object(
+                    api_editor, "full_package_directory", return_value=packages
+                ),
+            ):
+                self.assertTrue(
+                    api_editor._restart_state_payload(7, "default")["pending"]
+                )
+                with open(os.path.join(installed, "util.py"), "w") as module_file:
+                    module_file.write("VALUE = 'v2'\n")
+                self.assertFalse(
+                    api_editor._restart_state_payload(7, "default")["pending"]
+                )
+
     def test_a_read_only_server_explains_itself_instead_of_offering_a_restart(self):
         with (
             patch.object(api_editor, "_editor_auth_check", return_value=True),
@@ -473,6 +586,7 @@ class TestRestartApi(unittest.TestCase):
 
     def test_restarting_writes_the_polling_record_before_taking_the_server_down(self):
         order = []
+        manifest = {"expected": {"util.py": "abc"}, "removed": []}
 
         def fake_restart():
             order.append(
@@ -487,6 +601,7 @@ class TestRestartApi(unittest.TestCase):
             patch.object(api_editor, "server_start_time", return_value=100.0),
             patch.object(api_editor, "_restarting_is_allowed", return_value=True),
             patch.object(api_editor, "_filesystem_is_read_only", return_value=False),
+            patch.object(api_editor, "_restart_module_manifest", return_value=manifest),
             patch.object(api_editor, "restart_docassemble", side_effect=fake_restart),
         ):
             with self._context(
@@ -499,7 +614,11 @@ class TestRestartApi(unittest.TestCase):
         # The record has to exist before restart_all takes down this worker,
         # or the browser has nothing left to poll.
         self.assertIn("da:restart_status:" + task_id, order[0])
-        self.assertNotIn("da:weaver:modules_dirty:7:default", self.redis.values)
+        record = json.loads(self.redis.values["da:restart_status:" + task_id])
+        self.assertEqual(record["module_manifest"], manifest)
+        self.assertEqual(record["user_id"], 7)
+        self.assertEqual(record["project"], "default")
+        self.assertIn("da:weaver:modules_dirty:7:default", self.redis.values)
 
     def test_a_server_that_may_not_restart_refuses_with_the_reason(self):
         with (
@@ -542,6 +661,103 @@ class TestRestartApi(unittest.TestCase):
         # background workers, so the restart is not finished.
         self.assertEqual(status(200.0, True), "working")
         self.assertEqual(status(200.0, False), "completed")
+
+    def test_restart_status_waits_for_the_rebuilt_module_copy_to_match(self):
+        package_root = tempfile.mkdtemp()
+        installed_dir = module_package_directory(package_root, 7, "default")
+        os.makedirs(installed_dir, exist_ok=True)
+        expected_source = b"VALUE = 'v2'\n"
+        with open(os.path.join(installed_dir, "util.py"), "wb") as module_file:
+            module_file.write(b"VALUE = 'v1'\n")
+        self.redis.values["da:restart_status:copy-race"] = json.dumps(
+            {
+                "server_start_time": 100.0,
+                "user_id": 7,
+                "project": "default",
+                "module_manifest": {
+                    "expected": {
+                        "util.py": hashlib.sha256(expected_source).hexdigest()
+                    },
+                    "removed": [],
+                },
+            }
+        )
+
+        def status():
+            with (
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "r", self.redis),
+                patch.object(api_editor, "server_start_time", return_value=200.0),
+                patch.object(
+                    api_editor, "reset_process_is_running", return_value=False
+                ),
+                patch.object(
+                    api_editor, "full_package_directory", return_value=package_root
+                ),
+            ):
+                with self._context(
+                    "/al/editor/api/server/restart-status?task_id=copy-race"
+                ):
+                    return api_editor.editor_api_restart_status().get_json()["data"][
+                        "status"
+                    ]
+
+        # The new web process answers and reset has ended, but startup has not
+        # yet published the saved module bytes.
+        self.assertEqual(status(), "working")
+        with open(os.path.join(installed_dir, "util.py"), "wb") as module_file:
+            module_file.write(expected_source)
+        self.assertEqual(status(), "completed")
+
+    def test_restart_status_waits_for_renames_and_deletions_to_be_copied(self):
+        package_root = tempfile.mkdtemp()
+        installed_dir = module_package_directory(package_root, 7, "default")
+        os.makedirs(installed_dir, exist_ok=True)
+        renamed_source = b"VALUE = 'renamed'\n"
+        for filename in ("old_name.py", "deleted.py"):
+            with open(os.path.join(installed_dir, filename), "wb") as module_file:
+                module_file.write(b"VALUE = 'stale'\n")
+        with open(os.path.join(installed_dir, "new_name.py"), "wb") as module_file:
+            module_file.write(b"VALUE = 'stale'\n")
+        self.redis.values["da:restart_status:rename-race"] = json.dumps(
+            {
+                "server_start_time": 100.0,
+                "user_id": 7,
+                "project": "default",
+                "module_manifest": {
+                    "expected": {
+                        "new_name.py": hashlib.sha256(renamed_source).hexdigest()
+                    },
+                    "removed": ["old_name.py", "deleted.py"],
+                },
+            }
+        )
+
+        def status():
+            with (
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "r", self.redis),
+                patch.object(api_editor, "server_start_time", return_value=200.0),
+                patch.object(
+                    api_editor, "reset_process_is_running", return_value=False
+                ),
+                patch.object(
+                    api_editor, "full_package_directory", return_value=package_root
+                ),
+            ):
+                with self._context(
+                    "/al/editor/api/server/restart-status?task_id=rename-race"
+                ):
+                    return api_editor.editor_api_restart_status().get_json()["data"][
+                        "status"
+                    ]
+
+        self.assertEqual(status(), "working")
+        with open(os.path.join(installed_dir, "new_name.py"), "wb") as module_file:
+            module_file.write(renamed_source)
+        os.remove(os.path.join(installed_dir, "old_name.py"))
+        os.remove(os.path.join(installed_dir, "deleted.py"))
+        self.assertEqual(status(), "completed")
 
     def test_an_unknown_task_is_reported_rather_than_erroring(self):
         with (

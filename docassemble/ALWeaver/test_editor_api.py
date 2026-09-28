@@ -2,12 +2,14 @@
 
 from io import BytesIO
 from contextlib import ExitStack, nullcontext
+import hashlib
 from pathlib import Path
 import os
 import importlib
 import importlib.util
 import sys
 import tempfile
+import threading
 import types
 import unittest
 from types import SimpleNamespace
@@ -15,6 +17,29 @@ from unittest.mock import patch
 
 from flask import Flask, jsonify
 from werkzeug.datastructures import FileStorage
+from .project_filenames import safe_project_filename
+
+
+class _TestRedisLock:
+    _locks: dict[str, threading.RLock] = {}
+    _guard = threading.Lock()
+
+    def __init__(self, name):
+        with self._guard:
+            self._lock = self._locks.setdefault(name, threading.RLock())
+
+    def acquire(self, blocking=True, blocking_timeout=None):
+        if blocking_timeout is None:
+            return self._lock.acquire(blocking=blocking)
+        return self._lock.acquire(blocking=blocking, timeout=blocking_timeout)
+
+    def release(self):
+        self._lock.release()
+
+
+class _TestRedis:
+    def lock(self, name, **_kwargs):
+        return _TestRedisLock(name)
 
 
 def _load_api_editor_for_tests():
@@ -40,7 +65,7 @@ def _load_api_editor_for_tests():
         return response
 
     server_mod.jsonify_with_status = jsonify_with_status
-    server_mod.r = object()
+    server_mod.r = _TestRedis()
 
     worker_common = types.ModuleType("docassemble.webapp.worker_common")
     worker_common.bg_context = nullcontext
@@ -66,6 +91,7 @@ def _load_api_editor_for_tests():
         else str(value).strip().lower() in {"1", "true", "yes", "on"}
     )
     api_utils.validate_upload_metadata = lambda **kwargs: (kwargs["filename"], ".docx")
+    api_utils.validate_document_content = lambda filename, content_bytes: None
 
     editor_utils = types.ModuleType(f"{package_name}.editor_utils")
     for name, func in {
@@ -88,6 +114,7 @@ def _load_api_editor_for_tests():
             "blocks": [],
             "metadata_blocks": [],
         },
+        "_safe_load_interview_document": lambda raw: __import__("yaml").safe_load(raw),
         "metadata_source_slice": lambda *args, **kwargs: "",
         "parse_order_code": lambda *args, **kwargs: {},
         "playground_get_variables": lambda *args, **kwargs: {},
@@ -229,6 +256,199 @@ class _FakeRedis:
 
 
 class TestEditorGithubApi(unittest.TestCase):
+    def test_github_publish_preview_shows_target_and_text_diff_without_persisting_manifest(
+        self,
+    ):
+        prepared = {
+            "manifest": {"interview_files": ["main.yml"]},
+            "manifest_path": "",
+        }
+        local_files = {
+            "docassemble/forms/data/questions/main.yml": {
+                "content": b"question: Updated\n",
+                "mode": "100644",
+            }
+        }
+        remote = {
+            "sha": "remote-head",
+            "files": {
+                "docassemble/forms/data/questions/main.yml": b"question: Old\n",
+                "remote-only.txt": b"remove me\n",
+            },
+            "missing": False,
+        }
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "get_native_github_integration",
+                return_value={"enabled": True, "connected": True},
+            ),
+            patch.object(
+                api_editor,
+                "get_github_publish_owners",
+                return_value=[{"login": "ada", "type": "user"}],
+            ),
+            patch.object(api_editor, "_editor_user_designator", return_value="Ada"),
+            patch.object(
+                api_editor,
+                "prepare_project_github_package",
+                return_value=prepared,
+            ) as prepare,
+            patch.object(api_editor, "repository_dependency_names", return_value=[]),
+            patch.object(
+                api_editor,
+                "repository_publish_files",
+                return_value={"files": {}, "managed_paths": []},
+            ),
+            patch.object(
+                api_editor, "build_github_package_snapshot", return_value=local_files
+            ),
+            patch.object(
+                api_editor, "get_github_repository_snapshot", return_value=remote
+            ) as get_remote,
+            patch.object(api_editor, "find_project_github_sync", return_value=None),
+            patch.object(
+                api_editor,
+                "_sign_github_publish_preview",
+                return_value="signed-preview",
+            ),
+        ):
+            api_editor.current_user.email = "ada@example.com"
+            with api_editor.app.test_request_context(
+                "/al/editor/api/github/publish/preview",
+                method="POST",
+                json={
+                    "project": "Housing",
+                    "owner": "ada",
+                    "package": "forms",
+                    "branch": "main",
+                },
+            ):
+                response = api_editor.editor_api_github_publish_preview()
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()["data"]
+        self.assertEqual(data["remote_sha"], "remote-head")
+        self.assertEqual(data["preview_token"], "signed-preview")
+        self.assertEqual(data["files"], ["docassemble/forms/data/questions/main.yml"])
+        by_path = {entry["path"]: entry for entry in data["changes"]}
+        self.assertEqual(
+            by_path["docassemble/forms/data/questions/main.yml"]["change"],
+            "modified",
+        )
+        self.assertIn(
+            "-question: Old",
+            by_path["docassemble/forms/data/questions/main.yml"]["diff"],
+        )
+        self.assertEqual(by_path["remote-only.txt"]["change"], "deleted")
+        prepare.assert_called_once()
+        self.assertFalse(prepare.call_args.kwargs["persist_manifest"])
+        get_remote.assert_called_once_with(
+            repository_url="https://github.com/ada/docassemble-forms",
+            user_id=7,
+            ref="main",
+            allow_missing=True,
+            include_all_files=True,
+        )
+
+    def test_github_publish_preview_accepts_empty_repository(self):
+        missing = {
+            "missing": True,
+            "repository_exists": True,
+            "default_branch": "main",
+            "sha": "",
+            "files": {},
+        }
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "get_native_github_integration",
+                return_value={"enabled": True, "connected": True},
+            ),
+            patch.object(
+                api_editor,
+                "get_github_publish_owners",
+                return_value=[{"login": "ada", "type": "user"}],
+            ),
+            patch.object(
+                api_editor,
+                "prepare_project_github_package",
+                return_value={"manifest": {}, "manifest_path": ""},
+            ),
+            patch.object(api_editor, "repository_dependency_names", return_value=[]),
+            patch.object(
+                api_editor,
+                "repository_publish_files",
+                return_value={"files": {}, "managed_paths": []},
+            ),
+            patch.object(
+                api_editor,
+                "build_github_package_snapshot",
+                return_value={"README.md": {"content": b"new", "mode": "100644"}},
+            ),
+            patch.object(
+                api_editor,
+                "get_github_repository_snapshot",
+                side_effect=[missing, missing],
+            ) as get_remote,
+            patch.object(api_editor, "find_project_github_sync", return_value=None),
+            patch.object(
+                api_editor, "_sign_github_publish_preview", return_value="token"
+            ),
+        ):
+            api_editor.current_user.email = "ada@example.com"
+            with api_editor.app.test_request_context(
+                "/al/editor/api/github/publish/preview",
+                method="POST",
+                json={
+                    "project": "Housing",
+                    "owner": "ada",
+                    "package": "forms",
+                    "branch": "main",
+                },
+            ):
+                response = api_editor.editor_api_github_publish_preview()
+        self.assertEqual(response.status_code, 200)
+        preview = response.get_json()["data"]
+        self.assertEqual(preview["remote_sha"], "")
+        self.assertTrue(preview["repository_missing"])
+        self.assertEqual(preview["preview_token"], "token")
+        self.assertEqual(get_remote.call_count, 2)
+        self.assertTrue(get_remote.call_args.kwargs["allow_missing"])
+
+    def test_github_publish_can_recreate_deleted_target_branch(self):
+        sync = {
+            "commit": "former-branch-sha",
+            "package": "forms",
+            "repository_url": "https://github.com/ada/docassemble-forms",
+            "branch": "draft",
+        }
+        with (
+            patch.object(api_editor, "find_project_github_sync", return_value=sync),
+            patch.object(
+                api_editor,
+                "get_github_repository_snapshot",
+                return_value={"missing": True, "repository_exists": True, "sha": ""},
+            ) as get_remote,
+        ):
+            api_editor._assert_github_publish_branch_is_current(
+                uid=7,
+                project="Housing",
+                package="forms",
+                repository_url="https://github.com/ada/docassemble-forms",
+                branch="draft",
+            )
+        get_remote.assert_called_once_with(
+            repository_url="https://github.com/ada/docassemble-forms",
+            user_id=7,
+            ref="draft",
+            allow_missing=True,
+        )
+
     def test_github_authorization_requires_editor_access(self):
         with (
             patch.object(api_editor, "_editor_auth_check", return_value=False),
@@ -531,9 +751,10 @@ class TestEditorGithubApi(unittest.TestCase):
         }
         sent = {}
 
-        def fake_send_task(task_name, kwargs=None):
+        def fake_send_task(task_name, kwargs=None, **options):
             sent["task_name"] = task_name
             sent["kwargs"] = kwargs
+            sent["options"] = options
             return types.SimpleNamespace(id="celery-task-1")
 
         with (
@@ -568,6 +789,43 @@ class TestEditorGithubApi(unittest.TestCase):
                 "prepare_project_github_package",
                 return_value=prepared,
             ) as prepare,
+            patch.object(
+                api_editor,
+                "_verify_github_publish_preview",
+                return_value={
+                    "user_id": 7,
+                    "project": "Housing",
+                    "package": "HousingForms",
+                    "owner": "LegalAid",
+                    "repository_url": "https://github.com/LegalAid/docassemble-HousingForms",
+                    "branch": "feature/github",
+                    "source_revision": "source-digest",
+                    "remote_sha": "remote-base-sha",
+                },
+            ),
+            patch.object(
+                api_editor,
+                "load_project_github_manifest",
+                return_value=(
+                    {},
+                    "/playground/packages/Housing/docassemble.HousingForms",
+                ),
+            ),
+            patch.object(
+                api_editor,
+                "repository_publish_files",
+                return_value={"files": {}, "managed_paths": []},
+            ),
+            patch.object(
+                api_editor,
+                "build_github_package_snapshot",
+                return_value={"main.yml": {"content": b"---\n", "mode": "100644"}},
+            ),
+            patch.object(
+                api_editor,
+                "github_package_snapshot_revision",
+                return_value="source-digest",
+            ),
             patch.object(api_editor, "ensure_github_repository") as ensure_repository,
             patch.object(api_editor, "publish_github_package") as publish,
             patch.object(api_editor, "_editor_user_designator", return_value="Ada"),
@@ -587,11 +845,12 @@ class TestEditorGithubApi(unittest.TestCase):
                     "package": "HousingForms",
                     "branch": "feature/github",
                     "commit_message": "Update interview",
+                    "preview_token": "signed-preview",
                 },
             ):
                 response = api_editor.editor_api_github_publish()
 
-        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.status_code, 202, response.get_json())
         payload = response.get_json()
         self.assertEqual(payload["status"], "queued")
         data = payload["data"]
@@ -635,8 +894,11 @@ class TestEditorGithubApi(unittest.TestCase):
                 "branch": "feature/github",
                 "commit_message": "Update interview",
                 "repository_url": "https://github.com/LegalAid/docassemble-HousingForms",
+                "expected_remote_sha": "remote-base-sha",
+                "expected_source_revision": "source-digest",
             },
         )
+        self.assertEqual(sent["options"]["task_id"], payload["job_id"])
 
     def test_publish_refuses_when_celery_is_not_configured(self):
         with (
@@ -712,6 +974,17 @@ class TestEditorGithubApi(unittest.TestCase):
                 },
             ) as repository_files,
         ):
+            api_editor._store_job_state(
+                api_editor.GITHUB_PUBLISH_JOB,
+                "job-1",
+                {
+                    "status": "queued",
+                    "error": {
+                        "type": "job_expired",
+                        "message": "stale transient error",
+                    },
+                },
+            )
             result = api_editor._complete_github_publish_job(
                 job_id="job-1",
                 uid=7,
@@ -744,6 +1017,7 @@ class TestEditorGithubApi(unittest.TestCase):
             "https://github.com/LegalAid/docassemble-HousingForms/commit/commit-sha",
         )
         self.assertEqual(state["status"], "succeeded")
+        self.assertIsNone(state.get("error"))
         self.assertEqual(state["progress"], 100)
         self.assertEqual(state["result"], result)
 
@@ -815,6 +1089,54 @@ class TestEditorGithubApi(unittest.TestCase):
         self.assertEqual(state["stage"], "ensure_repository")
         self.assertEqual(state["error"]["type"], "github_not_connected")
 
+    def test_publish_refuses_to_replace_a_branch_that_advanced_since_sync(self):
+        sync = {
+            "package": "HousingForms",
+            "repository_url": "https://github.com/LegalAid/docassemble-HousingForms",
+            "branch": "feature/github",
+            "commit": "base-sha",
+        }
+        remote = {"sha": "remote-newer-sha", "files": {"README.md": b"newer"}}
+        redis = _FakeRedis()
+        with (
+            patch.object(api_editor, "r", redis),
+            patch.object(api_editor, "find_project_github_sync", return_value=sync),
+            patch.object(
+                api_editor, "get_github_repository_snapshot", return_value=remote
+            ) as read_remote,
+            patch.object(api_editor, "ensure_github_repository") as ensure_repository,
+            patch.object(api_editor, "publish_github_package") as publish,
+        ):
+            with self.assertRaisesRegex(ValueError, "has advanced"):
+                api_editor._complete_github_publish_job(
+                    job_id="job-remote-advance",
+                    uid=7,
+                    project="Housing",
+                    package="HousingForms",
+                    repository="docassemble-HousingForms",
+                    owner="LegalAid",
+                    owner_type="organization",
+                    author_name="Ada",
+                    author_email="ada@example.com",
+                    branch="feature/github",
+                    commit_message="Update interview",
+                    repository_url="https://github.com/LegalAid/docassemble-HousingForms",
+                )
+            state = api_editor._load_job_state(
+                api_editor.GITHUB_PUBLISH_JOB, "job-remote-advance"
+            )
+
+        self.assertEqual(state["status"], "failed")
+        self.assertIn("Pull the remote changes", state["error"]["message"])
+        read_remote.assert_called_once_with(
+            repository_url="https://github.com/LegalAid/docassemble-HousingForms",
+            user_id=7,
+            ref="feature/github",
+            allow_missing=True,
+        )
+        ensure_repository.assert_not_called()
+        publish.assert_not_called()
+
     def test_publish_job_status_is_scoped_to_its_owner(self):
         redis = _FakeRedis()
         with patch.object(api_editor, "r", redis):
@@ -868,7 +1190,86 @@ class TestEditorGithubApi(unittest.TestCase):
         prepare.assert_not_called()
 
 
+class TestEditorFilesApi(unittest.TestCase):
+    def test_unavailable_project_returns_path_free_not_found(self):
+        private_path = "/var/lib/docassemble/playground/42/private-project"
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "playground_list_yaml_files",
+                side_effect=FileNotFoundError(private_path),
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/files?project=private-project"
+            ):
+                response = api_editor.editor_api_files()
+
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"]["type"], "not_found")
+        self.assertNotIn(private_path, response.get_data(as_text=True))
+        self.assertNotIn("private-project", response.get_data(as_text=True))
+
+    def test_owner_can_list_project_files(self):
+        files = [{"filename": "main.yml", "label": "main.yml"}]
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor, "playground_list_yaml_files", return_value=files
+            ) as list_files,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/files?project=owned-project"
+            ):
+                response = api_editor.editor_api_files()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["data"]["files"], files)
+        list_files.assert_called_once_with(7, "owned-project")
+
+
 class TestEditorProjectSearchApi(unittest.TestCase):
+    def test_search_names_binary_and_oversized_files_it_cannot_inspect(self):
+        with (
+            patch.object(api_editor, "playground_list_yaml_files", return_value=[]),
+            patch.object(
+                api_editor,
+                "_list_editor_section_files",
+                side_effect=lambda uid, project, section: (
+                    [
+                        {"filename": "image.png", "editable": False, "size": 50},
+                        {
+                            "filename": "large.txt",
+                            "editable": True,
+                            "size": api_editor.EDITOR_SEARCH_MAX_FILE_BYTES + 1,
+                        },
+                    ]
+                    if section == "static"
+                    else []
+                ),
+            ),
+            patch.object(api_editor, "_read_project_text_file") as read,
+        ):
+            files, skipped = api_editor._project_text_files(7, "default")
+        self.assertEqual(files, [])
+        self.assertEqual(
+            skipped,
+            [
+                {
+                    "section": "static",
+                    "filename": "image.png",
+                    "reason": "binary_or_unsupported",
+                },
+                {"section": "static", "filename": "large.txt", "reason": "too_large"},
+            ],
+        )
+        read.assert_not_called()
+
     def test_search_returns_context_group_metadata_and_revisions(self):
         project_files = [
             {
@@ -1015,6 +1416,7 @@ class TestEditorProjectSearchApi(unittest.TestCase):
                 api_editor, "validate_candidate_source", return_value=validation
             ),
             patch.object(api_editor, "_commit_project_replacements") as commit,
+            patch.object(api_editor, "_list_editor_section_files", return_value=[]),
         ):
             with api_editor.app.test_request_context(
                 "/al/editor/api/project/replace",
@@ -1065,7 +1467,125 @@ class TestEditorProjectSearchApi(unittest.TestCase):
         write.assert_not_called()
 
 
+class TestEditorLiteralFileDependencies(unittest.TestCase):
+    def test_interview_rename_is_refused_when_a_local_include_names_the_file(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor, "_project_yaml_filenames", return_value=["main.yml"]
+            ),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                return_value="---\ninclude:\n  - questions.yml\n",
+            ),
+            patch.object(api_editor, "rename_saved_file") as rename,
+            api_editor.app.test_request_context(
+                "/al/editor/api/file/rename",
+                method="POST",
+                json={
+                    "project": "default",
+                    "filename": "questions.yml",
+                    "new_filename": "renamed_questions.yml",
+                },
+            ),
+        ):
+            response = api_editor.editor_api_rename_file()
+
+        self.assertEqual(response.status_code, 409)
+        error = response.get_json()["error"]
+        self.assertEqual(error["code"], "file_has_references")
+        self.assertEqual(error["dependencies"][0]["filename"], "main.yml")
+        self.assertIn("Update those references first", error["message"])
+        rename.assert_not_called()
+
+    def test_interview_delete_is_refused_when_a_local_include_names_the_file(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor, "_project_yaml_filenames", return_value=["main.yml"]
+            ),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                return_value="---\ninclude:\n  - questions.yml\n",
+            ),
+            patch.object(api_editor, "delete_saved_file") as delete,
+            api_editor.app.test_request_context(
+                "/al/editor/api/file/delete",
+                method="POST",
+                json={"project": "default", "filename": "questions.yml"},
+            ),
+        ):
+            response = api_editor.editor_api_delete_file()
+
+        self.assertEqual(response.status_code, 409)
+        error = response.get_json()["error"]
+        self.assertEqual(error["code"], "file_has_references")
+        self.assertEqual(error["dependencies"][0]["filename"], "main.yml")
+        delete.assert_not_called()
+
+    def test_template_and_module_literal_references_are_reported(self):
+        yaml_files = ["main.yml"]
+        sources = {
+            "main.yml": (
+                "---\nmodules:\n  - helper_module\n"
+                "---\nattachment:\n  docx template file: forms/answer.docx\n"
+            )
+        }
+        with (
+            patch.object(
+                api_editor, "_project_yaml_filenames", return_value=yaml_files
+            ),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                side_effect=lambda _uid, _project, filename: sources[filename],
+            ),
+            patch.object(
+                api_editor,
+                "_list_editor_section_files",
+                return_value=[],
+            ),
+        ):
+            module_refs = api_editor._literal_file_dependencies(
+                7, "default", "modules", "helper_module.py"
+            )
+            template_refs = api_editor._literal_file_dependencies(
+                7, "default", "templates", "answer.docx"
+            )
+
+        self.assertEqual(module_refs[0]["kind"], "module")
+        self.assertEqual(template_refs[0]["kind"], "template")
+        self.assertEqual(template_refs[0]["reference"], "forms/answer.docx")
+
+
 class TestEditorApiFileCreation(unittest.TestCase):
+    def test_filename_normalizers_reject_path_separators(self):
+        normalizers = (
+            api_editor._normalize_filename,
+            api_editor._normalize_new_filename,
+            api_editor._normalize_storage_filename,
+        )
+        for normalize in normalizers:
+            for value in (
+                "../outside.yml",
+                "..\\outside.yml",
+                "nested/interview.yml",
+                "nested\\interview.yml",
+                "/tmp/outside.yml",
+            ):
+                with self.subTest(normalizer=normalize.__name__, value=value):
+                    with self.assertRaisesRegex(ValueError, "path separator"):
+                        normalize(value)
+
+        self.assertEqual(api_editor._normalize_filename("main.yml"), "main.yml")
+        self.assertEqual(
+            api_editor._normalize_storage_filename("answer.docx"), "answer.docx"
+        )
+
     def test_github_import_derives_project_name_from_repository(self):
         snapshot = {
             "url": "https://github.com/OtherOrg/docassemble-PublicForms",
@@ -1203,6 +1723,164 @@ class TestEditorApiFileCreation(unittest.TestCase):
         self.assertIn("content must be", response.get_json()["error"]["message"])
         mock_write.assert_not_called()
 
+    def test_save_file_missing_owner_project_is_structured_not_found(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                side_effect=FileNotFoundError(
+                    "/usr/share/docassemble/files/playground/99/private.yml"
+                ),
+            ),
+            patch.object(api_editor, "playground_write_yaml") as mock_write,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/file",
+                method="POST",
+                json={
+                    "project": "another-users-project",
+                    "filename": "private.yml",
+                    "content": "---\nid: private\nquestion: Changed\n",
+                },
+            ):
+                response = api_editor.editor_api_save_file()
+
+        self.assertEqual(response.status_code, 404)
+        payload = response.get_json()
+        self.assertEqual(payload["error"]["type"], "not_found")
+        self.assertEqual(payload["error"]["code"], "interview_file_not_found")
+        self.assertNotIn("/usr/share/docassemble", response.get_data(as_text=True))
+        mock_write.assert_not_called()
+
+    def test_get_file_missing_owner_project_does_not_disclose_storage_path(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                side_effect=FileNotFoundError(
+                    "/usr/share/docassemble/files/playground/99/private.yml"
+                ),
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/file?project=another-users-project&filename=private.yml",
+                method="GET",
+            ):
+                response = api_editor.editor_api_get_file()
+
+        self.assertEqual(response.status_code, 404)
+        payload = response.get_json()
+        self.assertEqual(payload["error"]["type"], "not_found")
+        self.assertEqual(payload["error"]["code"], "interview_file_not_found")
+        self.assertNotIn("/usr/share/docassemble", response.get_data(as_text=True))
+
+    def test_invalid_source_requires_explicit_draft_confirmation(self):
+        saved = "---\nid: example\nquestion: Saved\n"
+        invalid = "---\nid: example\nquestion: Draft\ncode: |\n  def broken(:\n"
+        finding = {
+            "level": "error",
+            "severity": "error",
+            "message": "Python syntax error",
+            "filename": "test.yml",
+        }
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "playground_read_yaml", return_value=saved),
+            patch.object(api_editor, "playground_write_yaml") as mock_write,
+            patch.object(api_editor, "_validate_source_text", return_value=[finding]),
+            patch.object(
+                api_editor,
+                "_lint_summary_for_findings",
+                return_value={"error": 1, "warning": 0, "info": 0},
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/file",
+                method="POST",
+                json={
+                    "project": "default",
+                    "filename": "test.yml",
+                    "content": invalid,
+                    "expected_revision": api_editor.source_revision(saved),
+                },
+            ):
+                response = api_editor.editor_api_save_file()
+
+        self.assertEqual(response.status_code, 422)
+        payload = response.get_json()
+        self.assertEqual(payload["error"]["code"], "draft_confirmation_required")
+        self.assertEqual(payload["error"]["details"]["blocking_count"], 1)
+        self.assertEqual(payload["error"]["details"]["diagnostics"], [finding])
+        mock_write.assert_not_called()
+
+    def test_invalid_source_saves_only_with_explicit_draft_flag(self):
+        saved = "---\nid: example\nquestion: Saved\n"
+        invalid = "---\nid: example\nquestion: Draft\ncode: |\n  def broken(:\n"
+        finding = {"level": "error", "message": "Python syntax error"}
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "playground_read_yaml", return_value=saved),
+            patch.object(api_editor, "playground_write_yaml") as mock_write,
+            patch.object(api_editor, "_validate_source_text", return_value=[finding]),
+            patch.object(
+                api_editor,
+                "_lint_summary_for_findings",
+                return_value={"error": 1, "warning": 0, "info": 0},
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/file",
+                method="POST",
+                json={
+                    "project": "default",
+                    "filename": "test.yml",
+                    "content": invalid,
+                    "expected_revision": api_editor.source_revision(saved),
+                    "save_as_draft": True,
+                },
+            ):
+                response = api_editor.editor_api_save_file()
+
+        self.assertEqual(response.status_code, 200)
+        mock_write.assert_called_once_with(7, "default", "test.yml", invalid)
+
+    def test_optional_courtforms_metadata_does_not_require_draft_confirmation(self):
+        saved = "---\nid: petition\nquestion: Petition\n"
+        updated = saved + "# template update\n"
+        finding = {
+            "level": "error",
+            "severity": "error",
+            "source": "dayamlchecker",
+            "message": "metadata block is missing common CourtFormsOnline publishing fields: can_I_use_this_form",
+        }
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "playground_read_yaml", return_value=saved),
+            patch.object(api_editor, "playground_write_yaml") as mock_write,
+            patch.object(api_editor, "_validate_source_text", return_value=[finding]),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/file",
+                method="POST",
+                json={
+                    "project": "default",
+                    "filename": "test.yml",
+                    "content": updated,
+                    "expected_revision": api_editor.source_revision(saved),
+                },
+            ):
+                response = api_editor.editor_api_save_file()
+
+        self.assertEqual(response.status_code, 200, response.get_json())
+        mock_write.assert_called_once_with(7, "default", "test.yml", updated)
+
     def test_validate_source_uses_submitted_buffer(self):
         submitted = "---\nid: unsaved\nquestion: Unsaved title\n"
         saved = "---\nid: saved\nquestion: Saved title\n"
@@ -1250,6 +1928,121 @@ class TestEditorApiFileCreation(unittest.TestCase):
         self.assertTrue(payload["base_revision_matches"])
         mock_validate.assert_called_once_with(submitted, "test.yml")
         mock_saved_variable_check.assert_not_called()
+
+    def test_validate_source_handles_yaml_beyond_recursion_depth(self):
+        from .editor_utils import parse_interview_yaml
+
+        saved = "---\nid: saved\nquestion: Saved title\n"
+        deep_yaml = "value: " + "{item: " * 400 + "nested" + "}" * 400 + "\n"
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "playground_read_yaml", return_value=saved),
+            patch.object(
+                api_editor, "parse_interview_yaml", wraps=parse_interview_yaml
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/validate-source",
+                method="POST",
+                json={
+                    "project": "default",
+                    "filename": "deep.yml",
+                    "raw_yaml": deep_yaml,
+                },
+            ):
+                response = api_editor.editor_api_validate_source()
+
+        self.assertEqual(response.status_code, 200, response.get_json())
+        diagnostic = response.get_json()["data"]["diagnostics"][0]
+        self.assertEqual(diagnostic["level"], "error")
+        self.assertEqual(diagnostic["source"], "yaml-parser")
+        self.assertIn("supported validation depth", diagnostic["message"])
+
+    def test_get_file_loads_deep_yaml_as_recoverable_unparseable_block(self):
+        from .editor_utils import parse_interview_yaml
+
+        deep_yaml = "value: " + "{item: " * 400 + "nested" + "}" * 400 + "\n"
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "playground_read_yaml", return_value=deep_yaml),
+            patch.object(
+                api_editor, "parse_interview_yaml", wraps=parse_interview_yaml
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/file?project=default&filename=deep.yml",
+                method="GET",
+            ):
+                response = api_editor.editor_api_get_file()
+
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(
+            response.get_json()["data"]["blocks"][0]["title"], "Unparseable block"
+        )
+
+    def test_block_save_rejects_deep_yaml_with_bounded_error(self):
+        from .editor_utils import _safe_load_interview_document
+
+        deep_yaml = "value: " + "{item: " * 400 + "nested" + "}" * 400 + "\n"
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "_safe_load_interview_document",
+                wraps=_safe_load_interview_document,
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/block",
+                method="POST",
+                json={
+                    "project": "default",
+                    "filename": "deep.yml",
+                    "block_id": "deep",
+                    "block_yaml": deep_yaml,
+                },
+            ):
+                response = api_editor.editor_api_save_block()
+
+        self.assertEqual(response.status_code, 400, response.get_json())
+        self.assertIn(
+            "supported validation depth",
+            response.get_json()["error"]["message"],
+        )
+
+    def test_deep_yaml_cannot_be_saved_even_as_a_draft(self):
+        from .editor_agent_validation import validate_source_text
+
+        saved = "---\nid: saved\nquestion: Saved title\n"
+        deep_yaml = "value: " + "{item: " * 400 + "nested" + "}" * 400 + "\n"
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "playground_read_yaml", return_value=saved),
+            patch.object(
+                api_editor, "_validate_source_text", wraps=validate_source_text
+            ),
+            patch.object(api_editor, "playground_write_yaml") as mock_write,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/file",
+                method="POST",
+                json={
+                    "project": "default",
+                    "filename": "deep.yml",
+                    "content": deep_yaml,
+                    "expected_revision": api_editor.source_revision(saved),
+                    "save_as_draft": True,
+                },
+            ):
+                response = api_editor.editor_api_save_file()
+
+        self.assertEqual(response.status_code, 422, response.get_json())
+        self.assertEqual(response.get_json()["error"]["code"], "yaml_nesting_too_deep")
+        mock_write.assert_not_called()
 
     def test_get_file_returns_exact_raw_yaml_for_populated_and_empty_files(self):
         model = {
@@ -1327,7 +2120,7 @@ class TestEditorApiFileCreation(unittest.TestCase):
 
         payload = response.get_json()
         self.assertTrue(payload["success"])
-        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.status_code, 202, response.get_json())
         self.assertEqual(payload["status"], "queued")
         self.assertEqual(payload["job_id"], "job-123")
         self.assertEqual(payload["job_url"], "/al/editor/api/new-project/jobs/job-123")
@@ -1371,6 +2164,41 @@ class TestEditorApiFileCreation(unittest.TestCase):
             start_kwargs["uploaded_files"][0]["mimetype"],
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         )
+
+    def test_new_project_rejects_malformed_upload_before_project_creation(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "get_list_of_projects", return_value=[]),
+            patch.object(api_editor, "_editor_async_is_configured", return_value=True),
+            patch.object(
+                api_editor, "next_available_project_name", return_value="BadUpload"
+            ),
+            patch.object(
+                api_editor,
+                "validate_document_content",
+                side_effect=ValueError("The PDF file is unreadable or malformed."),
+            ),
+            patch.object(api_editor, "create_project") as create_project,
+            patch.object(api_editor, "_start_new_project_upload_job") as start_job,
+        ):
+            with api_editor.app.test_client() as client:
+                response = client.post(
+                    "/al/editor/api/new-project",
+                    data={
+                        "project_name": "BadUpload",
+                        "files": (BytesIO(b"not a PDF"), "malformed.pdf"),
+                    },
+                    content_type="multipart/form-data",
+                )
+
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 400, payload)
+        self.assertIn(
+            "PDF file is unreadable or malformed", payload["error"]["message"]
+        )
+        create_project.assert_not_called()
+        start_job.assert_not_called()
 
     def test_new_project_upload_refuses_when_celery_is_not_configured(self):
         with (
@@ -1425,14 +2253,14 @@ class TestEditorApiFileCreation(unittest.TestCase):
         self.assertEqual(result["state"]["status"], "queued")
         self.assertEqual(result["state"]["owner_user_id"], 7)
         self.assertEqual(result["state"]["operation_type"], "new_project_upload")
+        self.assertEqual(result["state"]["celery_task_id"], result["job_id"])
         mock_store.assert_called_once()
         mock_send.assert_called_once()
+        self.assertEqual(mock_send.call_args.kwargs["task_id"], result["job_id"])
         self.assertEqual(
             mock_send.call_args.kwargs["kwargs"]["job_id"], result["job_id"]
         )
-        mock_update.assert_called_once_with(
-            result["job_id"], celery_task_id="celery-task-1"
-        )
+        mock_update.assert_not_called()
 
     def test_metadata_save_preserves_unrelated_source_exactly(self):
         from . import editor_utils as real_editor_utils
@@ -1519,6 +2347,14 @@ class TestEditorApiFileCreation(unittest.TestCase):
             patch.object(api_editor, "_editor_auth_check", return_value=True),
             patch.object(api_editor, "_current_user_id", return_value=7),
             patch.object(api_editor, "playground_read_yaml", return_value="source"),
+            patch.object(api_editor, "update_settings", return_value="updated source"),
+            patch.object(
+                api_editor,
+                "validate_candidate_source",
+                return_value=types.SimpleNamespace(
+                    blocking=False, diagnostics=[], model=None
+                ),
+            ),
         ):
             with api_editor.app.test_request_context(
                 "/al/editor/api/assemblyline-settings",
@@ -1534,6 +2370,227 @@ class TestEditorApiFileCreation(unittest.TestCase):
 
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.get_json()["error"]["code"], "revision_conflict")
+
+
+class TestEditorJobReconciliation(unittest.TestCase):
+    def reconcile(self, celery_state, *, task_result=None, initial=None):
+        state = initial or {
+            "status": "queued",
+            "stage": "queued",
+            "celery_task_id": "synthetic-task-id",
+            "queued_at": 100,
+        }
+        with (
+            patch.object(
+                api_editor.workerapp,
+                "AsyncResult",
+                return_value=types.SimpleNamespace(
+                    state=celery_state, result=task_result
+                ),
+            ),
+            patch.object(
+                api_editor,
+                "_update_job_state",
+                side_effect=lambda _kind, _job_id, **updates: {
+                    **state,
+                    **updates,
+                },
+            ) as update,
+        ):
+            result = api_editor._reconcile_new_project_job_state("synthetic-job", state)
+        return result, update
+
+    def test_success_persists_task_result_and_terminal_progress(self):
+        state = {
+            "status": "queued",
+            "stage": "queued",
+            "celery_task_id": "synthetic-task-id",
+            "queued_at": 100,
+            "error": {"type": "job_expired", "message": "stale transient error"},
+        }
+        result, update = self.reconcile(
+            "SUCCESS", task_result={"project": "Synthetic"}, initial=state
+        )
+        self.assertEqual(result["status"], "succeeded")
+        self.assertEqual(result["stage"], "done")
+        self.assertEqual(result["progress"], 100)
+        self.assertEqual(result["result"], {"project": "Synthetic"})
+        self.assertIsNotNone(result["finished_at"])
+        self.assertIsNone(result["error"])
+        update.assert_called_once()
+
+    def test_success_with_none_task_result_keeps_durable_job_result(self):
+        state = {
+            "status": "running",
+            "stage": "copy_templates",
+            "celery_task_id": "synthetic-task-id",
+            "result": {
+                "project": "Synthetic",
+                "filename": "main.yml",
+                "woven_templates": ["form.pdf"],
+            },
+            "partial_artifacts": ["main.yml", "form.pdf"],
+            "incomplete_artifacts": [],
+        }
+        result, _update = self.reconcile("SUCCESS", task_result=None, initial=state)
+        self.assertEqual(result["status"], "succeeded")
+        self.assertEqual(result["result"], state["result"])
+        self.assertEqual(result["partial_artifacts"], state["partial_artifacts"])
+        self.assertEqual(result["incomplete_artifacts"], [])
+
+    def test_job_status_api_keeps_durable_result_when_celery_returns_none(self):
+        durable_result = {
+            "project": "Synthetic",
+            "filename": "main.yml",
+            "woven_templates": ["form.pdf"],
+        }
+        state = {
+            "status": "running",
+            "stage": "copy_templates",
+            "owner_user_id": 7,
+            "celery_task_id": "synthetic-task-id",
+            "result": durable_result,
+            "partial_artifacts": ["main.yml", "form.pdf"],
+            "incomplete_artifacts": [],
+        }
+        current_state = dict(state)
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "_load_new_project_job_state", return_value=state),
+            patch.object(
+                api_editor.workerapp,
+                "AsyncResult",
+                return_value=types.SimpleNamespace(state="SUCCESS", result=None),
+            ),
+            patch.object(
+                api_editor,
+                "_update_job_state",
+                side_effect=lambda _kind, _job_id, **updates: current_state.update(
+                    updates
+                )
+                or current_state,
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/new-project/jobs/synthetic-job"
+            ):
+                response = api_editor.editor_api_new_project_job("synthetic-job")
+
+        payload = response.get_json()
+        self.assertEqual(payload["data"]["status"], "succeeded")
+        self.assertEqual(payload["data"]["result"], durable_result)
+        self.assertEqual(payload["data"]["partial_artifacts"], ["main.yml", "form.pdf"])
+
+    def test_worker_crash_becomes_structured_failure(self):
+        result, _update = self.reconcile(
+            "FAILURE", task_result=RuntimeError("worker died")
+        )
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["error"]["type"], "celery_failure")
+        self.assertIn("worker died", result["error"]["message"])
+        self.assertIsNotNone(result["finished_at"])
+
+    def test_revoked_and_unknown_tasks_become_terminal(self):
+        cancelled, _ = self.reconcile("REVOKED")
+        self.assertEqual(cancelled["status"], "cancelled")
+        expired, _ = self.reconcile("UNKNOWN")
+        self.assertEqual(expired["status"], "expired")
+        self.assertEqual(expired["error"]["type"], "job_expired")
+
+    def test_revoked_upload_job_status_is_visible_only_to_its_owner(self):
+        redis = _FakeRedis()
+        initial = {
+            "status": "running",
+            "stage": "generate_interview",
+            "owner_user_id": 7,
+            "celery_task_id": "synthetic-revoked-upload-task",
+            "queued_at": 100,
+            "project": "MatrixSynthetic",
+            "generated_from": "matrix-private-canary.docx",
+            "result": None,
+        }
+        with patch.object(api_editor, "r", redis):
+            api_editor._store_job_state(
+                api_editor.NEW_PROJECT_JOB, "synthetic-revoked-upload", initial
+            )
+            with (
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "_current_user_id", return_value=7),
+                patch.object(
+                    api_editor.workerapp,
+                    "AsyncResult",
+                    return_value=types.SimpleNamespace(state="REVOKED", result=None),
+                ),
+            ):
+                with api_editor.app.test_request_context(
+                    "/al/editor/api/new-project/jobs/synthetic-revoked-upload"
+                ):
+                    owner_response = api_editor.editor_api_new_project_job(
+                        "synthetic-revoked-upload"
+                    )
+            with (
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "_current_user_id", return_value=99),
+                patch.object(api_editor.workerapp, "AsyncResult") as async_result,
+            ):
+                with api_editor.app.test_request_context(
+                    "/al/editor/api/new-project/jobs/synthetic-revoked-upload"
+                ):
+                    other_response = api_editor.editor_api_new_project_job(
+                        "synthetic-revoked-upload"
+                    )
+
+        self.assertEqual(owner_response.status_code, 200)
+        self.assertEqual(owner_response.get_json()["status"], "cancelled")
+        self.assertEqual(
+            owner_response.get_json()["data"]["message"], "The job was cancelled."
+        )
+        self.assertEqual(other_response.status_code, 404)
+        self.assertNotIn(
+            "matrix-private-canary.docx", other_response.get_data(as_text=True)
+        )
+        async_result.assert_not_called()
+
+    def test_missing_celery_task_id_expires_instead_of_staying_queued(self):
+        state = {"status": "queued", "stage": "queued"}
+        with patch.object(
+            api_editor,
+            "_update_job_state",
+            side_effect=lambda _kind, _job, **u: {**state, **u},
+        ):
+            result = api_editor._reconcile_new_project_job_state("synthetic-job", state)
+        self.assertEqual(result["status"], "expired")
+        self.assertEqual(result["error"]["type"], "job_expired")
+
+    def test_missing_celery_task_id_waits_through_the_enqueue_race_window(self):
+        state = {
+            "status": "queued",
+            "stage": "queued",
+            "queued_at": api_editor.time.time(),
+        }
+        with patch.object(api_editor, "_update_job_state") as update:
+            result = api_editor._reconcile_new_project_job_state("synthetic-job", state)
+        self.assertEqual(result, state)
+        update.assert_not_called()
+
+    def test_active_and_delayed_states_remain_nonterminal(self):
+        running, _ = self.reconcile("STARTED")
+        self.assertEqual(running["status"], "running")
+        self.assertIsNotNone(running["started_at"])
+        queued, _ = self.reconcile("PENDING")
+        self.assertEqual(queued["status"], "queued")
+
+    def test_terminal_job_is_not_reconciled_again(self):
+        state = {"status": "failed", "error": {"type": "validation_error"}}
+        with (
+            patch.object(api_editor.workerapp, "AsyncResult") as async_result,
+            patch.object(api_editor, "_update_job_state") as update,
+        ):
+            result = api_editor._reconcile_new_project_job_state("synthetic-job", state)
+        self.assertEqual(result, state)
+        async_result.assert_not_called()
+        update.assert_not_called()
 
 
 class TestEditorNewProjectNaming(unittest.TestCase):
@@ -1589,6 +2646,194 @@ class TestEditorNewProjectNaming(unittest.TestCase):
         result, _mock_write = self._run_upload_job("")
         self.assertEqual(result["filename"], "main.yml")
 
+
+class TestEditorNewProjectPartialArtifacts(unittest.TestCase):
+    def test_new_project_failure_log_omits_uploaded_filename_and_exception_path(self):
+        private_marker = "/private/matrix-docs/secret-name.pdf"
+        source_template = {"filename": "secret-name.pdf", "content_bytes": b"%PDF"}
+        with (
+            patch.object(api_editor, "_update_new_project_job_state") as update,
+            patch.object(
+                api_editor,
+                "generate_interview_from_bytes",
+                side_effect=OSError(f"failed to read {private_marker}"),
+            ),
+            patch.object(api_editor, "log") as log_call,
+        ):
+            with self.assertRaisesRegex(OSError, "failed to read"):
+                api_editor._complete_new_project_upload_job(
+                    job_id="synthetic-job",
+                    uid=7,
+                    project_name="SyntheticPetition",
+                    request_id="synthetic-request",
+                    uploaded_files=[source_template],
+                    generation_options={},
+                    debug_requested=False,
+                    create_test=False,
+                )
+
+        failed_update = update.call_args.kwargs
+        self.assertEqual(failed_update["status"], "failed")
+        self.assertEqual(
+            failed_update["error"],
+            {"type": "server_error", "message": "ALWeaver generation failed."},
+        )
+        logged_text = " ".join(str(call.args[0]) for call in log_call.call_args_list)
+        self.assertNotIn("secret-name.pdf", logged_text)
+        self.assertNotIn(private_marker, logged_text)
+        self.assertIn("exception_type=OSError", logged_text)
+
+    def test_failed_managed_test_write_reports_known_incomplete_feature(self):
+        source_template = {"filename": "petition.pdf", "content_bytes": b"%PDF"}
+        generator_result = {
+            "yaml_text": "metadata:\n  title: Petition\n",
+            "yaml_filename": "petition.yml",
+            "input_filename": "petition.pdf",
+            "template_filenames": ["petition.pdf"],
+        }
+        with (
+            patch.object(api_editor, "_update_new_project_job_state") as update,
+            patch.object(api_editor, "playground_write_yaml"),
+            patch.object(
+                api_editor,
+                "generate_interview_from_bytes",
+                return_value=generator_result,
+            ),
+            patch.object(api_editor, "_write_default_kiln_test") as write_test,
+        ):
+            write_test.side_effect = OSError("synthetic feature write failure")
+            with self.assertRaisesRegex(OSError, "synthetic feature write failure"):
+                api_editor._complete_new_project_upload_job(
+                    job_id="synthetic-job",
+                    uid=7,
+                    project_name="SyntheticPetition",
+                    request_id="synthetic-request",
+                    uploaded_files=[source_template],
+                    generation_options={},
+                    debug_requested=False,
+                    create_test=True,
+                )
+
+        failed_update = update.call_args.kwargs
+        self.assertEqual(failed_update["status"], "failed")
+        self.assertEqual(failed_update["stage"], "write_yaml")
+        self.assertEqual(failed_update["partial_artifacts"], ["petition.yml"])
+        self.assertEqual(
+            failed_update["incomplete_artifacts"], ["weaver_it_runs.feature"]
+        )
+        self.assertEqual(
+            failed_update["result"],
+            {
+                "project": "SyntheticPetition",
+                "partial_artifacts": ["petition.yml"],
+                "incomplete_artifacts": ["weaver_it_runs.feature"],
+                "incomplete_stage": "write_yaml",
+            },
+        )
+        self.assertTrue(
+            any(
+                call.kwargs.get("partial_artifacts") == ["petition.yml"]
+                and call.kwargs.get("incomplete_artifacts")
+                == ["weaver_it_runs.feature"]
+                for call in update.call_args_list
+            )
+        )
+
+    def test_lost_task_reconciliation_preserves_artifact_checkpoint(self):
+        checkpoint = {
+            "status": "running",
+            "stage": "copy_templates",
+            "celery_task_id": "synthetic-task",
+            "partial_artifacts": ["petition.yml", "weaver_it_runs.feature"],
+            "incomplete_artifacts": ["petition.pdf"],
+            "result": {
+                "project": "SyntheticPetition",
+                "partial_artifacts": ["petition.yml", "weaver_it_runs.feature"],
+                "incomplete_artifacts": ["petition.pdf"],
+                "incomplete_stage": "copy_templates",
+            },
+        }
+        reconciled_state = {**checkpoint}
+        with (
+            patch.object(
+                api_editor.workerapp,
+                "AsyncResult",
+                return_value=SimpleNamespace(state="FAILURE", result="worker lost"),
+            ),
+            patch.object(
+                api_editor,
+                "_update_job_state",
+                side_effect=lambda _kind, _job_id, **updates: reconciled_state.update(
+                    updates
+                )
+                or reconciled_state,
+            ),
+        ):
+            result = api_editor._reconcile_new_project_job_state(
+                "synthetic-job", checkpoint
+            )
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["partial_artifacts"], checkpoint["partial_artifacts"])
+        self.assertEqual(
+            result["incomplete_artifacts"], checkpoint["incomplete_artifacts"]
+        )
+        self.assertEqual(result["result"], checkpoint["result"])
+
+    def test_failed_template_copy_reports_saved_and_incomplete_logical_files(self):
+        source_template = {"filename": "petition.pdf", "content_bytes": b"%PDF"}
+        generated_template = {
+            "filename": "petition_attachment.pdf",
+            "content_bytes": b"%PDF-generated",
+        }
+        generator_result = {
+            "yaml_text": "metadata:\n  title: Petition\n",
+            "yaml_filename": "petition.yml",
+            "input_filename": "petition.pdf",
+            "template_filenames": ["petition.pdf"],
+            "generated_template_files": [generated_template],
+        }
+        with (
+            patch.object(api_editor, "_update_new_project_job_state") as update,
+            patch.object(api_editor, "playground_write_yaml"),
+            patch.object(
+                api_editor,
+                "generate_interview_from_bytes",
+                return_value=generator_result,
+            ),
+            patch.object(
+                api_editor,
+                "_copy_files_to_section",
+                side_effect=OSError("synthetic copy failure"),
+            ),
+        ):
+            with self.assertRaisesRegex(OSError, "synthetic copy failure"):
+                api_editor._complete_new_project_upload_job(
+                    job_id="synthetic-job",
+                    uid=7,
+                    project_name="SyntheticPetition",
+                    request_id="synthetic-request",
+                    uploaded_files=[source_template],
+                    generation_options={},
+                    debug_requested=False,
+                    create_test=False,
+                )
+
+        failed_update = update.call_args.kwargs
+        self.assertEqual(failed_update["status"], "failed")
+        self.assertEqual(failed_update["stage"], "copy_templates")
+        self.assertEqual(failed_update["partial_artifacts"], ["petition.yml"])
+        self.assertEqual(failed_update["incomplete_artifacts"], ["petition.pdf"])
+        self.assertEqual(
+            failed_update["result"],
+            {
+                "project": "SyntheticPetition",
+                "partial_artifacts": ["petition.yml"],
+                "incomplete_artifacts": ["petition.pdf"],
+                "incomplete_stage": "copy_templates",
+            },
+        )
+
     def test_blank_project_uses_main_yml(self):
         with (
             patch.object(api_editor, "playground_write_yaml") as mock_write,
@@ -1605,6 +2850,10 @@ class TestEditorNewProjectNaming(unittest.TestCase):
                 response = api_editor._new_project_from_template(7, "req-1")
         self.assertEqual(response.get_json()["data"]["filename"], "main.yml")
         self.assertEqual(mock_write.call_args.args[2], "main.yml")
+        starter_yaml = mock_write.call_args.args[3]
+        self.assertIn("blank_project_complete", starter_yaml)
+        self.assertIn("event: blank_project_complete", starter_yaml)
+        self.assertIn("question: Interview ready", starter_yaml)
 
     def test_blank_project_creates_a_default_test_unless_disabled(self):
         with (
@@ -1687,6 +2936,21 @@ class TestEditorNewProjectNaming(unittest.TestCase):
 
 
 class TestEditorKilnTestApi(unittest.TestCase):
+    def test_default_scope_follows_only_selected_entrypoint_and_keeps_it_last(self):
+        contents = {
+            "entry_a.yml": "include:\n  - shared.yml\n---\nid: end a\nquestion: Done A\n",
+            "entry_b.yml": "include:\n  - shared.yml\n---\nid: end b\nquestion: Done B\n",
+            "shared.yml": "include:\n  - leaf.yml\n---\nid: shared\nquestion: Shared\n",
+            "leaf.yml": "id: leaf\nquestion: Leaf\n",
+        }
+        with patch.object(
+            api_editor,
+            "playground_read_yaml",
+            side_effect=lambda uid, project, name: contents[name],
+        ):
+            selected = api_editor._kiln_entrypoint_files(7, "Housing", "entry_a.yml")
+        self.assertEqual(selected, ["shared.yml", "leaf.yml", "entry_a.yml"])
+
     def test_list_returns_selectable_feature_files(self):
         with (
             patch.object(api_editor, "_editor_auth_check", return_value=True),
@@ -1819,6 +3083,9 @@ class TestEditorKilnTestApi(unittest.TestCase):
                 "_project_kiln_test_filenames",
                 return_value=["weaver_it_runs.feature"],
             ),
+            patch.object(
+                api_editor, "_read_project_text_file", return_value="Feature: old\n"
+            ),
             patch.object(api_editor, "_write_project_text_file") as write,
         ):
             with api_editor.app.test_request_context(
@@ -1829,6 +3096,7 @@ class TestEditorKilnTestApi(unittest.TestCase):
                     "test_filename": "weaver_it_runs.feature",
                     "mode": "it_runs",
                     "content": "Feature: synced\n",
+                    "expected_revision": api_editor.source_revision("Feature: old\n"),
                 },
             ):
                 response = api_editor.editor_api_apply_kiln_test()
@@ -1886,6 +3154,9 @@ class TestEditorKilnTestApi(unittest.TestCase):
                 "_project_kiln_test_filenames",
                 return_value=["happy_path.feature"],
             ),
+            patch.object(
+                api_editor, "_read_project_text_file", return_value="Feature: old\n"
+            ),
             patch.object(api_editor, "_write_project_text_file") as write,
         ):
             with api_editor.app.test_request_context(
@@ -1902,6 +3173,48 @@ class TestEditorKilnTestApi(unittest.TestCase):
 
         self.assertEqual(response.status_code, 400)
         write.assert_not_called()
+
+    def test_managed_sync_rejects_stale_draft_and_allows_exact_retry(self):
+        from . import editor_utils as real_editor_utils
+
+        for current, expected_status in [
+            ("Feature: another author\n", 409),
+            ("Feature: candidate\n", 200),
+        ]:
+            with (
+                patch.object(
+                    api_editor,
+                    "source_revision",
+                    side_effect=real_editor_utils.source_revision,
+                ),
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "_current_user_id", return_value=7),
+                patch.object(
+                    api_editor,
+                    "_project_kiln_test_filenames",
+                    return_value=["weaver_it_runs.feature"],
+                ),
+                patch.object(
+                    api_editor, "_read_project_text_file", return_value=current
+                ),
+                patch.object(api_editor, "_write_project_text_file") as write,
+                api_editor.app.test_request_context(
+                    "/al/editor/api/kiln-test/apply",
+                    method="POST",
+                    json={
+                        "project": "Housing",
+                        "test_filename": "weaver_it_runs.feature",
+                        "mode": "it_runs",
+                        "content": "Feature: candidate\n",
+                        "expected_revision": api_editor.source_revision(
+                            "Feature: original\n"
+                        ),
+                    },
+                ),
+            ):
+                response = api_editor.editor_api_apply_kiln_test()
+            self.assertEqual(response.status_code, expected_status)
+            write.assert_not_called()
 
 
 class TestEditorNewProjectMultipleUploads(unittest.TestCase):
@@ -1973,6 +3286,29 @@ class TestEditorNewProjectMultipleUploads(unittest.TestCase):
         )
         self.assertEqual(result["woven_templates"], ["petition.pdf", "affidavit.pdf"])
         self.assertEqual(sorted(written), ["affidavit.pdf", "petition.pdf"])
+
+    def test_generation_warnings_are_kept_in_the_completed_job_result(self):
+        warning = (
+            "The field `shared_answer` appears in multiple templates with "
+            "different inferred types. Review the field type."
+        )
+        result, _generate_kwargs, _written = self._run(
+            [
+                {
+                    "filename": "petition.pdf",
+                    "content_bytes": b"%PDF-petition",
+                    "mimetype": "application/pdf",
+                },
+                {
+                    "filename": "affidavit.pdf",
+                    "content_bytes": b"%PDF-affidavit",
+                    "mimetype": "application/pdf",
+                },
+            ],
+            generator_result={"warnings": [warning]},
+        )
+
+        self.assertEqual(result["warnings"], [warning])
 
     def test_the_project_stores_the_names_the_yaml_refers_to(self):
         """Two uploads sharing a name are told apart by the generator."""
@@ -2097,6 +3433,7 @@ class TestEditorTemplateAnalysisApi(unittest.TestCase):
         self.assertEqual(
             mock_send.call_args.kwargs["kwargs"]["template_filename"], "affidavit.pdf"
         )
+        self.assertEqual(mock_send.call_args.kwargs["task_id"], body["job_id"])
 
     def test_applying_against_a_changed_interview_is_a_conflict(self):
         with (
@@ -2106,6 +3443,12 @@ class TestEditorTemplateAnalysisApi(unittest.TestCase):
                 api_editor, "playground_read_yaml", return_value="---\nobjects: {}\n"
             ),
             patch.object(api_editor, "source_revision", return_value="now"),
+            patch.object(
+                api_editor,
+                "insert_block_in_yaml",
+                side_effect=lambda content, *_args, **_kwargs: content
+                + "\n# candidate",
+            ),
         ):
             with api_editor.app.test_request_context(
                 "/al/editor/api/template/apply",
@@ -2277,7 +3620,14 @@ class TestEditorAttachmentMappingsApi(unittest.TestCase):
 
     def test_stale_revision_and_invalid_updates_do_not_write(self):
         for payload, status in (
-            ({"expected_revision": "stale", "updates": []}, 409),
+            ({"updates": [{"index": 0, "values": {"name": "new_value"}}]}, 400),
+            (
+                {
+                    "expected_revision": "stale",
+                    "updates": [{"index": 0, "values": {"name": "new_value"}}],
+                },
+                409,
+            ),
             ({"expected_revision": "test-revision", "updates": ["invalid"]}, 400),
         ):
             response, write = self._request(payload)
@@ -2383,6 +3733,53 @@ class TestEditorDocumentsApi(unittest.TestCase):
             ):
                 response = api_editor.editor_api_save_documents()
         return response, written.get("content", "")
+
+    def test_removal_preview_and_apply_report_custom_cross_file_references(self):
+        original = (
+            INTERVIEW_WITH_TWO_DOCUMENTS
+            + "---\nid: custom\ncode: |\n  title = petition.title\n"
+        )
+        related = "code: |\n  published = petition.as_pdf()\n"
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "_project_yaml_filenames",
+                return_value=["main.yml", "related.yml"],
+            ),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                side_effect=lambda uid, project, filename: (
+                    original if filename == "main.yml" else related
+                ),
+            ),
+            patch.object(api_editor, "playground_write_yaml") as write,
+        ):
+            for preview, status in [(True, 200), (False, 409)]:
+                with api_editor.app.test_request_context(
+                    "/al/editor/api/documents",
+                    method="POST",
+                    json={
+                        "project": "Housing",
+                        "filename": "main.yml",
+                        "remove": ["petition"],
+                        "expected_revision": "test-revision",
+                        "preview": preview,
+                    },
+                ):
+                    response = api_editor.editor_api_save_documents()
+                self.assertEqual(response.status_code, status)
+                body = response.get_json()
+                plan = body["data"] if preview else body["error"]["details"]
+                self.assertTrue(plan["blocked"])
+                self.assertEqual(
+                    {item["filename"] for item in plan["references"]},
+                    {"main.yml", "related.yml"},
+                )
+                self.assertIn("-  - petition:", plan["diff"])
+            write.assert_not_called()
 
     def test_reordering_a_bundle_is_written_back(self):
         response, content = self._save(
@@ -2781,7 +4178,10 @@ class TestEditorQuestionLibraryApi(unittest.TestCase):
             "  Hello\n"
         )
         response, written = self._declare(
-            source=source, name="witnesses", class_name="ALPeopleList"
+            source=source,
+            name="witnesses",
+            class_name="ALPeopleList",
+            save_as_draft=True,
         )
         self.assertEqual(response.status_code, 200)
         self.assertIn("objects:\n  - witnesses: ALPeopleList", written)
@@ -2794,7 +4194,10 @@ class TestEditorQuestionLibraryApi(unittest.TestCase):
         # rewriting it into another style is an edit nobody asked for.
         source = "objects: {users: ALPeopleList}\n---\nid: q\nquestion: |\n  Hello\n"
         response, written = self._declare(
-            source=source, name="witnesses", class_name="ALPeopleList"
+            source=source,
+            name="witnesses",
+            class_name="ALPeopleList",
+            save_as_draft=True,
         )
         self.assertEqual(response.status_code, 200)
         self.assertIn("objects: {users: ALPeopleList}", written)
@@ -3138,6 +4541,39 @@ class TestOrderBlockLookup(unittest.TestCase):
         }
         order_step_map, _steps = api_editor._order_steps_from_model(model)
         self.assertEqual(list(order_step_map), ["order"])
+
+
+class TestEditorStyleCheckApi(unittest.TestCase):
+    def test_missing_dashboard_is_an_actionable_unavailable_response(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                return_value="---\nid: q\nquestion: Hi\n",
+            ),
+            patch.object(
+                api_editor, "parse_interview_yaml", return_value={"blocks": []}
+            ),
+            patch.object(
+                api_editor,
+                "_run_interview_linter",
+                side_effect=api_editor.ALDashboardUnavailable(
+                    "Running style checks needs the ALDashboard package. Install "
+                    "docassemble.ALDashboard on this server and try again."
+                ),
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/weaver/style-check?project=default&filename=main.yml"
+            ):
+                response = api_editor.editor_api_style_check()
+
+        self.assertEqual(response.status_code, 503)
+        error = response.get_json()["error"]
+        self.assertEqual(error["type"], "unavailable")
+        self.assertIn("Install docassemble.ALDashboard", error["message"])
 
 
 class TestEditorReviewScreenAndTemplateApi(unittest.TestCase):
@@ -3935,6 +5371,130 @@ class TestEditorProjectFileNaming(unittest.TestCase):
             )
             self.assertEqual(data["renamed_files"][0]["to"], "demand_letter_final.docx")
 
+    def test_binary_template_revision_from_listing_allows_rename_and_delete(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            binary_pdf = b"%PDF-1.4\n\x80\xffbinary template bytes\n%%EOF"
+            with open(os.path.join(tmpdir, "petition.pdf"), "wb") as handle:
+                handle.write(binary_pdf)
+            area = SimpleNamespace(finalize=lambda: None)
+            with (
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "_current_user_id", return_value=7),
+                patch.object(
+                    api_editor,
+                    "_editor_storage_directory",
+                    return_value=(area, tmpdir),
+                ),
+                patch.object(
+                    api_editor, "_file_dependency_conflict", return_value=None
+                ),
+                patch.object(api_editor, "rename_saved_file") as rename_file,
+                patch.object(api_editor, "delete_saved_file") as delete_file,
+            ):
+                listed = api_editor._list_editor_section_files(
+                    7, "default", "templates"
+                )
+                revision = next(
+                    item["revision"]
+                    for item in listed
+                    if item["filename"] == "petition.pdf"
+                )
+                self.assertEqual(revision, hashlib.sha256(binary_pdf).hexdigest())
+
+                with api_editor.app.test_request_context(
+                    "/al/editor/api/section-file/rename",
+                    method="POST",
+                    json={
+                        "project": "default",
+                        "section": "templates",
+                        "filename": "petition.pdf",
+                        "new_filename": "renamed.pdf",
+                        "expected_revision": revision,
+                    },
+                ):
+                    renamed = api_editor.editor_api_rename_section_file()
+
+                with api_editor.app.test_request_context(
+                    "/al/editor/api/section-file/delete",
+                    method="POST",
+                    json={
+                        "project": "default",
+                        "section": "templates",
+                        "filename": "petition.pdf",
+                        "expected_revision": revision,
+                    },
+                ):
+                    deleted = api_editor.editor_api_delete_section_file()
+
+            self.assertEqual(renamed.status_code, 200, renamed.get_data(as_text=True))
+            self.assertEqual(deleted.status_code, 200, deleted.get_data(as_text=True))
+            rename_file.assert_called_once_with(
+                area, tmpdir, "petition.pdf", "renamed.pdf"
+            )
+            delete_file.assert_called_once_with(area, tmpdir, "petition.pdf")
+
+    def test_new_project_collision_notices_match_stored_template_names(self):
+        uploads = [
+            FileStorage(stream=BytesIO(b"pdf"), filename="petition.pdf"),
+            FileStorage(stream=BytesIO(b"docx"), filename="petition.docx"),
+            FileStorage(stream=BytesIO(b"first"), filename="demand (1).docx"),
+            FileStorage(stream=BytesIO(b"second"), filename="demand_1_.docx"),
+        ]
+
+        def validate_upload(**kwargs):
+            filename = safe_project_filename(kwargs["filename"])
+            return filename, os.path.splitext(filename)[1].lower()
+
+        with (
+            patch.object(api_editor, "_editor_async_is_configured", return_value=True),
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "get_list_of_projects", return_value=[]),
+            patch.object(
+                api_editor, "next_available_project_name", return_value="Collision"
+            ),
+            patch.object(api_editor, "create_project"),
+            patch.object(
+                api_editor, "validate_upload_metadata", side_effect=validate_upload
+            ),
+            patch.object(api_editor, "validate_document_content"),
+            patch.object(
+                api_editor,
+                "_start_new_project_upload_job",
+                return_value={
+                    "job_id": "test-job",
+                    "job_url": "/job/test-job",
+                    "state": {"status": "queued"},
+                },
+            ) as start_job,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/new-project",
+                method="POST",
+                data={"project_name": "Collision"},
+            ):
+                response = api_editor._new_project_from_uploads(7, "req-1", uploads)
+
+        self.assertEqual(response.status_code, 202, response.get_json())
+        stored_names = [
+            upload["filename"]
+            for upload in start_job.call_args.kwargs["uploaded_files"]
+        ]
+        self.assertEqual(
+            stored_names,
+            ["petition.pdf", "petition.docx", "demand_1.docx", "demand_1_2.docx"],
+        )
+        renamed = start_job.call_args.kwargs["renamed_files"]
+        self.assertEqual(
+            [(entry["from"], entry["to"]) for entry in renamed],
+            [
+                ("demand (1).docx", "demand_1.docx"),
+                ("demand_1_.docx", "demand_1_2.docx"),
+            ],
+        )
+        self.assertEqual(renamed[1]["reason"], "name_collision")
+        self.assertIn("demand_1_2.docx", renamed[1]["message"])
+
     def test_importing_an_older_template_renames_it_first(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             stored = os.path.join(tmpdir, "demand letter (1).docx")
@@ -3985,3 +5545,128 @@ class TestEditorProjectFileNaming(unittest.TestCase):
                         7, "Eviction", "demand letter (1).docx"
                     )
             mock_rename.assert_not_called()
+
+
+class TestMatrixRefactorSafety(unittest.TestCase):
+    def test_binary_template_reference_blocks_the_entire_variable_rename(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "_project_text_files", return_value=([], [])),
+            patch.object(
+                api_editor, "_project_search_revision", return_value="current"
+            ),
+            patch.object(
+                api_editor,
+                "_binary_template_rename_problems",
+                return_value=["binary.docx contains old_name"],
+            ),
+            patch.object(api_editor, "_commit_project_replacements") as commit,
+            api_editor.app.test_request_context(
+                "/al/editor/api/project/replace",
+                method="POST",
+                json={
+                    "project": "default",
+                    "mode": "variable",
+                    "query": "old_name",
+                    "replacement": "new_name",
+                    "project_revision": "current",
+                },
+            ),
+        ):
+            response = api_editor.editor_api_project_replace()
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("binary.docx", response.get_json()["error"]["message"])
+        commit.assert_not_called()
+
+    def test_partial_write_failure_restores_even_the_failing_file(self):
+        self._check_rollback(False)
+
+    def test_rollback_failure_returns_original_content_for_recovery(self):
+        self._check_rollback(True)
+
+    def _check_rollback(self, fail_restore):
+        contents = {"one.yml": "one original", "two.yml": "two original"}
+        changes = [
+            {
+                "section": "interview",
+                "filename": name,
+                "original": value,
+                "updated": "new content",
+            }
+            for name, value in contents.items()
+        ]
+
+        def write(uid, project, section, filename, content):
+            if filename == "two.yml" and (content == "new content" or fail_restore):
+                contents[filename] = "partially written"
+                raise OSError("injected disk write failure")
+            contents[filename] = content
+
+        with (
+            patch.object(api_editor, "_write_project_text_file", side_effect=write),
+            patch.object(
+                api_editor,
+                "_read_project_text_file",
+                side_effect=lambda uid, project, section, filename: contents[filename],
+            ),
+            self.assertRaises(api_editor.ProjectReplacementWriteError) as raised,
+        ):
+            api_editor._commit_project_replacements_locked(7, "default", changes)
+        self.assertEqual(contents["one.yml"], "one original")
+        if fail_restore:
+            self.assertEqual(
+                raised.exception.recovery,
+                [
+                    {
+                        "section": "interview",
+                        "filename": "two.yml",
+                        "original_content": "two original",
+                    }
+                ],
+            )
+        else:
+            self.assertEqual(contents["two.yml"], "two original")
+            self.assertEqual(raised.exception.recovery, [])
+            self.assertEqual(len(raised.exception.restored), 2)
+
+
+class TestTemplateFieldReadWithoutInterview(unittest.TestCase):
+    def test_docx_fields_can_be_read_without_current_question(self):
+        from docx import Document
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "binary.docx"
+            document = Document()
+            document.add_paragraph("Name: {{ old_name }}")
+            document.add_paragraph("Again: {{ old_name }}")
+            document.save(str(path))
+            self.assertEqual(
+                api_editor._local_template_field_names(str(path)), ["old_name"]
+            )
+            with (
+                patch.object(
+                    api_editor,
+                    "_list_editor_section_files",
+                    return_value=[
+                        {"filename": "binary.docx", "size": path.stat().st_size}
+                    ],
+                ),
+                patch.object(
+                    api_editor,
+                    "_editor_storage_directory",
+                    return_value=(None, directory),
+                ),
+            ):
+                warnings = api_editor._binary_template_rename_problems(
+                    7, "default", "old_name"
+                )
+                self.assertIn("binary.docx contains old_name", warnings[0])
+                self.assertEqual(
+                    api_editor._binary_template_rename_problems(
+                        7, "default", "unrelated"
+                    ),
+                    [],
+                )

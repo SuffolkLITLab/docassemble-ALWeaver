@@ -31,6 +31,7 @@ class WeaverTargetSession:
     last_accessed_at: datetime
     purpose: str
     history: List[Dict[str, Any]] = field(default_factory=list)
+    seeded_variables: List[str] = field(default_factory=list)
 
     def target(self, secret: Optional[str] = None) -> TargetSession:
         """Address the Docassemble session, decrypting it with ``secret``.

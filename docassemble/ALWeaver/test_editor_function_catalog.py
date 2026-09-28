@@ -72,6 +72,92 @@ def total(amount: float, /, digits=2, *extras, symbol=True, **options):
     assert local_function_catalog("def invalid(") == {}
 
 
+def test_unloaded_declared_module_is_read_without_importing_or_calling(
+    tmp_path, monkeypatch
+):
+    source = tmp_path / "matrix_unloaded_helpers.py"
+    source.write_text('''
+raise AssertionError("Module must not be imported during discovery")
+__all__ = ["public_helper"]
+def public_helper(value=2):
+    """Static help."""
+    raise AssertionError("Function must not be called")
+def hidden_helper():
+    pass
+''')
+    monkeypatch.syspath_prepend(str(tmp_path))
+    interview = SimpleNamespace(
+        questions_list=[
+            SimpleNamespace(
+                question_type="modules",
+                module_list=["matrix_unloaded_helpers"],
+                package="example",
+            )
+        ]
+    )
+    catalog = interview_function_catalog(interview, {})
+    assert catalog["public_helper"]["signature"] == "public_helper(value=2)"
+    assert catalog["public_helper"]["origin"] == "matrix_unloaded_helpers"
+    assert "hidden_helper" not in catalog
+
+
+def test_playground_discovery_parses_selected_project_without_assembly(
+    tmp_path, monkeypatch
+):
+    import sys
+    from .editor_utils import _playground_symbols_without_execution
+
+    source_file = tmp_path / "questions.yml"
+    source_file.write_text("question: Example\n")
+    captured = {}
+
+    def source(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            **kwargs, set_content=lambda content: captured.update(content=content)
+        )
+
+    def interview(**kwargs):
+        return SimpleNamespace(
+            names_used={"root_value"},
+            questions={"included_value": []},
+            questions_list=[
+                SimpleNamespace(
+                    question_type="code",
+                    sourcecode="def local_helper():\n    raise RuntimeError()",
+                    names_used=set(),
+                    mako_names=set(),
+                    fields_used={"included_value"},
+                    from_source=SimpleNamespace(
+                        path="docassemble.playground7MyProject:included.yml"
+                    ),
+                )
+            ],
+        )
+
+    monkeypatch.setitem(
+        sys.modules, "docassemble.base.parse", SimpleNamespace(Interview=interview)
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "docassemble.base.interview_source",
+        SimpleNamespace(InterviewSourceFile=source),
+    )
+    pg = SimpleNamespace(get_file=lambda filename: str(source_file))
+    variables, functions, origins = _playground_symbols_without_execution(
+        pg, 7, "MyProject", "questions.yml"
+    )
+    assert captured["package"] == "docassemble.playground7MyProject"
+    assert captured["filepath"] == str(source_file)
+    assert captured["content"] == "question: Example\n"
+    assert captured["path"].endswith("MyProject:questions.yml")
+    assert variables["all_names_reduced"] == {"root_value", "included_value"}
+    assert "local_helper" in functions
+    assert origins["included_value"] == [
+        "docassemble.playground7MyProject:included.yml"
+    ]
+
+
 def test_included_code_and_suppressed_util():
     util = ModuleType("docassemble.base.util")
     util.never_offer = lambda: None

@@ -355,6 +355,64 @@ class TestWebappAccessors(unittest.TestCase):
 
 
 class TestNativeGithubCompatibility(unittest.TestCase):
+    def test_existing_repository_missing_branch_422_is_missing_ref(self):
+        class FakeHttp:
+            def __init__(self):
+                self.calls = []
+
+            def request(self, url, method, headers=None, body=None):
+                self.calls.append(url)
+                if url.endswith("/commits/weaver-new-branch"):
+                    return {
+                        "status": "422"
+                    }, b'{"message":"No commit found for SHA: weaver-new-branch"}'
+                return {"status": "200"}, b'{"default_branch":"main","private":true}'
+
+        http = FakeHttp()
+        with patch.object(
+            docassemble_compat, "_github_authorized_http", return_value=http
+        ):
+            result = docassemble_compat.get_github_repository_snapshot(
+                repository_url=(
+                    "https://github.com/Example/docassemble-MatrixAcceptance"
+                ),
+                user_id=7,
+                ref="weaver-new-branch",
+                allow_missing=True,
+            )
+
+        self.assertTrue(result["missing"])
+        self.assertTrue(result["repository_exists"])
+        self.assertEqual(result["branch"], "weaver-new-branch")
+        self.assertEqual(result["default_branch"], "main")
+        self.assertEqual(result["files"], {})
+        self.assertEqual(len(http.calls), 2)
+
+    def test_unrelated_github_422_is_not_treated_as_missing_branch(self):
+        class FakeHttp:
+            def request(self, url, method, headers=None, body=None):
+                if "/commits/weaver-new-branch" in url:
+                    return {"status": "422"}, b'{"message":"Invalid request"}'
+                return {"status": "200"}, b'{"default_branch":"main","private":true}'
+
+        with patch.object(
+            docassemble_compat,
+            "_github_authorized_http",
+            return_value=FakeHttp(),
+        ):
+            with self.assertRaisesRegex(
+                docassemble_compat.DocassembleCompatibilityError,
+                "could not read weaver-new-branch",
+            ):
+                docassemble_compat.get_github_repository_snapshot(
+                    repository_url=(
+                        "https://github.com/Example/docassemble-MatrixAcceptance"
+                    ),
+                    user_id=7,
+                    ref="weaver-new-branch",
+                    allow_missing=True,
+                )
+
     def test_repository_snapshot_uses_one_archive_download(self):
         archive_buffer = io.BytesIO()
         with tarfile.open(fileobj=archive_buffer, mode="w:gz") as archive:
@@ -1085,6 +1143,58 @@ class TestNativeGithubCompatibility(unittest.TestCase):
         self.assertTrue(staging_directories)
         self.assertFalse(Path(staging_directories[0]).exists())
 
+    def test_retry_after_lost_commit_response_refuses_duplicate_publish(self):
+        builder, _staging_directories = self._fake_package_builder()
+
+        class FakeHttp:
+            def __init__(self):
+                self.calls = []
+                self.branch_sha = "original-branch-sha"
+                self.commit_count = 0
+                self.ref_update_count = 0
+
+            def request(self, url, method, headers=None, body=None):
+                self.calls.append((url, method))
+                if method == "GET" and url.endswith("/git/ref/heads/main"):
+                    return (
+                        {"status": "200"},
+                        json.dumps({"object": {"sha": self.branch_sha}}).encode(),
+                    )
+                if url.endswith("/git/blobs"):
+                    return {"status": "201"}, b'{"sha":"blob-sha"}'
+                if url.endswith("/git/trees"):
+                    return {"status": "201"}, b'{"sha":"tree-sha"}'
+                if url.endswith("/git/commits"):
+                    self.commit_count += 1
+                    return {"status": "201"}, b'{"sha":"published-commit-sha"}'
+                if method == "PATCH" and url.endswith("/git/refs/heads/main"):
+                    self.ref_update_count += 1
+                    self.branch_sha = "published-commit-sha"
+                    if self.ref_update_count == 1:
+                        raise TimeoutError(
+                            "simulated lost response after branch update"
+                        )
+                    return {"status": "200"}, b'{"ref":"refs/heads/main"}'
+                raise AssertionError((url, method))
+
+        http = FakeHttp()
+        with self.assertRaisesRegex(TimeoutError, "lost response"):
+            self._publish(
+                http,
+                builder,
+                expected_remote_sha="original-branch-sha",
+            )
+
+        with self.assertRaisesRegex(ValueError, "changed after the publish preview"):
+            self._publish(
+                http,
+                builder,
+                expected_remote_sha="original-branch-sha",
+            )
+
+        self.assertEqual(http.commit_count, 1)
+        self.assertEqual(http.ref_update_count, 1)
+
     def test_workflow_tree_rejection_preserves_existing_workflows_and_commits_other_files(
         self,
     ):
@@ -1322,6 +1432,7 @@ class TestNativeGithubCompatibility(unittest.TestCase):
             branch="feature/github",
             default_branch="main",
             commit_message="Publish housing forms on new branch",
+            expected_remote_sha="main-commit-sha",
         )
 
         self.assertEqual(
