@@ -9,6 +9,8 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
+from pypdf import PdfWriter
+
 from . import interview_generator as interview_generator_module
 from .interview_generator import (
     _LocalDAFileAdapter,
@@ -110,6 +112,58 @@ class TestGenerateInterviewFromPath(unittest.TestCase):
             self._run_dayamlchecker(result.yaml_path)
             self.assertTrue(result.package_zip_path)
             self.assertTrue(os.path.exists(result.package_zip_path))
+
+    def test_unfillable_pdf_reports_limited_extraction(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = os.path.join(tmpdir, "unfillable.pdf")
+            writer = PdfWriter()
+            writer.add_blank_page(width=612, height=792)
+            with open(pdf_path, "wb") as stream:
+                writer.write(stream)
+
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=os.path.join(tmpdir, "generated"),
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+
+        self.assertTrue(
+            any(
+                "No fillable PDF fields were detected" in warning
+                for warning in result.warnings
+            )
+        )
+
+    def test_cross_template_type_guess_mismatch_is_returned_as_warning(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            text_path = _build_pdf_with_typed_field(
+                os.path.join(tmpdir, "form_text.pdf"), "shared_answer", "/Tx"
+            )
+            checkbox_path = _build_pdf_with_typed_field(
+                os.path.join(tmpdir, "form_checkbox.pdf"),
+                "shared_answer",
+                "/Btn",
+            )
+            with patch.object(
+                interview_generator_module.formfyxer,
+                "cluster_screens",
+                side_effect=self._offline_cluster_screens,
+            ):
+                result = generate_interview_from_path(
+                    text_path,
+                    additional_templates=[checkbox_path],
+                    output_dir=os.path.join(tmpdir, "output"),
+                    create_package_zip=False,
+                    include_next_steps=False,
+                )
+
+            self.assertEqual(len(result.warnings), 1)
+            warning = result.warnings[0]
+            self.assertIn("shared_answer", warning)
+            self.assertIn("form_text.pdf (text)", warning)
+            self.assertIn("form_checkbox.pdf (yesno)", warning)
+            self.assertIn("rename one field", warning)
 
     def test_a_template_name_with_punctuation_is_renamed_everywhere(self):
         """https://github.com/SuffolkLITLab/docassemble-ALWeaver/issues/1059
@@ -238,26 +292,34 @@ question: |
             self.assertNotIn("interview_short_title =", yaml_text)
             self.assertIn("label=word('Edit answers')", yaml_text)
             self.assertIn(
-                "template: test_docx_no_pdf_field_names_attachment.title\n"
+                "template: test_docx_no_pdf_field_names_attachment_title\n"
                 "content: |\n"
                 "  Test docx no pdf field names",
                 yaml_text,
             )
             self.assertIn(
-                "template: al_user_bundle.title\n"
+                "template: al_user_bundle_title\n"
                 "content: |\n"
                 "  All forms to download for your records",
                 yaml_text,
             )
             self.assertIn(
-                "template: al_court_bundle.title\n"
+                "template: al_court_bundle_title\n"
                 "content: |\n"
                 "  All forms to deliver to court",
                 yaml_text,
             )
-            self.assertNotRegex(
+            self.assertRegex(
                 yaml_text,
-                r"ALDocument(?:Bundle)?\.using\([^\n]*\btitle=",
+                r"ALDocument\.using\([^\n]*title=str\(test_docx_no_pdf_field_names_attachment_title\)",
+            )
+            self.assertRegex(
+                yaml_text,
+                r"ALDocumentBundle\.using\([^\n]*title=str\(al_user_bundle_title\)",
+            )
+            self.assertNotIn("template: al_user_bundle.title", yaml_text)
+            self.assertNotIn(
+                "template: test_docx_no_pdf_field_names_attachment.title", yaml_text
             )
             self._run_dayamlchecker(result.yaml_path)
 
@@ -313,6 +375,15 @@ question: |
             )
             self.assertEqual(len(result.template_paths), 1)
             runtime_template = Path(result.template_paths[0])
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+            self.assertIn(
+                "title=str(test_docx_no_pdf_field_names_Post_interview_instructions_title)",
+                yaml_text,
+            )
+            self.assertIn(
+                "template: test_docx_no_pdf_field_names_Post_interview_instructions_title",
+                yaml_text,
+            )
             self.assertTrue(runtime_template.exists())
             with zipfile.ZipFile(runtime_template) as generated_docx:
                 document_xml = generated_docx.read("word/document.xml").decode("utf-8")
@@ -729,6 +800,36 @@ def _build_pdf_with_fields(pdf_path: str, field_names) -> str:
     return pdf_path
 
 
+def _build_pdf_with_typed_field(pdf_path: str, field_name: str, pdf_type: str) -> str:
+    """Write one AcroForm field with the supplied PDF field type."""
+    import pikepdf
+
+    pdf = pikepdf.Pdf.new()
+    page = pdf.add_blank_page(page_size=(612, 792))
+    field = pdf.make_indirect(
+        pikepdf.Dictionary(
+            FT=pikepdf.Name(pdf_type),
+            T=pikepdf.String(field_name),
+            Ff=0,
+            Type=pikepdf.Name("/Annot"),
+            Subtype=pikepdf.Name("/Widget"),
+            Rect=pikepdf.Array([50, 700, 300, 716]),
+            F=4,
+            DA=pikepdf.String("/Helv 0 Tf 0 g"),
+        )
+    )
+    page.Annots = pikepdf.Array([field])
+    pdf.Root.AcroForm = pdf.make_indirect(
+        pikepdf.Dictionary(
+            Fields=pikepdf.Array([field]),
+            DA=pikepdf.String("/Helv 0 Tf 0 g"),
+            NeedAppearances=True,
+        )
+    )
+    pdf.save(pdf_path)
+    return pdf_path
+
+
 class _TestAutoDraftBase(unittest.TestCase):
     """Shared helpers for automatic-draft regression tests."""
 
@@ -840,6 +941,9 @@ class TestAutoDraftFinalScreen(_TestAutoDraftBase):
         from .editor_utils import parse_interview_yaml
 
         _result, source = self._generate(["rent_amount"], include_download_screen=False)
+        self.assertIn("review and submit your answers", source)
+        self.assertIn("A copy of your answers will be saved.", source)
+        self.assertNotIn("download your completed form", source)
         model = parse_interview_yaml(source)
         orders = [
             b["data"] for b in model["blocks"] if b["index"] in model["order_blocks"]
@@ -1056,6 +1160,44 @@ class TestRestApiFieldNameNormalization(unittest.TestCase):
         self.assertTrue(applied["field_renames_applied"])
         self.assertIn('- "users_name"', applied["yaml_text"])
 
+    def test_cross_template_type_warning_is_in_generation_payload(self):
+        from .api_utils import generate_interview_from_bytes
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            text_path = _build_pdf_with_typed_field(
+                os.path.join(tmpdir, "api_text.pdf"), "shared_answer", "/Tx"
+            )
+            checkbox_path = _build_pdf_with_typed_field(
+                os.path.join(tmpdir, "api_checkbox.pdf"),
+                "shared_answer",
+                "/Btn",
+            )
+            with patch.object(
+                interview_generator_module.formfyxer,
+                "cluster_screens",
+                side_effect=_TestAutoDraftBase._offline_cluster,
+            ):
+                payload = generate_interview_from_bytes(
+                    filename="api_text.pdf",
+                    content_bytes=Path(text_path).read_bytes(),
+                    mimetype="application/pdf",
+                    additional_documents=[
+                        {
+                            "filename": "api_checkbox.pdf",
+                            "content_bytes": Path(checkbox_path).read_bytes(),
+                            "mimetype": "application/pdf",
+                        }
+                    ],
+                    generation_options={
+                        "create_package_zip": False,
+                        "include_next_steps": False,
+                    },
+                )
+
+        self.assertEqual(len(payload["warnings"]), 1)
+        self.assertIn("shared_answer", payload["warnings"][0])
+        self.assertIn("api_checkbox.pdf (yesno)", payload["warnings"][0])
+
     def test_the_option_survives_the_api_option_parsing(self):
         from .api_utils import coerce_generation_options
 
@@ -1191,6 +1333,13 @@ class TestMultipleTemplates(unittest.TestCase):
             yaml_text,
             r"al_user_bundle: ALDocumentBundle\.using\(elements=\[petition, affidavit\]",
         )
+        self.assertIn("title=str(petition_title)", yaml_text)
+        self.assertIn("template: petition_title", yaml_text)
+        self.assertIn("title=str(affidavit_title)", yaml_text)
+        self.assertIn("template: affidavit_title", yaml_text)
+        self.assertIn("title=str(al_user_bundle_title)", yaml_text)
+        self.assertIn("template: al_user_bundle_title", yaml_text)
+        self.assertNotIn("template: petition.title", yaml_text)
 
     def test_bundle_order_follows_the_order_the_templates_were_given(self):
         _result, yaml_text = self._draft(

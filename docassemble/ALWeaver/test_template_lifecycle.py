@@ -20,6 +20,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from docx import Document
+
 from . import editor_utils as real_editor_utils
 from . import interview_generator as interview_generator_module
 from .document_bundles import interview_documents, template_status
@@ -160,6 +162,7 @@ class TemplateLifecycleTest(unittest.TestCase):
                 if block.replaces_block_id
                 else block.yaml
             )
+            blocks.extend(supporting.yaml for supporting in block.supporting_blocks)
         if "questions" not in skip:
             blocks.extend(question.yaml for question in analysis.questions)
         payload = {
@@ -199,6 +202,14 @@ class TemplateLifecycleTest(unittest.TestCase):
             method="POST",
             json=payload,
         )
+
+    def _add_docx_with_fields(self, filename, fields):
+        path = os.path.join(self.project.templates, filename)
+        document = Document()
+        for field in fields:
+            document.add_paragraph("{{ " + field + " }}")
+        document.save(path)
+        return path
 
     def _generate(self, templates, **options):
         """Create the project's interview the way new-project generation does."""
@@ -289,6 +300,46 @@ class TemplateLifecycleTest(unittest.TestCase):
         self.assertIn("pdf template file: cover_sheet.pdf", source)
         # A field only the new form has is now asked about.
         self.assertIn("hearing_is_remote", source)
+        self.assertEqual(self._lint(), [])
+
+    def test_imported_document_object_carries_its_required_title_template(self):
+        self._generate([("petition.pdf", ["matrix_doc_people_name"])])
+        self.project.add_pdf("cover_sheet.pdf", ["matrix_doc_docket_number"])
+
+        analysis = self._import("cover_sheet.pdf")
+        assert analysis.document_object is not None
+        self.assertEqual(len(analysis.document_object.supporting_blocks), 1)
+        title_block = analysis.document_object.supporting_blocks[0]
+        self.assertEqual(title_block.kind, "template")
+        self.assertIn("template: cover_sheet_attachment_title", title_block.yaml)
+        serialized_object = analysis.to_dict()["document_object"]
+        self.assertEqual(
+            serialized_object["supporting_blocks"][0]["yaml"], title_block.yaml
+        )
+        self._apply(analysis)
+
+        source = self.project.read_yaml(7, "P", "main.yml")
+        self.assertIn("title=str(cover_sheet_attachment_title)", source)
+        self.assertIn("template: cover_sheet_attachment_title", source)
+        self.assertEqual(self._lint(), [])
+
+    def test_disambiguated_import_renames_document_and_title_together(self):
+        self._generate([("petition.pdf", ["matrix_doc_primary_name"])])
+        self.project.add_docx("petition.docx")
+
+        analysis = self._import("petition.docx")
+        self.assertEqual(analysis.document_variable, "petition_docx")
+        assert analysis.document_object is not None
+        title_block = analysis.document_object.supporting_blocks[0]
+        self.assertIn("petition_docx_attachment_title", title_block.yaml)
+        self.assertNotIn("petition_attachment_title", title_block.yaml)
+        self._apply(analysis)
+
+        source = self.project.read_yaml(7, "P", "main.yml")
+        self.assertIn("title=str(petition_docx_attachment_title)", source)
+        self.assertIn("template: petition_docx_attachment_title", source)
+        # The first document's authored/generated display title remains intact.
+        self.assertIn("template: petition_attachment_title", source)
         self.assertEqual(self._lint(), [])
 
     def test_a_field_the_interview_already_asks_is_not_asked_twice(self):
@@ -383,6 +434,13 @@ class TemplateLifecycleTest(unittest.TestCase):
     def test_a_revised_form_is_re_read_into_the_block_it_already_has(self):
         self._generate([("petition.pdf", ["users1_name_first"])])
         source_before = self.project.read_yaml(7, "P", "main.yml")
+        title_blocks_before = [
+            block["yaml"]
+            for block in real_editor_utils.parse_interview_yaml(source_before)["blocks"]
+            if block.get("type") == real_editor_utils.BLOCK_TYPE_TEMPLATE
+            and block.get("data", {}).get("template") == "petition_attachment_title"
+        ]
+        self.assertEqual(len(title_blocks_before), 1)
         self.assertNotIn("court_ordered_relief", source_before)
         # The court publishes a new version of the same form.
         self.project.add_pdf(
@@ -396,10 +454,18 @@ class TemplateLifecycleTest(unittest.TestCase):
         self.assertFalse(analysis.attachment.recommended)
         self.assertIsNone(analysis.document_object)
         self.assertEqual(analysis.bundle_additions, [])
+        self.assertEqual(analysis.attachment.supporting_blocks, [])
 
         self._apply(analysis)
 
         source = self.project.read_yaml(7, "P", "main.yml")
+        title_blocks_after = [
+            block["yaml"]
+            for block in real_editor_utils.parse_interview_yaml(source)["blocks"]
+            if block.get("type") == real_editor_utils.BLOCK_TYPE_TEMPLATE
+            and block.get("data", {}).get("template") == "petition_attachment_title"
+        ]
+        self.assertEqual(title_blocks_after, title_blocks_before)
         # One attachment block, now naming the new field.
         self.assertEqual(source.count("pdf template file: petition.pdf"), 1)
         self.assertIn('- "court_ordered_relief"', source)
@@ -409,6 +475,73 @@ class TemplateLifecycleTest(unittest.TestCase):
         )
         for bundle in model["bundles"]:
             self.assertEqual(bundle["elements"], ["petition_attachment"])
+        self.assertEqual(self._lint(), [])
+
+    def test_revised_docx_manifest_survives_apply_save_and_next_reimport(self):
+        primary = "matrix_doc_lifecycle_docx_primary"
+        removed = "matrix_doc_lifecycle_docx_removed"
+        added = "matrix_doc_lifecycle_docx_added"
+        renamed = "matrix_doc_lifecycle_docx_renamed"
+        third = "matrix_doc_lifecycle_docx_third"
+        filename = "petition.docx"
+
+        self._generate([("starter.pdf", ["matrix_doc_lifecycle_starter_name"])])
+        self._add_docx_with_fields(filename, [primary, removed])
+        first = self._import(filename)
+        self.assertFalse(first.already_imported)
+        self._apply(first)
+        source_v1 = self.project.read_yaml(7, "P", "main.yml")
+        self.assertIn(
+            f'# ALWeaver DOCX template field manifest: ["{primary}", "{removed}"]',
+            source_v1,
+        )
+
+        # An existing authored question is preserved and reported as stale when
+        # a later revision removes the field.
+        source_v1 += (
+            "---\nid: authored old DOCX field\n"
+            "question: Existing question for the old DOCX field\n"
+            f"fields:\n  - Removed answer: {removed}\n"
+        )
+        self.project.write_yaml(7, "P", "main.yml", source_v1)
+
+        self._add_docx_with_fields(filename, [primary, added, renamed])
+        second = self._import(filename)
+        self.assertTrue(second.already_imported)
+        self.assertEqual(
+            second.mapping_changes,
+            {"added": [added, renamed], "removed": [removed], "retained": [primary]},
+        )
+        self.assertEqual(second.stale_question_variables, [removed])
+        self.assertIsNotNone(second.attachment)
+        assert second.attachment is not None
+        self.assertFalse(second.attachment.recommended)
+
+        # Applying the unchecked replacement is an explicit author choice.
+        self._apply(second)
+        source_v2 = self.project.read_yaml(7, "P", "main.yml")
+        self.assertIn(
+            f"# ALWeaver DOCX template field manifest: "
+            f'["{added}", "{primary}", "{renamed}"]',
+            source_v2,
+        )
+        self.assertIn(f"Removed answer: {removed}", source_v2)
+
+        self._add_docx_with_fields(filename, [primary, added, renamed, third])
+        third_import = self._import(filename)
+        self.assertEqual(
+            third_import.mapping_changes,
+            {"added": [third], "removed": [], "retained": [added, primary, renamed]},
+        )
+        self.assertEqual(third_import.stale_question_variables, [])
+
+        self._apply(third_import)
+        source_v3 = self.project.read_yaml(7, "P", "main.yml")
+        self.assertIn(
+            f"# ALWeaver DOCX template field manifest: "
+            f'["{added}", "{primary}", "{renamed}", "{third}"]',
+            source_v3,
+        )
         self.assertEqual(self._lint(), [])
 
     def test_a_companion_named_like_the_first_gets_the_extension(self):

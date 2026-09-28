@@ -82,6 +82,8 @@ def weaver_editor_github_publish_task(
     branch: str,
     commit_message: str,
     repository_url: str,
+    expected_remote_sha: Optional[str] = None,
+    expected_source_revision: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Commit a prepared Playground package to GitHub in the Celery worker.
 
@@ -105,6 +107,8 @@ def weaver_editor_github_publish_task(
             branch=branch,
             commit_message=commit_message,
             repository_url=repository_url,
+            expected_remote_sha=expected_remote_sha,
+            expected_source_revision=expected_source_revision,
         )
 
 
@@ -122,22 +126,41 @@ def weaver_editor_new_project_task(
     debug_requested: bool,
     interview_filename: Optional[str] = None,
     create_test: bool = False,
-) -> Dict[str, Any]:
+) -> None:
     """Create an editor project inside Docassemble's configured Celery worker."""
-    with bg_context():
-        from .api_editor import _complete_new_project_upload_job
+    try:
+        with bg_context():
+            from .api_editor import _complete_new_project_upload_job
 
-        return _complete_new_project_upload_job(
-            job_id=job_id,
-            uid=uid,
-            project_name=project_name,
-            request_id=request_id,
-            uploaded_files=uploaded_files,
-            generation_options=generation_options,
-            debug_requested=debug_requested,
-            interview_filename=interview_filename,
-            create_test=create_test,
-        )
+            _complete_new_project_upload_job(
+                job_id=job_id,
+                uid=uid,
+                project_name=project_name,
+                request_id=request_id,
+                uploaded_files=uploaded_files,
+                generation_options=generation_options,
+                debug_requested=debug_requested,
+                interview_filename=interview_filename,
+                create_test=create_test,
+            )
+    except Exception:
+        # The editor helper stores failure details in the owner-scoped job
+        # record. Only report success to Celery when that record confirms the
+        # failed terminal state; otherwise fail with a generic message so a
+        # private filename/path is not echoed by Celery's result logger.
+        try:
+            from .api_editor import _load_new_project_job_state
+
+            state = _load_new_project_job_state(job_id)
+        except Exception:
+            state = None
+        if (
+            isinstance(state, dict)
+            and state.get("owner_user_id") == uid
+            and state.get("status") == "failed"
+        ):
+            return None
+        raise RuntimeError("ALWeaver generation failed.") from None
 
 
 @workerapp.task(

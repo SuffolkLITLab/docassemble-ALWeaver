@@ -23,6 +23,45 @@ async function expectError(promise, expected) {
 }
 
 async function run() {
+  const activeFile = {
+    project: 'matrix_sec_project',
+    filename: 'interview.yml',
+    revision: 'revision-current',
+  };
+  const originalWrite = {
+    project: 'matrix_sec_project',
+    filename: 'interview.yml',
+    block_id: 'question',
+  };
+  const guardedWrite = api.attachExpectedRevision(
+    '/api/block',
+    originalWrite,
+    activeFile,
+  );
+  assert.strictEqual(guardedWrite.expected_revision, 'revision-current');
+  assert.strictEqual(originalWrite.expected_revision, undefined);
+  assert.notStrictEqual(guardedWrite, originalWrite);
+  assert.strictEqual(
+    api.attachExpectedRevision(
+      '/api/block',
+      { ...originalWrite, expected_revision: 'explicit-revision' },
+      activeFile,
+    ).expected_revision,
+    'explicit-revision',
+  );
+  assert.strictEqual(
+    api.attachExpectedRevision(
+      '/api/block',
+      { ...originalWrite, filename: 'other.yml' },
+      activeFile,
+    ).expected_revision,
+    undefined,
+  );
+  assert.strictEqual(
+    api.attachExpectedRevision('/api/validate-source', originalWrite, activeFile),
+    originalWrite,
+  );
+
   const requests = [];
   const client = api.createClient({
     baseUrl: '/al/editor',
@@ -88,6 +127,33 @@ async function run() {
     code: 'revision_conflict',
     message: 'Changed',
   });
+
+  const reportedErrors = [];
+  const draftConfirmationClient = api.createClient({
+    onError: (error) => reportedErrors.push(error),
+    fetchImpl: async () =>
+      jsonResponse(
+        {
+          success: false,
+          error: {
+            type: 'validation_error',
+            code: 'draft_confirmation_required',
+            message: 'Confirm saving this source as a draft.',
+            details: { blocking_count: 1 },
+          },
+        },
+        422,
+      ),
+  });
+  await expectError(draftConfirmationClient.post('/api/file', { content: 'bad' }), {
+    status: 422,
+    code: 'draft_confirmation_required',
+  });
+  assert.deepStrictEqual(
+    reportedErrors,
+    [],
+    'draft confirmation is handled by the save flow without a global error toast',
+  );
 
   const htmlClient = api.createClient({
     fetchImpl: async () =>

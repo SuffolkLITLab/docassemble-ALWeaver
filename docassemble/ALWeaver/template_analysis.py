@@ -20,6 +20,7 @@ and nothing else.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -110,6 +111,10 @@ class ProposedBlock:
     #: Whether accepting this by default would be a reasonable guess. A
     #: replacement is not: it discards whatever the author did to that block.
     recommended: bool = True
+    #: Blocks required for this candidate to work. The editor adds these when
+    #: this candidate is selected, so a document object cannot outlive its
+    #: generated display-title template.
+    supporting_blocks: List["ProposedBlock"] = field(default_factory=list)
 
 
 @dataclass
@@ -133,6 +138,12 @@ class TemplateAnalysis:
     already_imported: bool = False
     new_variables: List[str] = field(default_factory=list)
     known_variables: List[str] = field(default_factory=list)
+    #: Field-name changes when a previously attached template is read again.
+    mapping_changes: Dict[str, List[str]] = field(
+        default_factory=lambda: {"added": [], "removed": [], "retained": []}
+    )
+    #: Existing question variables that still refer to removed template fields.
+    stale_question_variables: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -152,6 +163,9 @@ class TemplateAnalysis:
                 "variables": list(proposed.variables),
                 "replaces_block_id": proposed.replaces_block_id,
                 "recommended": proposed.recommended,
+                "supporting_blocks": [
+                    block(supporting) for supporting in proposed.supporting_blocks
+                ],
             }
 
         return {
@@ -165,6 +179,10 @@ class TemplateAnalysis:
             "already_imported": self.already_imported,
             "new_variables": list(self.new_variables),
             "known_variables": list(self.known_variables),
+            "mapping_changes": {
+                key: list(values) for key, values in self.mapping_changes.items()
+            },
+            "stale_question_variables": list(self.stale_question_variables),
             "warnings": list(self.warnings),
         }
 
@@ -214,6 +232,80 @@ def _variables_in_question_block(data: Dict[str, Any]) -> Set[str]:
             if isinstance(entry, dict) and isinstance(entry.get("field"), str):
                 found.add(str(entry["field"]).strip())
     return {value for value in found if value}
+
+
+def _attachment_mapping_field_names(data: Dict[str, Any]) -> Set[str]:
+    """Return the external template field names declared in an attachment."""
+    attachment = data.get("attachment")
+    if not isinstance(attachment, dict):
+        attachment = data
+    fields = attachment.get("fields") if isinstance(attachment, dict) else None
+    entries = fields if isinstance(fields, list) else [fields]
+    found = {
+        str(key)
+        for entry in entries
+        if isinstance(entry, dict)
+        for key in entry
+        if str(key).strip()
+    }
+    return found
+
+
+_DOCX_FIELD_MANIFEST_PREFIX = "# ALWeaver DOCX template field manifest: "
+
+
+def _question_field_variables(data: Dict[str, Any]) -> Set[str]:
+    """Return variables declared by fields, excluding question expressions."""
+    fields = data.get("fields")
+    if not isinstance(fields, list):
+        return set()
+    found: Set[str] = set()
+    for entry in fields:
+        if isinstance(entry, (dict, str)):
+            found.update(_variables_in_question_block({"fields": [entry]}))
+    return found
+
+
+def _docx_field_manifest(block_yaml: str) -> Set[str]:
+    for line in block_yaml.splitlines():
+        if not line.startswith(_DOCX_FIELD_MANIFEST_PREFIX):
+            continue
+        try:
+            fields = json.loads(line[len(_DOCX_FIELD_MANIFEST_PREFIX) :])
+        except (TypeError, ValueError):
+            return set()
+        if isinstance(fields, list):
+            return {value for value in fields if isinstance(value, str) and value}
+    return set()
+
+
+def _with_docx_field_manifest(block_yaml: str, fields: Set[str]) -> str:
+    manifest = _DOCX_FIELD_MANIFEST_PREFIX + json.dumps(sorted(fields))
+    lines = [
+        line
+        for line in block_yaml.splitlines()
+        if not line.startswith(_DOCX_FIELD_MANIFEST_PREFIX)
+    ]
+    return manifest + "\n" + "\n".join(lines)
+
+
+def _question_variables_for_fields(
+    model: Dict[str, Any], field_names: Set[str]
+) -> List[str]:
+    """Find authored question variables whose names match stale template fields."""
+    references: Set[str] = set()
+    for entry in model.get("blocks", []):
+        data = entry.get("data")
+        if not isinstance(data, dict) or data.get("_commented"):
+            continue
+        if entry.get("type") != BLOCK_TYPE_QUESTION:
+            continue
+        references.update(_variables_in_question_block(data))
+    return sorted(
+        reference
+        for reference in references
+        if (_reference_root(reference) or "") in field_names
+    )
 
 
 def interview_defined_variables(raw_yaml: str) -> Set[str]:
@@ -371,6 +463,7 @@ def analyze_template(
     """
     already_defined = interview_defined_variables(interview_yaml)
     existing = interview_documents(interview_yaml)
+    existing_model = parse_interview_yaml(interview_yaml)
     # An `attachment` block already filling this template is the interview
     # telling us the template is imported, whatever the document is called. A
     # re-read has to stay with that name, or the screens and the bundle entry
@@ -452,6 +545,51 @@ def analyze_template(
         document_variable=document_variable,
         already_imported=imported_as is not None,
     )
+    draft_attachment_fields: Set[str] = set()
+    draft_docx_template_fields: Set[str] = set()
+    draft_title_template: Optional[ProposedBlock] = None
+    existing_template_names = {
+        _reference_root(entry.get("data", {}).get("template"))
+        for entry in existing_model.get("blocks", [])
+        if entry.get("type") == BLOCK_TYPE_TEMPLATE
+        and isinstance(entry.get("data"), dict)
+    }
+    draft_interview_label = (
+        draft_attachment_variable[: -len("_attachment")]
+        if draft_attachment_variable.endswith("_attachment")
+        else draft_attachment_variable
+    )
+    expected_draft_title = f"{draft_interview_label}_attachment_title"
+    target_title = (
+        f"{document_variable}_title"
+        if document_variable.endswith("_attachment")
+        else f"{document_variable}_attachment_title"
+    )
+    for entry in draft_model["blocks"]:
+        data = entry.get("data")
+        if (
+            entry.get("type") == BLOCK_TYPE_TEMPLATE
+            and isinstance(data, dict)
+            and _reference_root(data.get("template")) == expected_draft_title
+            and target_title not in existing_template_names
+        ):
+            title_yaml = str(entry.get("yaml") or "").strip()
+            if disambiguated:
+                title_yaml = _rename_attachment_variable(
+                    title_yaml, expected_draft_title, target_title
+                )
+            draft_title_template = ProposedBlock(
+                kind="template",
+                title=f"Display title for {template_filename}",
+                yaml=title_yaml,
+                variables=[target_title],
+            )
+            break
+    if template_filename.lower().endswith(".docx"):
+        for entry in draft_model["blocks"]:
+            data = entry.get("data")
+            if entry.get("type") == BLOCK_TYPE_QUESTION and isinstance(data, dict):
+                draft_docx_template_fields.update(_question_field_variables(data))
     new_variables: List[str] = []
     known_variables: List[str] = []
     # A draft can declare people across more than one `objects:` block, and
@@ -466,12 +604,17 @@ def analyze_template(
         block_type = entry.get("type")
 
         if block_type == BLOCK_TYPE_ATTACHMENT:
+            draft_attachment_fields = _attachment_mapping_field_names(data)
             attachment_yaml = _rename_attachment_variable(
                 block_yaml, draft_attachment_variable, document_variable
             )
             if disambiguated:
                 attachment_yaml = _rename_attachment_output(
                     attachment_yaml, output_filename
+                )
+            if template_filename.lower().endswith(".docx"):
+                attachment_yaml = _with_docx_field_manifest(
+                    attachment_yaml, draft_docx_template_fields
                 )
             analysis.attachment = ProposedBlock(
                 kind="attachment",
@@ -500,6 +643,11 @@ def analyze_template(
                 declaration = _rename_attachment_variable(
                     declaration, name, document_variable
                 )
+                # The `_attachment_title` suffix starts with an underscore,
+                # which is a word character in regex terms; the generic
+                # identifier-boundary rename above intentionally leaves it
+                # alone. Rename this exact generated companion explicitly.
+                declaration = declaration.replace(expected_draft_title, target_title)
                 if disambiguated:
                     declaration = with_declaration_keyword(
                         declaration, "filename", f'"{output_filename}"'
@@ -510,6 +658,10 @@ def analyze_template(
                     yaml=_render_objects_block([(document_variable, declaration)]),
                     variables=[document_variable],
                 )
+                if draft_title_template is not None:
+                    analysis.document_object.supporting_blocks.append(
+                        draft_title_template
+                    )
             person_object_declarations.extend(person_declarations)
         elif block_type == BLOCK_TYPE_QUESTION:
             trimmed, variables = _trim_question_fields(data, already_defined)
@@ -542,6 +694,61 @@ def analyze_template(
         )
 
     if imported_as is not None:
+        existing_attachment_fields: Set[str] = set()
+        existing_docx_fields: Set[str] = set()
+        if imported_as.attachment_block_id:
+            for entry in existing_model.get("blocks", []):
+                if (
+                    str(entry.get("id")) == imported_as.attachment_block_id
+                    and entry.get("type") == BLOCK_TYPE_ATTACHMENT
+                    and isinstance(entry.get("data"), dict)
+                ):
+                    existing_attachment_fields = _attachment_mapping_field_names(
+                        entry["data"]
+                    )
+                    if template_filename.lower().endswith(".docx"):
+                        existing_docx_fields = _docx_field_manifest(
+                            str(entry.get("yaml") or "")
+                        )
+                    break
+        if template_filename.lower().endswith(".docx"):
+            existing_fields = existing_docx_fields
+            revised_fields = draft_docx_template_fields
+            if not existing_docx_fields:
+                analysis.warnings.append(
+                    "This DOCX attachment has no saved template-field manifest, "
+                    "so fields removed before this revision cannot be identified. "
+                    "Review existing questions; applying the revised attachment "
+                    "will save a manifest for future comparisons."
+                )
+        else:
+            existing_fields = existing_attachment_fields
+            revised_fields = draft_attachment_fields
+        if existing_fields or revised_fields:
+            added_fields = revised_fields - existing_fields
+            removed_fields = existing_fields - revised_fields
+            analysis.mapping_changes = {
+                "added": sorted(added_fields),
+                "removed": sorted(removed_fields),
+                "retained": sorted(existing_fields & revised_fields),
+            }
+            if removed_fields:
+                analysis.stale_question_variables = _question_variables_for_fields(
+                    existing_model, removed_fields
+                )
+                analysis.warnings.append(
+                    "The revised template no longer contains mapped fields: "
+                    + ", ".join(sorted(removed_fields))
+                    + ". Existing mappings and authored questions are preserved; "
+                    "review them before using the revised form."
+                )
+                if analysis.stale_question_variables:
+                    analysis.warnings.append(
+                        "Existing question screens still ask for removed template "
+                        "fields: "
+                        + ", ".join(analysis.stale_question_variables)
+                        + ". Update those screens if the questions no longer apply."
+                    )
         # The document exists, so the only thing worth offering about it is a
         # freshly read attachment block -- which is how a revised form gets its
         # new fields. It replaces rather than adds, and it is not ticked by
@@ -567,6 +774,11 @@ def analyze_template(
                     f"{template_filename} is already attached, but Weaver could "
                     "not find the attachment block to re-read it into."
                 )
+            elif draft_title_template is not None:
+                # Legacy imports can be missing the title template. Tie the
+                # repair to the explicitly accepted attachment replacement;
+                # existing authored titles are never overwritten.
+                analysis.attachment.supporting_blocks.append(draft_title_template)
     else:
         if disambiguated:
             analysis.warnings.append(

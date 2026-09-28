@@ -1,7 +1,10 @@
 # do not pre-load
 
 import unittest
+import io
 from pathlib import Path
+
+from pypdf import PdfWriter
 
 from .api_utils import (
     DEFAULT_MAX_UPLOAD_BYTES,
@@ -15,6 +18,7 @@ from .api_utils import (
     merge_raw_options,
     parse_bool,
     validate_upload_metadata,
+    validate_document_content,
 )
 
 
@@ -142,6 +146,39 @@ class test_api_utils(unittest.TestCase):
                 content_bytes=b"x" * (DEFAULT_MAX_UPLOAD_BYTES + 1),
                 mimetype="application/pdf",
             )
+
+    def test_validate_document_content_rejects_malformed_files(self):
+        with self.assertRaisesRegex(WeaverAPIValidationError, "PDF file is unreadable"):
+            validate_document_content("bad.pdf", b"not a PDF")
+        with self.assertRaisesRegex(WeaverAPIValidationError, "DOCX file is malformed"):
+            validate_document_content("bad.docx", b"not a ZIP archive")
+
+    def test_validate_document_content_rejects_encrypted_pdf(self):
+        writer = PdfWriter()
+        writer.add_blank_page(width=612, height=792)
+        writer.encrypt("matrix-test-password")
+        encrypted_pdf = io.BytesIO()
+        writer.write(encrypted_pdf)
+        with self.assertRaisesRegex(WeaverAPIValidationError, "password-protected"):
+            validate_document_content("encrypted.pdf", encrypted_pdf.getvalue())
+
+    def test_validate_document_content_accepts_owner_password_only_pdf(self):
+        writer = PdfWriter()
+        writer.add_blank_page(width=612, height=792)
+        writer.encrypt(user_password="", owner_password="matrix-owner-password")
+        encrypted_pdf = io.BytesIO()
+        writer.write(encrypted_pdf)
+
+        validate_document_content("owner-protected.pdf", encrypted_pdf.getvalue())
+
+    def test_validate_document_content_accepts_real_docx_and_pdf(self):
+        docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
+        validate_document_content(docx_path.name, docx_path.read_bytes())
+        writer = PdfWriter()
+        writer.add_blank_page(width=612, height=792)
+        pdf = io.BytesIO()
+        writer.write(pdf)
+        validate_document_content("blank.pdf", pdf.getvalue())
 
     def test_build_openapi_spec_has_expected_paths(self):
         spec = build_openapi_spec()

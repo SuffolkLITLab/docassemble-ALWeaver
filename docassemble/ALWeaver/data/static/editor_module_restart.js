@@ -317,13 +317,25 @@
       return refresh().then(function (current) {
         if (!current || !current.pending) return true;
         if (current.policy === 'never') return true;
-        if (current.policy === 'auto' && current.restart_allowed) {
+        if (current.policy === 'auto') {
+          if (!current.restart_allowed) {
+            setError(
+              current.restart_blocked_reason ||
+                'The server cannot restart now, so the updated modules are not ready to run.',
+            );
+            return false;
+          }
           return restartNow().then(
-            function () {
-              return true;
+            function (completed) {
+              if (!completed) {
+                setError(
+                  'The server has not confirmed that the updated modules are ready. Run again after the restart completes.',
+                );
+              }
+              return completed;
             },
             function () {
-              return true;
+              return false;
             },
           );
         }

@@ -53,6 +53,21 @@ class GithubCredentialError(DocassembleCompatibilityError):
 _GITHUB_NO_SUCH_REF_STATUSES = frozenset({404, 409})
 
 
+def _github_ref_is_missing(status: int, response_body: Any) -> bool:
+    """Recognize GitHub's 422 response for an unknown commit/ref name.
+
+    The REST ``commits/{ref}`` endpoint returns 422 (rather than 404) when a
+    repository exists but the requested branch does not. Keep the check
+    narrow: other validation errors must remain actionable errors.
+    """
+    if status in _GITHUB_NO_SUCH_REF_STATUSES:
+        return True
+    if status != 422 or not isinstance(response_body, dict):
+        return False
+    message = str(response_body.get("message") or "").strip()
+    return message.startswith("No commit found for SHA:")
+
+
 @dataclass(frozen=True)
 class DocassembleCapabilities:
     version: str
@@ -1049,6 +1064,8 @@ def get_github_repository_snapshot(
     repository_url: str,
     user_id: Optional[int] = None,
     ref: Optional[str] = None,
+    allow_missing: bool = False,
+    include_all_files: bool = False,
 ) -> Dict[str, Any]:
     """Read one GitHub repository tree, using OAuth when available.
 
@@ -1099,6 +1116,16 @@ def get_github_repository_snapshot(
             if result.returncode != 0 or not re.fullmatch(
                 r"[0-9a-fA-F]{40}", commit_sha
             ):
+                if allow_missing and result.returncode == 0:
+                    return {
+                        **repository,
+                        "branch": selected_ref,
+                        "sha": "",
+                        "files": {},
+                        "private": False,
+                        "missing": True,
+                        "repository_exists": True,
+                    }
                 raise DocassembleCompatibilityError(
                     "GitHub repository was not found, is private, or does not contain that branch"
                 )
@@ -1111,6 +1138,16 @@ def get_github_repository_snapshot(
         response, repo_info = _github_json_request(http, base_url)
         status = int(response.get("status", 0))
         if status != 200 or not isinstance(repo_info, dict):
+            if allow_missing and status in _GITHUB_NO_SUCH_REF_STATUSES:
+                return {
+                    **repository,
+                    "branch": str(ref or "main"),
+                    "sha": "",
+                    "files": {},
+                    "private": None,
+                    "missing": True,
+                    "repository_exists": False,
+                }
             if status == 404:
                 message = "GitHub repository was not found or is private"
             else:
@@ -1123,7 +1160,19 @@ def get_github_repository_snapshot(
         response, commit = _github_json_request(
             http, f"{base_url}/commits/{quote(selected_ref, safe='')}"
         )
-        if int(response.get("status", 0)) != 200 or not isinstance(commit, dict):
+        commit_status = int(response.get("status", 0))
+        if commit_status != 200 or not isinstance(commit, dict):
+            if allow_missing and _github_ref_is_missing(commit_status, commit):
+                return {
+                    **repository,
+                    "branch": selected_ref,
+                    "sha": "",
+                    "files": {},
+                    "private": bool(repo_info.get("private")),
+                    "missing": True,
+                    "repository_exists": True,
+                    "default_branch": str(repo_info.get("default_branch") or "main"),
+                }
             raise DocassembleCompatibilityError(
                 _github_error_message(commit, f"GitHub could not read {selected_ref}")
             )
@@ -1161,7 +1210,7 @@ def get_github_repository_snapshot(
                 if not member.isfile() or "/" not in member.name:
                     continue
                 path = member.name.split("/", 1)[1]
-                if re.fullmatch(
+                if not include_all_files and re.fullmatch(
                     r"docassemble/[^/]+/data/(questions|templates|static|sources)/.+/.+",
                     path,
                 ):
@@ -1169,7 +1218,7 @@ def get_github_repository_snapshot(
                         "The repository contains nested files under a docassemble data directory; "
                         "move them directly into questions, templates, static, or sources before importing"
                     )
-                if not (
+                if not include_all_files and not (
                     re.fullmatch(
                         r"docassemble/[^/]+/data/(questions|templates|static|sources)/[^/]+",
                         path,
@@ -1199,6 +1248,8 @@ def get_github_repository_snapshot(
         "sha": commit_sha,
         "files": files,
         "private": bool(repo_info.get("private")),
+        "repository_exists": True,
+        "default_branch": str(repo_info.get("default_branch") or ""),
     }
 
 
@@ -1521,6 +1572,120 @@ def _github_tree_blobs(
     ]
 
 
+def build_github_package_snapshot(
+    *,
+    package: str,
+    project: str,
+    user_id: int,
+    package_info: Dict[str, Any],
+    author_name: str,
+    author_email: str,
+    manifest_path: str = "",
+    extra_repository_files: Optional[Mapping[str, Union[str, bytes]]] = None,
+    directory: Optional[str] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """Build the exact local package tree that the GitHub publisher will commit.
+
+    The returned mapping contains file bytes and Git mode so preview and publish
+    can hash and compare one deterministic snapshot rather than a list of names.
+    """
+    make_package_dir = _first_webapp_attr(
+        (
+            ("docassemble.webapp.files", "make_package_dir"),
+            ("docassemble.webapp.files.savedfile", "make_package_dir"),
+        ),
+        "its Playground package builder",
+    )
+    package_data = dict(package_info)
+    manifest_path = str(manifest_path or "")
+    if manifest_path and os.path.isfile(manifest_path):
+        package_data["modtime"] = os.path.getmtime(manifest_path)
+    else:
+        package_data.setdefault("modtime", 0)
+
+    display_name = str(author_name or "Account").strip() or "Account"
+    author_info = {
+        "id": user_id,
+        "author name": display_name,
+        "author email": author_email,
+        "author name and email": (
+            f"{display_name} <{author_email}>" if author_email else display_name
+        ),
+    }
+    created_directory = directory is None
+    package_directory = str(
+        directory or tempfile.mkdtemp(prefix="weaver-github-preview-")
+    )
+    try:
+        make_package_dir(
+            package,
+            package_data,
+            author_info,
+            directory=package_directory,
+            current_project=project,
+        )
+        packagedir = os.path.join(package_directory, f"docassemble-{package}")
+        if not os.path.isdir(packagedir):
+            raise DocassembleCompatibilityError(
+                "Docassemble did not create the GitHub package directory"
+            )
+        for relative_path, content in (extra_repository_files or {}).items():
+            normalized_path = posixpath.normpath(str(relative_path).replace("\\", "/"))
+            if (
+                normalized_path in {"", ".", ".."}
+                or normalized_path.startswith("../")
+                or normalized_path.startswith("/")
+            ):
+                raise ValueError(
+                    "Extra GitHub package paths must stay inside the repository"
+                )
+            destination = os.path.join(packagedir, *normalized_path.split("/"))
+            os.makedirs(os.path.dirname(destination), exist_ok=True)
+            if isinstance(content, bytes):
+                with open(destination, "wb") as stream:
+                    stream.write(content)
+            else:
+                with open(destination, "w", encoding="utf-8") as stream:
+                    stream.write(str(content))
+
+        files: Dict[str, Dict[str, Any]] = {}
+        for root, _directories, filenames in os.walk(packagedir):
+            for filename in filenames:
+                full_path = os.path.join(root, filename)
+                relative_path = os.path.relpath(full_path, packagedir).replace(
+                    os.sep, "/"
+                )
+                with open(full_path, "rb") as stream:
+                    content = stream.read()
+                files[relative_path] = {
+                    "content": content,
+                    "mode": "100755" if os.access(full_path, os.X_OK) else "100644",
+                }
+        if not files:
+            raise ValueError("The generated GitHub package is empty")
+        return dict(sorted(files.items()))
+    finally:
+        if created_directory:
+            shutil.rmtree(package_directory, ignore_errors=True)
+
+
+def github_package_snapshot_revision(files: Mapping[str, Mapping[str, Any]]) -> str:
+    """Return a stable digest for a packaged tree, including path/mode/bytes."""
+    import hashlib
+
+    digest = hashlib.sha256()
+    for path in sorted(files):
+        item = files[path]
+        digest.update(path.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(str(item.get("mode") or "100644").encode("ascii"))
+        digest.update(b"\0")
+        content = item.get("content", b"")
+        digest.update(content if isinstance(content, bytes) else str(content).encode())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
 def publish_github_package(
     *,
     owner: str,
@@ -1539,6 +1704,8 @@ def publish_github_package(
     extra_repository_files: Optional[Mapping[str, Union[str, bytes]]] = None,
     preserved_path_prefixes: Sequence[str] = (),
     managed_paths: Collection[str] = (),
+    expected_remote_sha: Optional[str] = None,
+    expected_source_revision: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Commit a generated Playground package through GitHub's Git API.
 
@@ -1571,32 +1738,8 @@ def publish_github_package(
             # Progress reporting must never abort a publish that is working.
             pass
 
-    make_package_dir = _first_webapp_attr(
-        (
-            ("docassemble.webapp.files", "make_package_dir"),
-            ("docassemble.webapp.files.savedfile", "make_package_dir"),
-        ),
-        "its Playground package builder",
-    )
-    package_info = dict(package_info)
     manifest_path = str(manifest_path or "")
     default_branch = str(default_branch or "").strip()
-    if manifest_path and os.path.isfile(manifest_path):
-        package_info["modtime"] = os.path.getmtime(manifest_path)
-    else:
-        package_info.setdefault("modtime", 0)
-
-    display_name = str(author_name or "Account").strip() or "Account"
-    if author_email:
-        author_label = f"{display_name} <{author_email}>"
-    else:
-        author_label = display_name
-    author_info = {
-        "id": user_id,
-        "author name": display_name,
-        "author email": author_email,
-        "author name and email": author_label,
-    }
 
     # Create the staging directory here rather than letting Docassemble pick a
     # temporary one: if the package build fails partway through the copy, the
@@ -1604,49 +1747,27 @@ def publish_github_package(
     package_directory = tempfile.mkdtemp(prefix="weaver-github-")
     try:
         report("Building the package from the Playground project.", 5)
-        make_package_dir(
-            package,
-            package_info,
-            author_info,
+        files = build_github_package_snapshot(
+            package=package,
+            project=project,
+            user_id=user_id,
+            package_info=package_info,
+            author_name=author_name,
+            author_email=author_email,
+            manifest_path=manifest_path,
+            extra_repository_files=extra_repository_files,
             directory=package_directory,
-            current_project=project,
         )
-        packagedir = os.path.join(package_directory, f"docassemble-{package}")
-        if not os.path.isdir(packagedir):
-            raise DocassembleCompatibilityError(
-                "Docassemble did not create the GitHub package directory"
+        source_revision = github_package_snapshot_revision(files)
+        if (
+            expected_source_revision is not None
+            and source_revision != expected_source_revision
+        ):
+            raise ValueError(
+                "The Playground package changed after its publish preview. "
+                "Preview the current files again before publishing."
             )
-
-        for relative_path, content in (extra_repository_files or {}).items():
-            normalized_path = posixpath.normpath(str(relative_path).replace("\\", "/"))
-            if (
-                normalized_path in {"", ".", ".."}
-                or normalized_path.startswith("../")
-                or normalized_path.startswith("/")
-            ):
-                raise ValueError(
-                    "Extra GitHub package paths must stay inside the repository"
-                )
-            destination = os.path.join(packagedir, *normalized_path.split("/"))
-            os.makedirs(os.path.dirname(destination), exist_ok=True)
-            if isinstance(content, bytes):
-                with open(destination, "wb") as binary_stream:
-                    binary_stream.write(content)
-            else:
-                with open(destination, "w", encoding="utf-8") as text_stream:
-                    text_stream.write(str(content))
-
-        files: List[Tuple[str, str]] = []
-        for root, _directories, filenames in os.walk(packagedir):
-            for filename in filenames:
-                full_path = os.path.join(root, filename)
-                relative_path = os.path.relpath(full_path, packagedir).replace(
-                    os.sep, "/"
-                )
-                files.append((relative_path, full_path))
-        files.sort()
-        if not files:
-            raise ValueError("The generated GitHub package is empty")
+        display_name = str(author_name or "Account").strip() or "Account"
 
         http = _github_authorized_http(user_id=user_id)
         repository_path = (
@@ -1698,7 +1819,6 @@ def publish_github_package(
             raise DocassembleCompatibilityError(
                 _github_error_message(ref, "GitHub could not read the target branch")
             )
-
         # If the requested branch does not exist, base it on the repository's
         # default branch when one is available.  A repository Weaver just
         # created has no commits at all, so it simply starts without a parent.
@@ -1718,16 +1838,24 @@ def publish_github_package(
                         default_ref, "GitHub could not read the default branch"
                     )
                 )
+        if (
+            expected_remote_sha is not None
+            and (parent_sha or "") != expected_remote_sha
+        ):
+            raise ValueError(
+                f"GitHub branch {branch!r} changed after the publish preview. "
+                "Review its latest changes before publishing; no files were committed."
+            )
 
         tree_entries: List[Dict[str, str]] = []
         total_files = len(files)
-        for index, (relative_path, full_path) in enumerate(files, start=1):
+        for index, relative_path in enumerate(files, start=1):
+            file_data = files[relative_path]
             report(
                 f"Uploading {relative_path} ({index} of {total_files}).",
                 15 + int(70 * (index - 1) / total_files),
             )
-            with open(full_path, "rb") as stream:
-                encoded_content = base64.b64encode(stream.read()).decode("ascii")
+            encoded_content = base64.b64encode(file_data["content"]).decode("ascii")
             response, blob = _github_json_request(
                 http,
                 f"{repository_path}/git/blobs",
@@ -1748,7 +1876,7 @@ def publish_github_package(
             tree_entries.append(
                 {
                     "path": relative_path,
-                    "mode": "100755" if os.access(full_path, os.X_OK) else "100644",
+                    "mode": file_data["mode"],
                     "type": "blob",
                     "sha": blob_sha,
                 }

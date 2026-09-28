@@ -40,8 +40,8 @@ function makeDocument(type, modifiers, methodArgs, extraValues) {
     getAttribute(name) { return name === 'data-field-idx' ? '0' : null; },
     querySelector(selector) {
       if (selector === '[data-field-prop="type"]') return { value: type };
-      if (selector === '[data-field-prop="label"]') return { value: 'Label' };
-      if (selector === '[data-field-prop="variable"]') return { value: 'answer' };
+      if (selector === '[data-field-prop="label"]') return values['field-label-0'] || { value: 'Label' };
+      if (selector === '[data-field-prop="variable"]') return values['field-variable-0'] || { value: 'answer' };
       if (selector === '[data-field-method-args]') return { value: methodArgs || '' };
       return null;
     },
@@ -90,7 +90,7 @@ assert.strictEqual(serializers.escapeYamlStr(false), 'false');
 assert.strictEqual(serializers.escapeYamlStr(null), null);
 assert.strictEqual(serializers.escapeYamlStr(undefined), undefined);
 assert.strictEqual(serializers.escapeYamlStr('with: colon'), '"with: colon"');
-assert.strictEqual(serializers.escapeYamlStr('two\nlines'), '|\n  two\n  lines');
+assert.strictEqual(serializers.escapeYamlStr('two\nlines'), JSON.stringify('two\nlines'));
 assert.strictEqual(serializers.escapeYamlStr('a\\b"c'), '"a\\\\b\\"c"');
 
 assert.strictEqual(
@@ -164,6 +164,35 @@ const modifierYaml = serialize('text', modifierKeys);
 modifierKeys.forEach((key) => {
   assert.ok(modifierYaml.includes('    ' + key + ': modifier_value\n'), key);
 });
+assert.strictEqual(serializers.fieldModifierYamlValue('check others', 'True'), 'true');
+assert.strictEqual(serializers.fieldModifierYamlValue('check others', 'False'), 'false');
+assert.strictEqual(serializers.fieldModifierYamlValue('uncheck others', 'True'), 'true');
+assert.ok(serialize('checkboxes', [{ key: 'check others', value: 'True' }]).includes('    check others: true\n'));
+assert.ok(serialize('checkboxes', [{ key: 'check others', value: 'False' }]).includes('    check others: false\n'));
+assert.ok(!serialize('checkboxes', [{ key: 'check others', value: '' }]).includes('check others:'));
+const syncedCheckOthers = serialize(
+  'checkboxes',
+  [{ key: 'check others', value: 'False' }],
+  '',
+  { id: 'question_id', data: { fields: [{ 'check others': 'False' }] } },
+);
+assert.ok(syncedCheckOthers.includes('    check others: false\n'));
+const syncedUncheckOthers = serialize(
+  'checkboxes',
+  [{ key: 'uncheck others', value: 'True' }],
+  '',
+  { id: 'question_id', data: { fields: [{ 'uncheck others': 'True' }] } },
+);
+assert.ok(syncedUncheckOthers.includes('    uncheck others: true\n'));
+for (const key of ['disable others', 'shuffle']) {
+  const syncedFalse = serialize(
+    'checkboxes',
+    [{ key, value: 'False' }],
+    '',
+    { id: 'question_id', data: { fields: [{ [key]: 'False' }] } },
+  );
+  assert.ok(syncedFalse.includes('    ' + key + ': false\n'), syncedFalse);
+}
 
 // ---------------------------------------------------------------------------
 // ALPeopleList quantity — "Setting the number of people in a group"
@@ -446,3 +475,134 @@ assert.deepStrictEqual(typed.seen, []);
 const written = serializeWithGenerator({ id: 'x', data: { id: 'from_yaml' } }, {'adv-id': undefined});
 assert.ok(written.yaml.startsWith('id: from_yaml\n'), written.yaml);
 assert.deepStrictEqual(written.seen, []);
+
+// Workbook B05/B06: parse emitted YAML, including multiline nested labels and
+// YAML 1.1 implicit scalars. The production server uses PyYAML.
+const { spawnSync } = require('child_process');
+function parseYaml(text) {
+  const result = spawnSync(process.env.PYTHON || 'python', ['-c',
+    'import sys,json,yaml; print(json.dumps(yaml.safe_load(sys.stdin.read())))'], {input: text, encoding: 'utf8'});
+  assert.strictEqual(result.status, 0, result.stderr);
+  return JSON.parse(result.stdout);
+}
+const literals = ['Yes', 'No', 'on', 'off', 'null', '~', '001', '1e3', '2026-09-26', '.inf', 'two\nlines', '-', '?', 'a\\b'];
+for (const value of literals) {
+  assert.strictEqual(parseYaml('value: ' + serializers.escapeYamlStr(value)).value, value);
+}
+const multilineDocument = makeDocument('text', []);
+const multilineRow = multilineDocument.querySelectorAll('.editor-field-row')[0];
+const originalQuery = multilineRow.querySelector;
+multilineRow.querySelector = (selector) => selector === '[data-field-prop="label"]' ? {value: 'First line\nSecond line'} : originalQuery(selector);
+const multilineYaml = serializers.serializeQuestionToYaml({data: {}}, {
+  document: multilineDocument, appendYamlValue, appendYamlBlockValue,
+  fieldTypeSupportsStandaloneContent: () => false, choiceTypes: [], state: {},
+  appendQuestionAdvancedYaml: (yaml) => yaml,
+});
+assert.strictEqual(parseYaml(multilineYaml).fields[0].label, 'First line\nSecond line');
+const mapped = [{'Human label': 'machine_code'}, {'No': false}, 0, null, {'label': 'Detailed', 'value': 7, 'help': 'Keep metadata'}];
+assert.deepStrictEqual(serializers.readFieldChoices(serializers.fieldChoicesText(mapped)), mapped);
+const mappedYaml = serialize('radio', [], '', {data: {fields: [{choices: mapped}]}}, {
+  'field-choices-0': {value: serializers.fieldChoicesText(mapped)},
+});
+assert.deepStrictEqual(parseYaml(mappedYaml).fields[0].choices, mapped);
+const objectChoiceExpression = 'people.filter(is_eligible)';
+const objectChoiceExpressionYaml = serialize('object_radio', [], '', {
+  data: {fields: [{choices: objectChoiceExpression}]},
+}, {
+  'field-choices-0': {value: objectChoiceExpression, dataset: {choiceExpression: 'true'}},
+});
+assert.strictEqual(parseYaml(objectChoiceExpressionYaml).fields[0].choices, objectChoiceExpression);
+const unmodeledFieldValues = {
+  label: 'Name', field: 'name', datatype: 'text',
+  metadata: {source: 'authored', flags: [true, false, 0, null]},
+  'custom directive': {nested: ['one', 2]},
+};
+const unmodeledFieldYaml = serialize('text', [], '', {
+  data: {fields: [unmodeledFieldValues]},
+});
+assert.deepStrictEqual(parseYaml(unmodeledFieldYaml).fields[0].metadata, unmodeledFieldValues.metadata);
+assert.deepStrictEqual(parseYaml(unmodeledFieldYaml).fields[0]['custom directive'], unmodeledFieldValues['custom directive']);
+const renamedCompactField = {
+  Age: 'age', label: 'Applicant age (edited)', field: 'age', datatype: 'integer',
+  validate: 'lambda y: (y >= 0) or validation_error("Age must be nonnegative.", field="age")',
+  metadata: {source: 'authored'},
+};
+const renamedCompactFieldYaml = serialize('text', [], '', {
+  data: {fields: [renamedCompactField]},
+}, {
+  'field-label-0': {value: 'Applicant age (edited)'},
+  'field-variable-0': {value: 'age'},
+});
+const renamedCompactFieldData = parseYaml(renamedCompactFieldYaml).fields[0];
+assert.strictEqual(renamedCompactFieldData['Applicant age (edited)'], 'age');
+assert.ok(!Object.prototype.hasOwnProperty.call(renamedCompactFieldData, 'Age'));
+assert.strictEqual(renamedCompactFieldData.validate, renamedCompactField.validate);
+assert.deepStrictEqual(renamedCompactFieldData.metadata, renamedCompactField.metadata);
+const customDatatype = 'matrix_custom_widget';
+const customDatatypeYaml = serialize(customDatatype, [], '', {
+  data: {fields: [{label: 'Custom', field: 'custom_answer', datatype: customDatatype}]},
+});
+assert.strictEqual(parseYaml(customDatatypeYaml).fields[0].datatype, customDatatype);
+const clearedKnownModifierYaml = serialize('text', [{key: 'help', value: ''}], '', {
+  data: {fields: [{...unmodeledFieldValues, help: 'Remove this supported property'}]},
+});
+assert.ok(!Object.prototype.hasOwnProperty.call(parseYaml(clearedKnownModifierYaml).fields[0], 'help'));
+assert.deepStrictEqual(parseYaml(clearedKnownModifierYaml).fields[0].metadata, unmodeledFieldValues.metadata);
+assert.deepStrictEqual(parseYaml(serialize('radio', [], '', undefined, {
+  'field-choices-0': {value: literals.filter(v => !v.includes('\n')).join('\n')},
+})).fields[0].choices, literals.filter(v => !v.includes('\n')));
+assert.throws(() => serializers.readFieldChoices('[invalid'), /valid JSON array/);
+const cleared = serialize('text', [], '', {data: {subquestion: 'Old text'}});
+assert.strictEqual(parseYaml(cleared).subquestion, '');
+for (const choices of [[], [' leading ', '', 'trailing\n'], ['[literal]', 'ordinary']]) {
+  assert.deepStrictEqual(serializers.readFieldChoices(serializers.fieldChoicesText(choices)), choices);
+  assert.deepStrictEqual(parseYaml(serialize('radio', [], '', undefined, {
+    'field-choices-0': {value: serializers.fieldChoicesText(choices)},
+  })).fields[0].choices, choices);
+}
+
+// Review regression: typed settings must not use the literal-choice encoder.
+for (const [key, value, expected] of [
+  ['shuffle', 'False', false], ['shuffle', 'True', true],
+  ['disable others', 'True', true], ['disable others', 'False', false],
+  ['min', '0', 0], ['max', '10', 10],
+  ['disable others', '["other"]', ['other']],
+]) {
+  assert.deepStrictEqual(parseYaml(serialize('text', [{key, value}])).fields[0][key], expected);
+  assert.deepStrictEqual(parseYaml('value: ' + serializers.fieldModifierYamlValue(key, value)).value, expected);
+}
+const syncedDisableOthersList = serialize(
+  'text',
+  [{ key: 'disable others', value: '["other"]' }],
+  '',
+  {
+    id: 'question_id',
+    data: { fields: [{ 'disable others': ['other'] }] },
+  },
+);
+assert.deepStrictEqual(
+  parseYaml(syncedDisableOthersList).fields[0]['disable others'],
+  ['other'],
+);
+for (const key of ['check others', 'uncheck others']) {
+  const syncedYesNoList = serialize(
+    'yesno',
+    [{ key, value: '["first_choice", "second_choice"]' }],
+    '',
+    {
+      id: 'question_id',
+      data: { fields: [{ [key]: ['first_choice', 'second_choice'] }] },
+    },
+  );
+  assert.deepStrictEqual(
+    parseYaml(syncedYesNoList).fields[0][key],
+    ['first_choice', 'second_choice'],
+  );
+}
+for (const label of ['True', 'False', 'yes', 'no', '001']) {
+  assert.strictEqual(parseYaml('value: '+serializers.escapeYamlStr(label)).value, label);
+}
+for (const key of ['none of the above', 'all of the above']) {
+  const saved = serialize('checkboxes', [{key, value: 'False'}], '', {data: {fields: [{[key]: 'False'}]}});
+  assert.strictEqual(parseYaml(saved).fields[0][key], 'False');
+}
