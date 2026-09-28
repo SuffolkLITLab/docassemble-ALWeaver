@@ -101,9 +101,7 @@ def _normalize_hit(hit: Any) -> Optional[Dict[str, Any]]:
         return None
     breadcrumbs = _breadcrumbs(hit)
     title = (
-        breadcrumbs[-1]
-        if breadcrumbs
-        else _compact_text(hit.get("content"), limit=300)
+        breadcrumbs[-1] if breadcrumbs else _compact_text(hit.get("content"), limit=300)
     )
     excerpt = _compact_text(hit.get("content"))
     return {

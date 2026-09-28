@@ -14,6 +14,7 @@ from .documentation_search import (
     search_documentation,
 )
 from .editor_agent_models import AgentCandidate, AgentToolCall
+from . import editor_agent_tools
 from .editor_agent_tools import ToolContext, available_tool_names, execute_tool
 
 
@@ -115,8 +116,9 @@ class TestDocumentationSearchTool(unittest.TestCase):
     def test_search_tool_is_read_only_and_exposed(self):
         before = self.context.candidate.raw_source
         self.assertIn("search_documentation", available_tool_names())
-        with patch(
-            "docassemble.ALWeaver.editor_agent_tools.search_documentation",
+        with patch.object(
+            editor_agent_tools,
+            "search_documentation",
             return_value=[
                 {
                     "title": "Fields",
@@ -135,8 +137,9 @@ class TestDocumentationSearchTool(unittest.TestCase):
         self.assertEqual(self.context.candidate.raw_source, before)
 
     def test_search_tool_failure_is_structured(self):
-        with patch(
-            "docassemble.ALWeaver.editor_agent_tools.search_documentation",
+        with patch.object(
+            editor_agent_tools,
+            "search_documentation",
             side_effect=DocumentationSearchError("offline"),
         ):
             result = self.call("fields")
