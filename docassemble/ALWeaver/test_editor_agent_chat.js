@@ -147,6 +147,63 @@ const READY_RESULT = {
 
 const READY_TURN = TURN_STARTED;
 
+// Documentation results remain visible as real links even if the model only
+// says it used them in its answer.
+{
+  const harness = createHarness({
+    responses: {
+      '/api/agent/sessions': { success: true, data: { agent_session_id: 'agent-1' } },
+      '/api/agent/sessions/agent-1/turn': TURN_STARTED,
+      '/api/agent/sessions/agent-1/progress': finishedProgress({
+        status: 'answered',
+        summary: 'Use a show if condition.',
+        has_candidate_changes: false,
+        documentation_links: [{
+          title: 'Conditional questions',
+          url: 'https://assemblyline.suffolklitlab.org/docs/authoring/conditional',
+        }],
+        turn: { events: [] },
+      }),
+    },
+  });
+  const checkbox = findAll(harness.container, (node) => node.id === 'editor-agent-ask-only')[0];
+  assert.ok(checkbox);
+  checkbox.checked = true;
+  checkbox.listeners.change();
+  harness.chat.send('How do I make a question conditional?').then(() => {
+    const turn = harness.calls.find((call) => call.path === '/api/agent/sessions/agent-1/turn');
+    assert.strictEqual(turn.body.read_only, true);
+    const links = findAll(harness.container, (node) =>
+      node.className === 'editor-agent-documentation-link');
+    assert.strictEqual(links.length, 1);
+    assert.strictEqual(links[0].href,
+      'https://assemblyline.suffolklitlab.org/docs/authoring/conditional');
+    assert.strictEqual(links[0].textContent, 'Conditional questions');
+    assert.ok(!harness.chat.canApply());
+  }).catch((error) => { console.error(error); process.exit(1); });
+}
+
+// Asking a question after an earlier edit leaves that candidate available.
+{
+  const harness = createHarness({
+    responses: {
+      '/api/agent/sessions': { success: true, data: { agent_session_id: 'agent-1' } },
+      '/api/agent/sessions/agent-1/turn': TURN_STARTED,
+      '/api/agent/sessions/agent-1/progress': finishedProgress({
+        status: 'answered',
+        summary: 'Here is the answer.',
+        has_candidate_changes: true,
+        turn: { events: [] },
+      }),
+    },
+  });
+  harness.chat.send('What do the docs say?', true).then(() => {
+    assert.ok(harness.chat.canApply(), 'earlier candidate edits remain available');
+    const status = findAll(harness.container, (node) => node.className === 'editor-agent-status')[0];
+    assert.strictEqual(status.textContent, 'Answered without editing');
+  }).catch((error) => { console.error(error); process.exit(1); });
+}
+
 // --- A session is created lazily, from the working-source snapshot ----------
 {
   const harness = createHarness({

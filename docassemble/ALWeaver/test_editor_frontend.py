@@ -41,6 +41,11 @@ class _TemplateCollector(HTMLParser):
 
 
 class TestEditorFrontend(unittest.TestCase):
+    def test_assistant_has_a_read_only_question_control(self):
+        chat = (self.package_dir / "data/static/editor_agent_chat.js").read_text()
+        self.assertIn("Ask only (no edits)", chat)
+        self.assertIn("read_only: askingOnly", chat)
+
     def test_new_code_block_opens_in_expression_editor(self):
         from .editor_expressions import parse_expression
         import yaml

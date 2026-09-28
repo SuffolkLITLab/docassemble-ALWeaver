@@ -5974,6 +5974,7 @@ def _run_agent_turn_in_background(
     runtime_enabled: bool,
     request_id: str,
     started_at: float,
+    read_only: bool = False,
 ) -> None:
     """Run one turn to completion outside the request that asked for it.
 
@@ -6043,6 +6044,7 @@ def _run_agent_turn_in_background(
             llms_module=llms,
             model_name=model_name,
             runtime_enabled=runtime_enabled,
+            read_only=read_only,
             runtime=runtime,
             selected_block_id=selected_block_id,
             should_cancel=should_cancel,
@@ -6140,6 +6142,9 @@ def editor_api_agent_turn(session_id: str) -> Response:
         selected_block_id = post_data.get("selected_block_id")
         if selected_block_id is not None and not isinstance(selected_block_id, str):
             raise ValueError("selected_block_id must be a string or null")
+        read_only = post_data.get("read_only", False)
+        if not isinstance(read_only, bool):
+            raise ValueError("read_only must be a boolean")
 
         if session.is_exhausted:
             # This assistant is for small, discrete edits. Rather than letting a
@@ -6198,6 +6203,7 @@ def editor_api_agent_turn(session_id: str) -> Response:
                     "message": message,
                     "selected_block_id": selected_block_id,
                     "runtime_enabled": _runtime_inspector_enabled(),
+                    "read_only": read_only,
                     "request_id": request_id,
                     "started_at": started_at,
                 },

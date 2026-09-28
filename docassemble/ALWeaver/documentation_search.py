@@ -72,11 +72,13 @@ def _official_url(value: Any) -> str:
     ):
         return ""
     if host == "assemblyline.suffolklitlab.org":
-        # Mirror the current Docusaurus DocSearch pathname rewrite.
-        if path == "/docs":
-            path = "/"
-        elif path.startswith("/docs/"):
-            path = path[len("/docs") :]
+        # The live documentation is served under /docs/. DocSearch already
+        # returns that prefix for current pages; retain it and repair older
+        # index entries that used root-relative documentation paths.
+        if path == "/":
+            path = "/docs/"
+        elif path != "/docs" and not path.startswith(("/docs/", "/assets/")):
+            path = "/docs" + path
 
     return urlunsplit(("https", host, path, parsed.query, parsed.fragment))
 

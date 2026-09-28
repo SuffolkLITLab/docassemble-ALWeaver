@@ -44,6 +44,7 @@ def weaver_editor_agent_turn_task(
     runtime_enabled: bool,
     request_id: str,
     started_at: float,
+    read_only: bool = False,
 ) -> None:
     """Run one editing-assistant turn in Docassemble's Celery worker.
 
@@ -60,6 +61,7 @@ def weaver_editor_agent_turn_task(
             message=message,
             selected_block_id=selected_block_id,
             runtime_enabled=runtime_enabled,
+            read_only=read_only,
             request_id=request_id,
             started_at=started_at,
         )

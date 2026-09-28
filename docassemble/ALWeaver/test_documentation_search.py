@@ -78,10 +78,30 @@ class TestDocumentationSearchClient(unittest.TestCase):
         )
         self.assertEqual(
             results[0]["url"],
-            "https://assemblyline.suffolklitlab.org/authoring/people#name-fields",
+            "https://assemblyline.suffolklitlab.org/docs/authoring/people#name-fields",
         )
         self.assertEqual(
             results[0]["excerpt"], "Use users[0].name_fields() for a name."
+        )
+
+    def test_older_root_relative_documentation_links_gain_docs_prefix(self):
+        def opener(request, timeout):
+            del request, timeout
+            return _FakeResponse(
+                {
+                    "hits": [
+                        {
+                            "hierarchy": {"lvl0": "Authoring"},
+                            "url": "https://assemblyline.suffolklitlab.org/authoring/people",
+                        }
+                    ]
+                }
+            )
+
+        results = search_documentation("people", opener=opener)
+        self.assertEqual(
+            results[0]["url"],
+            "https://assemblyline.suffolklitlab.org/docs/authoring/people",
         )
 
     def test_network_errors_become_a_search_specific_error(self):
@@ -146,6 +166,24 @@ class TestDocumentationSearchTool(unittest.TestCase):
 
         self.assertEqual(result.reason, "documentation_search_failed")
         self.assertIn("temporarily unavailable", result.message)
+
+    def test_read_only_context_exposes_docs_but_refuses_edits(self):
+        self.context.read_only = True
+        self.assertIn("search_documentation", available_tool_names(read_only=True))
+        self.assertNotIn("replace_question", available_tool_names(read_only=True))
+        before = self.context.candidate.raw_source
+        result = execute_tool(
+            self.context,
+            AgentToolCall(
+                tool="replace_question",
+                arguments={
+                    "block_id": "intro",
+                    "question": {"question": "Changed"},
+                },
+            ),
+        )
+        self.assertEqual(result.reason, "unknown_tool")
+        self.assertEqual(self.context.candidate.raw_source, before)
 
 
 if __name__ == "__main__":

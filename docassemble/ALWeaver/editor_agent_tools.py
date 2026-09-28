@@ -246,6 +246,7 @@ class ToolContext:
     owner_user_id: int
     candidate: AgentCandidate
     runtime_enabled: bool = False
+    read_only: bool = False
     runtime: Any = None
     runtime_session_started: bool = False
     scenario_seeded: bool = False
@@ -279,7 +280,9 @@ def register_tool(spec: AgentToolSpec) -> AgentToolSpec:
     return spec
 
 
-def available_tools(*, runtime_enabled: bool = False) -> List[AgentToolSpec]:
+def available_tools(
+    *, runtime_enabled: bool = False, read_only: bool = False
+) -> List[AgentToolSpec]:
     """The tools a given deployment may run, in a stable order."""
     tools = []
     for name in sorted(TOOL_REGISTRY):
@@ -288,12 +291,21 @@ def available_tools(*, runtime_enabled: bool = False) -> List[AgentToolSpec]:
             continue
         if spec.requires_runtime and not runtime_enabled:
             continue
+        if read_only and (spec.mutating or spec.requires_runtime):
+            continue
         tools.append(spec)
     return tools
 
 
-def available_tool_names(*, runtime_enabled: bool = False) -> List[str]:
-    return [spec.name for spec in available_tools(runtime_enabled=runtime_enabled)]
+def available_tool_names(
+    *, runtime_enabled: bool = False, read_only: bool = False
+) -> List[str]:
+    return [
+        spec.name
+        for spec in available_tools(
+            runtime_enabled=runtime_enabled, read_only=read_only
+        )
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -2192,7 +2204,9 @@ def execute_tool(context: ToolContext, tool_call: AgentToolCall) -> AgentToolRes
     hand structured feedback back to the model and let it try again.
     """
     name = str(tool_call.tool or "").strip()
-    allowed = available_tool_names(runtime_enabled=context.runtime_enabled)
+    allowed = available_tool_names(
+        runtime_enabled=context.runtime_enabled, read_only=context.read_only
+    )
     if name not in allowed:
         return _reject(
             name or "unknown",
