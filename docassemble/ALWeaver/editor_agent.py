@@ -468,18 +468,12 @@ def run_agent_turn(
         action = parse_model_action(response, read_only=read_only)
         if action["action"] == "invalid":
             limits.malformed += 1
-            turn.add_event(
-                {
-                    "type": "tool_result",
-                    "tool": "model_response",
-                    "label": "Response was not a valid command; retrying",
-                    "status": "rejected",
-                    "reason": "malformed_response",
-                }
-            )
             if limits.malformed >= MAX_MALFORMED_RESPONSES:
                 stop_reason = "malformed_model_responses"
                 break
+            # No tool ran. Keep this as transient progress rather than a
+            # rejected tool result shown beside the completed answer.
+            turn.add_event(_status_event("Retrying response", "thinking"))
             transcript.append(
                 {
                     "role": "user",

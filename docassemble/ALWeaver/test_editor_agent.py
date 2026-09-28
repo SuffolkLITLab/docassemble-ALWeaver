@@ -351,6 +351,18 @@ class TestHappyPath(AgentLoopTestCase):
             "Add a condition around the screen in the interview order.",
         )
         self.assertEqual(result.candidate.raw_source, INTERVIEW)
+        self.assertEqual(
+            [event for event in result.turn.events if event["type"] == "tool_result"],
+            [],
+        )
+        self.assertEqual(
+            [
+                event["label"]
+                for event in result.turn.events
+                if event["type"] == "status" and event["label"] == "Retrying response"
+            ],
+            ["Retrying response", "Retrying response"],
+        )
 
     def test_the_transcript_carries_over_to_the_next_turn(self):
         result, _llm = self.run_turn(

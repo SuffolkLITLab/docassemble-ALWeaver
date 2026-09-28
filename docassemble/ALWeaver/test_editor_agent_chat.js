@@ -162,7 +162,9 @@ const READY_TURN = TURN_STARTED;
           title: 'Conditional questions',
           url: 'https://assemblyline.suffolklitlab.org/docs/authoring/conditional',
         }],
-        turn: { events: [] },
+        turn: { events: [
+          { type: 'status', label: 'Retrying response', status: 'thinking' },
+        ] },
       }),
     },
   });
@@ -180,6 +182,9 @@ const READY_TURN = TURN_STARTED;
       'https://assemblyline.suffolklitlab.org/docs/authoring/conditional');
     assert.strictEqual(links[0].textContent, 'Conditional questions');
     assert.ok(!harness.chat.canApply());
+    const steps = findAll(harness.container, (node) =>
+      node.className === 'editor-agent-step-label');
+    assert.strictEqual(steps.length, 0, 'a recovered response-format retry is not a failed edit');
   }).catch((error) => { console.error(error); process.exit(1); });
 }
 
