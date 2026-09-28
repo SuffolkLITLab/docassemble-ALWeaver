@@ -3809,6 +3809,25 @@ body {
   overflow-wrap: anywhere;
 }
 
+.editor-agent-documentation-links {
+  margin-top: 8px;
+  font-size: 0.82rem;
+}
+
+.editor-agent-documentation-title {
+  margin: 0 0 3px;
+  font-weight: 600;
+}
+
+.editor-agent-documentation-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.editor-agent-documentation-link {
+  overflow-wrap: anywhere;
+}
+
 .editor-agent-steps {
   list-style: none;
   margin: 8px 0 0;
@@ -3894,6 +3913,12 @@ body {
   flex-shrink: 0;
   padding: 8px 12px 12px;
   border-top: 1px solid var(--editor-border);
+}
+
+.editor-agent-disclosure {
+  margin: 0 0 8px;
+  color: var(--editor-muted);
+  font-size: 0.75rem;
 }
 
 @media (max-width: 1200px) {
