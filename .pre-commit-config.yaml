@@ -26,7 +26,7 @@ repos:
 
       - id: pytest
         name: pytest (unit tests)
-        entry: bash -c 'ISUNITTEST=true pytest'
+        entry: scripts/run_unit_tests.sh
         language: system
         pass_filenames: false
         files: ^(docassemble/.*|conftest\.py|pyproject\.toml)$

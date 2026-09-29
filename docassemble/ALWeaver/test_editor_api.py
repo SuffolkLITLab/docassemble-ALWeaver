@@ -225,6 +225,92 @@ def _load_api_editor_for_tests():
 api_editor = _load_api_editor_for_tests()
 
 
+class TestEditorNavigationRoutes(unittest.TestCase):
+    def test_deep_editor_pages_serve_the_shell_and_keep_auth_guard(self):
+        paths = [
+            "/al/editor/",
+            "/al/editor/projects",
+            "/al/editor/projects/",
+            "/al/editor/projects/FaxCoverSheet",
+            "/al/editor/projects/FaxCoverSheet/interviews",
+            "/al/editor/projects/FaxCoverSheet/interviews/",
+            "/al/editor/projects/FaxCoverSheet/interviews/filename.yml",
+            "/al/editor/projects/FaxCoverSheet/interviews/filename.yml/blocks",
+            "/al/editor/projects/FaxCoverSheet/interviews/filename.yml/blocks/",
+            "/al/editor/projects/FaxCoverSheet/interviews/filename.yml/blocks/block-id",
+            "/al/editor/projects/FaxCoverSheet/interviews/filename.yml/blocks/block-id/",
+            "/al/editor/projects/FaxCoverSheet/interviews/filename.yml/blocks/~intake%252Fperson",
+            "/al/editor/projects/FaxCoverSheet/interviews/filename.yml/blocks/~intake%255Cperson",
+            "/al/editor/projects/FaxCoverSheet/interviews/filename.yml/blocks/~..",
+            "/al/editor/projects/FaxCoverSheet/interviews/filename.yml/blocks/~~",
+            "/al/editor/projects/FaxCoverSheet/interviews/filename.yml/source",
+            "/al/editor/projects/FaxCoverSheet/interviews/filename.yml/order",
+            "/al/editor/projects/FaxCoverSheet/interviews/filename.yml/settings",
+            "/al/editor/projects/FaxCoverSheet/interviews/filename.yml/tests",
+            "/al/editor/projects/FaxCoverSheet/interviews/filename.yml/debug",
+            "/al/editor/projects/FaxCoverSheet/interviews/filename.yml/documents",
+            "/al/editor/projects/FaxCoverSheet/templates",
+            "/al/editor/projects/FaxCoverSheet/templates/form.docx",
+            "/al/editor/projects/FaxCoverSheet/modules",
+            "/al/editor/projects/FaxCoverSheet/modules/main.py",
+            "/al/editor/projects/FaxCoverSheet/static",
+            "/al/editor/projects/FaxCoverSheet/static/app.js",
+            "/al/editor/projects/FaxCoverSheet/sources",
+            "/al/editor/projects/FaxCoverSheet/sources/data.csv",
+            "/al/editor/projects/FaxCoverSheet/documents",
+            "/al/editor/create",
+        ]
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(
+                api_editor, "_render_editor_page", return_value="<main>SPA</main>"
+            ),
+        ):
+            client = api_editor.app.test_client()
+            for path in paths:
+                with self.subTest(path=path):
+                    response = client.get(path)
+                    self.assertEqual(response.status_code, 200)
+                    self.assertIn(b"<main>SPA</main>", response.data)
+
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=False),
+            patch.object(
+                api_editor,
+                "_editor_auth_urls",
+                return_value=("/user/sign-in?next=%2Fal%2Feditor", "/user/sign-out"),
+            ),
+        ):
+            response = api_editor.app.test_client().get(
+                "/al/editor/projects/FaxCoverSheet/interviews/filename.yml/blocks/block-id"
+            )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/user/sign-in", response.headers["Location"])
+
+    def test_api_and_static_routes_are_not_captured_by_page_routes(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=1),
+            patch.object(api_editor, "playground_list_projects", return_value=[]),
+            patch.object(api_editor, "_project_github_sync_summaries", return_value={}),
+            patch.object(api_editor, "_get_static_content", return_value="body{}"),
+        ):
+            client = api_editor.app.test_client()
+            api_response = client.get("/al/editor/api/projects")
+            static_response = client.get("/al/editor/static/editor.css")
+        self.assertEqual(api_response.status_code, 200)
+        self.assertTrue(api_response.is_json)
+        self.assertEqual(static_response.status_code, 200)
+        self.assertEqual(static_response.mimetype, "text/css")
+        self.assertEqual(static_response.get_data(as_text=True), "body{}")
+
+    def test_unknown_nested_interview_paths_do_not_fall_through_to_spa(self):
+        response = api_editor.app.test_client().get(
+            "/al/editor/projects/FaxCoverSheet/interviews/filename.yml/unknown"
+        )
+        self.assertEqual(response.status_code, 404)
+
+
 class _FakeRedis:
     """Just enough Redis for the editor's job-state records."""
 

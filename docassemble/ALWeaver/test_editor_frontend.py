@@ -27,6 +27,8 @@ NODE_TESTS = (
     "test_editor_interview_report.js",
     "test_editor_include_report.js",
     "test_editor_runtime_inspector.js",
+    "test_editor_router.js",
+    "test_editor_route_navigation.js",
 )
 
 
