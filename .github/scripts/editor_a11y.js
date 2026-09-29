@@ -129,6 +129,7 @@ async function openInterviewMenu(page) {
     { timeout: 10_000 }
   );
   await menu.waitFor({ state: "visible", timeout: 10_000 });
+  return menu;
 }
 
 async function main() {
@@ -226,8 +227,8 @@ async function main() {
     );
     // The style check lives in the Interview menu, and the deterministic run
     // is the one that needs no model configured on the test server.
-    await openInterviewMenu(page);
-    await page.locator('[data-action="run-style-check"]').click();
+    const interviewMenu = await openInterviewMenu(page);
+    await interviewMenu.locator('[data-action="run-style-check"]').click();
     await settledFindings(page);
     blockingViolations = blockingViolations.concat(
       await audit(page, "style-check results")
@@ -235,7 +236,7 @@ async function main() {
 
     // Full YAML, metadata, and interview-order source editors.
     await openInterviewMenu(page);
-    await page.locator('[data-action="open-full-yaml"]').click();
+    await interviewMenu.locator('[data-action="open-full-yaml"]').click();
     await page.locator("#full-source-editor").waitFor({ state: "visible" });
     blockingViolations = blockingViolations.concat(
       await audit(page, "full YAML editor")
@@ -252,7 +253,9 @@ async function main() {
 
     // AssemblyLine settings, including its explanatory popover.
     await openInterviewMenu(page);
-    await page.locator('[data-action="open-assemblyline-settings"]').click();
+    await interviewMenu
+      .locator('[data-action="open-assemblyline-settings"]')
+      .click();
     await page.locator("#assemblyline-settings-filter").waitFor({ state: "visible" });
     blockingViolations = blockingViolations.concat(
       await audit(page, "AssemblyLine settings")
