@@ -413,3 +413,25 @@ const blockMap = report.buildBlockMap(blocks);
 }
 
 console.log('editor_interview_report.js: all assertions passed');
+
+{
+  const steps = [{ kind: 'loop', target: 'person', iterable: 'users', children: [
+    { kind: 'condition', condition: 'person.skip', children: [{ kind: 'continue' }] },
+    { kind: 'condition', condition: 'person.stop', children: [{ kind: 'break' }] },
+    { kind: 'screen', invoke: 'person.email' },
+    { kind: 'assignment', target: 'person.complete', expression: 'True' },
+  ] }, { kind: 'screen', invoke: 'download' }];
+  const model = report.buildFlowModel(steps, {}, {}, {});
+  const header = model.nodes.find(n => n.label === 'For each person');
+  const skip = model.nodes.find(n => n.label === 'continue');
+  const stop = model.nodes.find(n => n.label === 'break');
+  const download = model.nodes.find(n => n.sublabel === 'download');
+  assert.ok(model.edges.some(e => e.from === skip.id && e.to === header.id));
+  assert.ok(model.edges.some(e => e.from === stop.id && e.to === download.id));
+  assert.ok(model.nodes.some(n => n.label === 'person.complete = True'));
+  const html = report.buildReport(steps, [], {});
+  assert.ok(html.includes('<code>person</code> in <code>users</code>'));
+  assert.ok(html.includes('person.email'));
+  const expanded = report.expandNamedOrders([{ kind: 'loop', target: 'item', iterable: 'items', children: [{ kind: 'screen', invoke: 'child_order' }] }], { child_order: [{ kind: 'screen', invoke: 'item.name' }] });
+  assert.strictEqual(expanded[0].children[0].invoke, 'item.name');
+}

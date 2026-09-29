@@ -603,7 +603,7 @@
 
   /* The condition an `else` branch consists entirely of, or null. */
   function getSoleElseCondition(step) {
-    if (!step || !step.has_else) return null;
+    if (!step || !step.has_else || step._order_else_comment) return null;
     var elseChildren = Array.isArray(step.else_children) ? step.else_children : [];
     if (elseChildren.length !== 1) return null;
     var only = elseChildren[0];
@@ -646,6 +646,8 @@
     if (tail.has_else) {
       newLink.has_else = true;
       newLink.else_children = Array.isArray(tail.else_children) ? tail.else_children : [];
+      if (tail._order_else_comment) newLink._order_else_comment = tail._order_else_comment;
+      delete tail._order_else_comment;
     }
     tail.has_else = true;
     tail.else_children = [newLink];
@@ -657,6 +659,8 @@
   function removeChainLink(parentStep, link) {
     if (!isChainLink(link, parentStep)) return false;
     parentStep.has_else = Boolean(link.has_else);
+    if (link._order_else_comment) parentStep._order_else_comment = link._order_else_comment;
+    else delete parentStep._order_else_comment;
     parentStep.else_children = Array.isArray(link.else_children) ? link.else_children : [];
     return true;
   }

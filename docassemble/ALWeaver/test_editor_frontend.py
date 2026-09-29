@@ -13,6 +13,7 @@ NODE_TESTS = (
     "test_editor_expressions.js",
     "test_editor_attachments.js",
     "test_editor_order_lookup.js",
+    "test_editor_order_loops.js",
     "test_editor_dirty_state.js",
     "test_editor_question_label_guard.js",
     "test_editor_html.js",

@@ -431,6 +431,43 @@ class TestLosslessEditing(AgentToolTestCase):
         # The order block had no explicit id; a fingerprint is never written back.
         self.assertNotIn("id: block-", updated)
 
+    def test_order_loop_assignment_and_controls_pass_the_tool_schema(self):
+        result = self.call(
+            "replace_order_steps",
+            {
+                "steps": [
+                    {
+                        "kind": "loop",
+                        "target": "person",
+                        "iterable": "users",
+                        "children": [
+                            {"kind": "comment", "code": "# Contact details"},
+                            {
+                                "kind": "assignment",
+                                "target": "person.complete",
+                                "expression": "True",
+                            },
+                            {
+                                "kind": "condition",
+                                "condition": "person.skip",
+                                "children": [{"kind": "continue"}],
+                            },
+                            {"kind": "break"},
+                        ],
+                    }
+                ]
+            },
+        )
+        self.assertTrue(result.succeeded, result.message)
+        self.assertIn("for person in users:", self.context.candidate.raw_source)
+        self.assertIn("person.complete = True", self.context.candidate.raw_source)
+
+    def test_order_tool_rejects_break_outside_loop(self):
+        result = self.call("replace_order_steps", {"steps": [{"kind": "break"}]})
+        self.assertFalse(result.succeeded)
+        self.assertEqual(result.reason, "invalid_steps")
+        self.assertEqual(self.context.candidate.raw_source, INTERVIEW)
+
     def test_the_diff_is_taken_against_the_session_working_source(self):
         self.call(
             "replace_question",

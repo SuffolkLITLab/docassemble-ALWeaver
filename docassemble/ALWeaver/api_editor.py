@@ -205,6 +205,7 @@ try:
         rename_saved_file,
         serialize_blocks_to_yaml,
         serialize_order_steps,
+        validate_order_steps,
         source_revision,
         enable_commented_block_in_yaml,
         reorder_blocks_in_yaml,
@@ -9023,6 +9024,7 @@ def editor_api_save_order() -> Response:
         if not isinstance(steps, list):
             raise ValueError("steps must be a list of order step objects")
 
+        validate_order_steps(steps)
         code_body = serialize_order_steps(steps)
 
         # Load the current file, find the order block, and replace it
