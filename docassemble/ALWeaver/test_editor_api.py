@@ -126,6 +126,7 @@ def _load_api_editor_for_tests():
         "rename_saved_file": lambda *args, **kwargs: None,
         "serialize_blocks_to_yaml": lambda *args, **kwargs: "",
         "serialize_order_steps": lambda *args, **kwargs: "",
+        "validate_order_steps": lambda *args, **kwargs: None,
         "source_revision": lambda text: "test-revision",
         "enable_commented_block_in_yaml": lambda content, block_id: content,
         "reorder_blocks_in_yaml": lambda content, order: content,
@@ -4393,6 +4394,7 @@ class TestOrderBlockLookup(unittest.TestCase):
                 "parse_interview_yaml",
                 "parse_order_code",
                 "serialize_order_steps",
+                "validate_order_steps",
                 "canonical_block_yaml",
                 "update_block_in_yaml",
             ):
@@ -4533,6 +4535,25 @@ class TestOrderBlockLookup(unittest.TestCase):
                 self.assertNotIn("mandatory", new["data"])
             else:
                 self.assertEqual(old["yaml"], new["yaml"])
+
+    def test_order_rejects_break_outside_a_loop_without_writing(self):
+        response, writer = self._post_order_edit(
+            "/al/editor/api/order", {"steps": [{"kind": "break"}]}
+        )
+        self.assertEqual(response.status_code, 400, response.get_json())
+        writer.assert_not_called()
+
+    def test_order_saves_nested_loop_and_assignment_in_place(self):
+        from .editor_utils import parse_order_code, parse_interview_yaml
+
+        code = "for person in users:\n  # contact\n  person.email\n  person.complete = True\n"
+        response, writer = self._post_order_edit(
+            "/al/editor/api/order", {"steps": parse_order_code(code)}
+        )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        blocks = parse_interview_yaml(writer.call_args.args[-1])["blocks"]
+        saved = next(b for b in blocks if b["id"] == "interview_order_form")
+        self.assertEqual(saved["data"]["code"], code)
 
     def test_stale_order_id_does_not_append_a_duplicate(self):
         response, writer = self._post_order_edit(

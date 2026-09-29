@@ -1736,13 +1736,11 @@ def _join_continuation_lines(lines: list) -> list:
 
 
 def parse_order_code(code: str) -> List[Dict[str, Any]]:
-    """Expose only losslessly understood statements to the guided order editor.
+    """Read suites recursively, retaining source and comments on editable steps.
 
-    AST statement boundaries keep unsupported suites and continuations intact.
-    Guided candidates must reproduce the Python AST, not a particular quoting
-    or indentation style. Keep their original source separately for lossless
-    no-op saves and narrow edits. Unsupported syntax and comments remain raw.
-    Whitespace belongs to neighboring steps rather than empty raw cards.
+    Unsupported statements remain indivisible raw steps. AST boundaries keep
+    their bodies intact; token boundaries distinguish suite headers from colons
+    inside expressions. No Python is executed.
     """
 
     def raw(source: str) -> Dict[str, Any]:
@@ -1753,70 +1751,201 @@ def parse_order_code(code: str) -> List[Dict[str, Any]]:
             "code": source,
         }
 
-    try:
-        body = ast.parse(code).body
-    except SyntaxError:
-        return [dict(raw(code), id="step-1")]
-    if not code.strip():
-        return []
-    lines = code.split("\n")
-    steps: List[Dict[str, Any]] = []
-    cursor = 0
-    for node in body:
-        start = (
-            min(
-                [node.lineno]
-                + [item.lineno for item in getattr(node, "decorator_list", [])]
-            )
-            - 1
-        )
-        end = node.end_lineno or node.lineno
-        # Semicolon-separated statements share a physical line: preserve the
-        # whole source rather than duplicating or slicing that line incorrectly.
-        if start < cursor:
-            steps = [raw(code)]
-            break
-        prefix = ""
-        if start > cursor:
-            gap = "\n".join(lines[cursor:start])
-            if gap.strip():
-                steps.append(raw(gap))
-            else:
-                prefix = gap + "\n"
-        source = "\n".join(lines[start:end])
-        candidate = _parse_simple_order_code(source)
-        rendered = serialize_order_steps(candidate)
+    def comments(source: str) -> List[str]:
+        return [
+            t.string
+            for t in tokenize.generate_tokens(io.StringIO(source).readline)
+            if t.type == tokenize.COMMENT
+        ]
+
+    def parse(source: str) -> List[Dict[str, Any]]:
         try:
-            equivalent = ast.dump(ast.parse(rendered)) == ast.dump(ast.parse(source))
+            nodes = ast.parse(source).body
         except SyntaxError:
-            equivalent = False
-        has_comments = any(
-            token.type == tokenize.COMMENT
-            for token in tokenize.generate_tokens(io.StringIO(source).readline)
-        )
-        if (
-            equivalent
-            and len(candidate) == 1
-            and (not has_comments or rendered == source)
-        ):
-            step = candidate[0]
-            if step.get("kind") == STEP_RAW:
-                step = raw(source)
+            return [raw(source)]
+        if not source.strip():
+            return []
+        lines = source.split("\n")
+        result: List[Dict[str, Any]] = []
+        cursor = 0
+
+        def gap(start: int, end: int) -> str:
+            text = "\n".join(lines[start:end])
+            if text.strip():
+                result.append(
+                    {
+                        "kind": "comment",
+                        "label": "Comment",
+                        "code": text,
+                        "summary": text.strip(),
+                    }
+                )
+                return ""
+            return text + "\n" if end > start else ""
+
+        for node_index, node in enumerate(nodes):
+            start = (
+                min(
+                    [node.lineno]
+                    + [n.lineno for n in getattr(node, "decorator_list", [])]
+                )
+                - 1
+            )
+            if start < cursor:
+                return [raw(source)]  # Multiple statements on a physical line.
+            prefix = gap(cursor, start)
+            end = node.end_lineno or node.lineno
+            if isinstance(node, (ast.If, ast.For)):
+                boundary = (
+                    nodes[node_index + 1].lineno - 1
+                    if node_index + 1 < len(nodes)
+                    else len(lines)
+                )
+                probe = end
+                while probe < boundary:
+                    line = lines[probe]
+                    if line.strip() and not (
+                        line.lstrip().startswith("#")
+                        and len(line) - len(line.lstrip()) > node.col_offset
+                    ):
+                        break
+                    if line.strip():
+                        end = probe + 1
+                    probe += 1
+            original = "\n".join(lines[start:end])
+            step = raw(original)
+            if isinstance(node, (ast.For, ast.If)) and not (
+                isinstance(node, ast.For) and node.orelse
+            ):
+                # A one-line suite stays raw: its statements share the header.
+                tokens = tokenize.generate_tokens(io.StringIO(original).readline)
+                depth = 0
+                header_line = None
+                for token in tokens:
+                    if token.type == tokenize.OP:
+                        if token.string in ("(", "[", "{"):
+                            depth += 1
+                        elif token.string in (")", "]", "}"):
+                            depth -= 1
+                        elif token.string == ":" and depth == 0:
+                            header_line = start + token.end[0]
+                            break
+                if header_line is not None and node.body[0].lineno > header_line:
+                    tail_line = end
+                    if node.orelse:
+                        for idx in range(
+                            node.body[-1].end_lineno or header_line,
+                            node.orelse[0].lineno,
+                        ):
+                            if re.match(r"^(?:elif\b|else\s*:)", lines[idx]):
+                                tail_line = idx
+                                break
+                    child_indent = node.body[0].col_offset
+                    body = "\n".join(
+                        (
+                            line[child_indent:]
+                            if line.startswith(" " * child_indent)
+                            else line
+                        )
+                        for line in lines[header_line:tail_line]
+                    )
+                    step = {
+                        "kind": "loop" if isinstance(node, ast.For) else STEP_CONDITION,
+                        "children": parse(body),
+                        "has_else": bool(node.orelse),
+                        "else_children": [],
+                    }
+                    if isinstance(node, ast.For):
+                        step.update(
+                            target=ast.get_source_segment(source, node.target),
+                            iterable=ast.get_source_segment(source, node.iter),
+                            label="For each",
+                        )
+                    else:
+                        step.update(
+                            condition=ast.get_source_segment(source, node.test),
+                            label="Condition",
+                        )
+                        if node.orelse:
+                            tail = lines[tail_line:end]
+                            if tail[0].startswith("elif"):
+                                step["else_children"] = parse(
+                                    "if" + "\n".join(tail)[4:]
+                                )
+                            else:
+                                step["_order_else_comment"] = " ".join(
+                                    comments(tail[0])
+                                )
+                                indent = node.orelse[0].col_offset
+                                step["else_children"] = parse(
+                                    "\n".join(
+                                        (
+                                            line[indent:]
+                                            if line.startswith(" " * indent)
+                                            else line
+                                        )
+                                        for line in tail[1:]
+                                    )
+                                )
+                    step["_order_header_comment"] = " ".join(
+                        comments("\n".join(lines[start:header_line]))
+                    )
+            elif isinstance(node, ast.Assign) and len(node.targets) == 1:
+                step = {
+                    "kind": "assignment",
+                    "label": "Set variable",
+                    "target": ast.get_source_segment(source, node.targets[0]),
+                    "expression": ast.get_source_segment(source, node.value),
+                }
+            elif isinstance(node, ast.Expr) and isinstance(
+                node.value, (ast.Name, ast.Attribute, ast.Subscript)
+            ):
+                step = {
+                    "kind": STEP_SCREEN,
+                    "label": "Screen",
+                    "invoke": ast.get_source_segment(source, node.value),
+                }
+            elif isinstance(node, (ast.Break, ast.Continue)):
+                step = {"kind": "break" if isinstance(node, ast.Break) else "continue"}
             else:
-                step["_order_source"] = source
-        else:
-            step = raw(source)
-        if prefix:
-            step["_order_prefix"] = prefix
-        steps.append(step)
-        cursor = end
-    else:
+                candidate = _parse_simple_order_code(
+                    ast.get_source_segment(source, node) or original
+                )
+                try:
+                    if len(candidate) == 1 and ast.dump(
+                        ast.parse(serialize_order_steps(candidate))
+                    ) == ast.dump(ast.parse(original)):
+                        step = candidate[0]
+                except (SyntaxError, ValueError):
+                    pass
+            if step["kind"] != STEP_RAW:
+                try:
+                    rendered = serialize_order_steps([step])
+                    if ast.dump(ast.parse(rendered)) != ast.dump(ast.parse(original)):
+                        step = raw(original)
+                    elif step["kind"] not in ("loop", STEP_CONDITION) and comments(
+                        rendered
+                    ):
+                        step = raw(original)
+                except (SyntaxError, ValueError):
+                    step = raw(original)
+            if step["kind"] != STEP_RAW:
+                step["_order_source"] = original
+                if step["kind"] not in ("loop", STEP_CONDITION):
+                    step["_order_inline_comment"] = " ".join(comments(original))
+            if step["kind"] == STEP_RAW:
+                step = raw(original)
+            if prefix:
+                step["_order_prefix"] = prefix
+            result.append(step)
+            cursor = end
         if cursor < len(lines):
-            tail = "\n".join(lines[cursor:])
-            if tail.strip() or not steps:
-                steps.append(raw(tail))
-            else:
-                steps[-1]["_order_suffix"] = "\n" + tail
+            suffix = gap(cursor, len(lines))
+            if suffix and result:
+                result[-1]["_order_suffix"] = suffix
+        return result
+
+    steps = parse(code)
     counter = 0
 
     def assign_ids(items: Sequence[Dict[str, Any]]) -> None:
@@ -2160,7 +2289,17 @@ def _patch_order_statement_source(source: str, rendered: str) -> str:
         encoded = encoded[:start] + replacement + encoded[end:]
     result = encoded.decode("utf-8")
     try:
-        if ast.dump(ast.parse(result)) == ast.dump(new_tree):
+
+        def comment_tokens(text: str) -> list:
+            return [
+                token.string
+                for token in tokenize.generate_tokens(io.StringIO(text).readline)
+                if token.type == tokenize.COMMENT
+            ]
+
+        if ast.dump(ast.parse(result)) == ast.dump(new_tree) and comment_tokens(
+            result
+        ) == comment_tokens(rendered):
             return result
     except SyntaxError:
         pass
@@ -2174,6 +2313,10 @@ def serialize_order_steps(
     code block."""
     lines: List[str] = []
 
+    def _comment(step: Dict[str, Any], key: str) -> str:
+        value = str(step.get(key) or "")
+        return "  " + value if value else ""
+
     def _append_condition(step: Dict[str, Any], indent: int, keyword: str) -> None:
         """Write one link of an ``if``/``elif``/``else`` chain.
 
@@ -2184,11 +2327,13 @@ def serialize_order_steps(
         """
         prefix = " " * indent
         condition = str(step.get("condition") or step.get("summary") or "True")
-        lines.append(f"{prefix}{keyword} {condition}:")
+        lines.append(
+            f"{prefix}{keyword} {condition}:" + _comment(step, "_order_header_comment")
+        )
         children = step.get("children") or []
         if children:
             _append_steps(children, indent + 2)
-        else:
+        if not any(child.get("kind") != "comment" for child in children):
             lines.append(f"{' ' * (indent + 2)}pass")
 
         if not step.get("has_else"):
@@ -2196,17 +2341,18 @@ def serialize_order_steps(
 
         else_children = step.get("else_children") or []
         if (
-            len(else_children) == 1
+            not step.get("_order_else_comment")
+            and len(else_children) == 1
             and isinstance(else_children[0], dict)
             and else_children[0].get("kind") == STEP_CONDITION
         ):
             _append_condition(else_children[0], indent, "elif")
             return
 
-        lines.append(f"{prefix}else:")
+        lines.append(f"{prefix}else:" + _comment(step, "_order_else_comment"))
         if else_children:
             _append_steps(else_children, indent + 2)
-        else:
+        if not any(child.get("kind") != "comment" for child in else_children):
             lines.append(f"{' ' * (indent + 2)}pass")
 
     def _append_steps(step_list: Sequence[Dict[str, Any]], indent: int) -> None:
@@ -2216,7 +2362,12 @@ def serialize_order_steps(
                 key in step
                 for key in ("_order_source", "_order_prefix", "_order_suffix")
             ):
-                rendered = serialize_order_steps([step], _preserve_source=False)
+                bare = {
+                    key: value
+                    for key, value in step.items()
+                    if key not in ("_order_source", "_order_prefix", "_order_suffix")
+                }
+                rendered = serialize_order_steps([bare])
                 source = step.get("_order_source")
                 if isinstance(source, str):
                     rendered = _patch_order_statement_source(source, rendered)
@@ -2225,7 +2376,10 @@ def serialize_order_steps(
                     + rendered
                     + str(step.get("_order_suffix", ""))
                 )
-                lines.extend(prefix + line for line in rendered.split("\n"))
+                lines.extend(
+                    prefix + line if line.strip() else line
+                    for line in rendered.split("\n")
+                )
                 continue
             kind = step.get("kind", STEP_RAW)
             if kind == STEP_SECTION:
@@ -2245,13 +2399,80 @@ def serialize_order_steps(
                 lines.append(f"{prefix}{step.get('invoke', '')}")
             elif kind == STEP_CONDITION:
                 _append_condition(step, indent, "if")
-            elif kind == STEP_RAW:
+            elif kind == "loop":
+                lines.append(
+                    f"{prefix}for {step.get('target', '')} in {step.get('iterable', '')}:"
+                    + _comment(step, "_order_header_comment")
+                )
+                children = step.get("children") or []
+                _append_steps(children, indent + 2)
+                if not any(child.get("kind") != "comment" for child in children):
+                    lines.append(prefix + "  pass")
+            elif kind == "assignment":
+                lines.append(
+                    f"{prefix}{step.get('target', '')} = {step.get('expression', '')}"
+                )
+            elif kind in ("break", "continue"):
+                lines.append(prefix + kind)
+            elif kind in (STEP_RAW, "comment"):
                 code = step.get("code", "")
                 for raw_line in str(code).split("\n"):
-                    lines.append(f"{prefix}{raw_line}")
+                    lines.append(
+                        f"{prefix}{raw_line}" if raw_line.strip() else raw_line
+                    )
+            if kind not in (STEP_RAW, "comment", "loop", STEP_CONDITION) and lines:
+                lines[-1] += _comment(step, "_order_inline_comment")
 
     _append_steps(steps, 0)
     return "\n".join(lines)
+
+
+def validate_order_steps(steps: Sequence[Dict[str, Any]]) -> None:
+    """Validate guided field boundaries and Python control flow before a write."""
+
+    def visit(items: Sequence[Dict[str, Any]]) -> None:
+        for step in items:
+            kind = step.get("kind")
+            if kind in ("assignment", "loop"):
+                target = str(step.get("target") or "")
+                expression = str(
+                    step.get("expression" if kind == "assignment" else "iterable") or ""
+                )
+                try:
+                    ast.parse(expression, mode="eval")
+                    assignment = ast.parse(target + " = None").body
+                    if (
+                        len(assignment) != 1
+                        or not isinstance(assignment[0], ast.Assign)
+                        or len(assignment[0].targets) != 1
+                    ):
+                        raise ValueError("Enter one assignment target")
+                    if (
+                        not isinstance(assignment[0].value, ast.Constant)
+                        or assignment[0].value.value is not None
+                    ):
+                        raise ValueError("Enter an assignment target without a value")
+                except SyntaxError as exc:
+                    raise ValueError(
+                        f"Invalid {kind} target or expression: {exc.msg}"
+                    ) from exc
+            if kind == "comment" and any(
+                line.strip() and not line.lstrip().startswith("#")
+                for line in str(step.get("code") or "").splitlines()
+            ):
+                raise ValueError(
+                    "Comment steps must contain only comments or blank lines"
+                )
+            visit(step.get("children") or [])
+            visit(step.get("else_children") or [])
+
+    visit(steps)
+    try:
+        compile(serialize_order_steps(steps), "<interview order>", "exec")
+    except SyntaxError as exc:
+        raise ValueError(
+            f"Invalid interview order: {exc.msg} (line {exc.lineno})"
+        ) from exc
 
 
 def generate_draft_order(blocks: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:

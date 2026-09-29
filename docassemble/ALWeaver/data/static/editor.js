@@ -6220,6 +6220,7 @@
     if (!_inlineEditStepId) return false;
     var stepRecord = findStepRecord(state.orderSteps, _inlineEditStepId, null);
     if (!stepRecord) return false;
+    readOrderStructuredFields(stepRecord.step, 'order-inline-edit');
     var inlineInvoke = document.getElementById('order-inline-edit-invoke');
     var inlineCondition = document.getElementById(
       'order-inline-edit-condition',
@@ -6240,7 +6241,12 @@
       if (stepRecord.step.kind === 'progress')
         stepRecord.step.summary = 'Progress: ' + inlineValue.value + '%';
     }
-    return Boolean(inlineInvoke || inlineCondition || inlineValue);
+    return Boolean(
+      inlineInvoke ||
+      inlineCondition ||
+      inlineValue ||
+      document.querySelector('.editor-order-inline-edit [data-order-field]'),
+    );
   }
 
   function markInterviewDirty(commandId) {
@@ -6383,7 +6389,11 @@
   function getOrderStepTypeLabel(step) {
     if (!step) return '';
     if (step.kind === 'screen') return '';
-    if (step.kind === 'gather') return 'loop';
+    if (step.kind === 'gather') return 'gather';
+    if (step.kind === 'loop') return 'for each';
+    if (step.kind === 'assignment') return 'set variable';
+    if (['comment', 'break', 'continue'].indexOf(step.kind) !== -1)
+      return step.kind;
     if (step.kind === 'condition') return 'condition';
     if (step.kind === 'section') return 'section';
     if (step.kind === 'progress') return 'progress';
@@ -6484,6 +6494,13 @@
 
   function getOrderStepHeading(step) {
     if (!step) return '';
+    if (step.kind === 'loop')
+      return 'for ' + step.target + ' in ' + step.iterable;
+    if (step.kind === 'assignment')
+      return step.target + ' = ' + step.expression;
+    if (step.kind === 'comment') return step.code || 'Comment';
+    if (step.kind === 'break') return 'Break out of loop';
+    if (step.kind === 'continue') return 'Continue with next item';
     if (step.kind === 'screen') {
       var screenBlock = findBlockByInvoke(step);
       return screenBlock
@@ -6535,6 +6552,27 @@
   function createOrderStep(kind) {
     var uniqueId =
       'step-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+    if (kind === 'loop')
+      return {
+        id: uniqueId,
+        kind: kind,
+        label: 'For each',
+        target: 'item',
+        iterable: '',
+        children: [],
+      };
+    if (kind === 'assignment')
+      return {
+        id: uniqueId,
+        kind: kind,
+        label: 'Set variable',
+        target: '',
+        expression: '',
+      };
+    if (kind === 'comment')
+      return { id: uniqueId, kind: kind, label: 'Comment', code: '# ' };
+    if (kind === 'break' || kind === 'continue')
+      return { id: uniqueId, kind: kind, label: kind };
     if (kind === 'screen')
       return {
         id: uniqueId,
@@ -6663,13 +6701,141 @@
     });
   }
 
+  function renderOrderStructuredFields(step, prefix) {
+    var html = '';
+    function field(key, label, value, expression) {
+      var id = prefix + '-' + key;
+      var labelHtml =
+        '<label class="editor-tiny" for="' + id + '">' + label + '</label>';
+      if (expression)
+        return (
+          labelHtml +
+          '<textarea rows="2" class="form-control form-control-sm mt-1 mb-2 font-monospace" id="' +
+          id +
+          '" data-order-field="' +
+          key +
+          '" data-expression-context="value">' +
+          esc(value || '') +
+          '</textarea>'
+        );
+      return (
+        labelHtml +
+        '<input class="form-control form-control-sm mt-1 mb-2 font-monospace" id="' +
+        id +
+        '" data-order-field="' +
+        key +
+        '" data-symbol-role="variable" value="' +
+        esc(value || '') +
+        '">'
+      );
+    }
+    if (step.kind === 'loop' || step.kind === 'assignment') {
+      html += field(
+        'target',
+        step.kind === 'loop' ? 'Item name' : 'Variable to set',
+        step.target,
+        false,
+      );
+      if (step.kind === 'loop') {
+        html += field(
+          'iterable',
+          'List or iterable expression',
+          step.iterable,
+          true,
+        );
+        html +=
+          '<label class="editor-tiny" for="' +
+          prefix +
+          '-list-choice">Use a known list</label><select class="form-select form-select-sm mb-2" id="' +
+          prefix +
+          '-list-choice" data-order-list-for="' +
+          prefix +
+          '-iterable"><option value="">Choose a list or enter an expression above</option>' +
+          getGatherListCandidates()
+            .map(function (item) {
+              return (
+                '<option value="' +
+                esc(item.variable) +
+                '">' +
+                esc(item.variable) +
+                '</option>'
+              );
+            })
+            .join('') +
+          '</select>';
+      } else
+        html += field('expression', 'Value expression', step.expression, true);
+    } else if (step.kind === 'comment') {
+      html +=
+        '<label class="editor-tiny" for="' +
+        prefix +
+        '-code">Comment</label><textarea class="form-control form-control-sm" data-order-field="code" id="' +
+        prefix +
+        '-code">' +
+        esc(step.code || '# ') +
+        '</textarea>';
+    } else if (step.kind === 'break' || step.kind === 'continue') {
+      html +=
+        '<p class="editor-tiny">' +
+        (step.kind === 'break'
+          ? 'Exit the nearest enclosing loop.'
+          : 'Skip the remaining steps for this item and start the next iteration.') +
+        '</p>';
+    }
+    return html;
+  }
+
+  function readOrderStructuredFields(step, prefix) {
+    ['target', 'iterable', 'expression', 'code'].forEach(function (key) {
+      var input = document.getElementById(prefix + '-' + key);
+      if (!input || !input.hasAttribute('data-order-field')) return;
+      step[key] = key === 'code' ? input.value : input.value.trim();
+      if (step.kind === 'comment' && key === 'code') {
+        step.code = input.value
+          .split('\n')
+          .map(function (line) {
+            return !line.trim() || /^\s*#/.test(line) ? line : '# ' + line;
+          })
+          .join('\n');
+      }
+    });
+  }
+
+  function orderLocationInsideLoop(parentId) {
+    while (parentId) {
+      var record = findStepRecord(state.orderSteps, parentId, null);
+      if (!record) return false;
+      if (record.step.kind === 'loop') return true;
+      parentId = record.parent && record.parent.id;
+    }
+    return false;
+  }
+
+  function orderStepFitsLoopContext(step, insideLoop) {
+    if (step.kind === 'break' || step.kind === 'continue') return insideLoop;
+    var childContext = insideLoop || step.kind === 'loop';
+    return (
+      (step.children || []).every(function (child) {
+        return orderStepFitsLoopContext(child, childContext);
+      }) &&
+      (step.else_children || []).every(function (child) {
+        return orderStepFitsLoopContext(child, insideLoop);
+      })
+    );
+  }
+
   function renderOrderAddBody(kind) {
     var bodyEl = document.getElementById('order-add-body');
     if (!bodyEl) return;
     var saveBtn = document.getElementById('order-add-save');
 
     var html = '';
-    if (kind === 'screen') {
+    if (
+      ['loop', 'assignment', 'comment', 'break', 'continue'].indexOf(kind) !==
+      -1
+    ) {
+      html += renderOrderStructuredFields(createOrderStep(kind), 'order-add');
+    } else if (kind === 'screen') {
       html +=
         '<div class="mb-2"><label class="editor-tiny">Screen variable / expression</label>';
       html +=
@@ -6731,6 +6897,10 @@
     };
     var kindSelect = document.getElementById('order-add-kind');
     if (kindSelect) {
+      ['break', 'continue'].forEach(function (kind) {
+        var option = kindSelect.querySelector('option[value="' + kind + '"]');
+        if (option) option.disabled = !orderLocationInsideLoop(parentStepId);
+      });
       kindSelect.value = 'screen';
       renderOrderAddBody(kindSelect.value);
     }
@@ -6824,7 +6994,31 @@
         step.kind === 'function'
       )
         lines.push(prefix + String(step.invoke || ''));
-      else if (step.kind === 'condition') {
+      else if (step.kind === 'loop') {
+        lines.push(
+          prefix +
+            'for ' +
+            step.target +
+            ' in ' +
+            step.iterable +
+            ':' +
+            (step._order_header_comment
+              ? '  ' + step._order_header_comment
+              : ''),
+        );
+        if ((step.children || []).length)
+          lines.push(renderOrderCodePreview(step.children, indent + 2));
+        if (
+          !(step.children || []).some(function (child) {
+            return child.kind !== 'comment';
+          })
+        )
+          lines.push(prefix + '  pass');
+      } else if (step.kind === 'assignment') {
+        lines.push(prefix + step.target + ' = ' + step.expression);
+      } else if (step.kind === 'break' || step.kind === 'continue') {
+        lines.push(prefix + step.kind);
+      } else if (step.kind === 'condition') {
         // Walk the chain so the preview shows the `elif` the server will
         // actually write, rather than a ladder of nested `if`.
         var chainLinks = getConditionChain(step);
@@ -6834,17 +7028,31 @@
             prefix +
               keyword +
               String(link.condition || link.summary || 'True') +
-              ':',
+              ':' +
+              (link._order_header_comment
+                ? '  ' + link._order_header_comment
+                : ''),
           );
           if (Array.isArray(link.children) && link.children.length) {
             lines.push(renderOrderCodePreview(link.children, indent + 2));
-          } else {
+          }
+          if (
+            !(link.children || []).some(function (child) {
+              return child.kind !== 'comment';
+            })
+          ) {
             lines.push(new Array(indent + 3).join(' ') + 'pass');
           }
         });
         var previewTail = chainLinks[chainLinks.length - 1];
         if (previewTail.has_else) {
-          lines.push(prefix + 'else:');
+          lines.push(
+            prefix +
+              'else:' +
+              (previewTail._order_else_comment
+                ? '  ' + previewTail._order_else_comment
+                : ''),
+          );
           if (
             Array.isArray(previewTail.else_children) &&
             previewTail.else_children.length
@@ -6852,7 +7060,12 @@
             lines.push(
               renderOrderCodePreview(previewTail.else_children, indent + 2),
             );
-          } else {
+          }
+          if (
+            !(previewTail.else_children || []).some(function (child) {
+              return child.kind !== 'comment';
+            })
+          ) {
             lines.push(new Array(indent + 3).join(' ') + 'pass');
           }
         }
@@ -6863,6 +7076,8 @@
             lines.push(prefix + line);
           });
       }
+      if (step._order_inline_comment && lines.length)
+        lines[lines.length - 1] += '  ' + step._order_inline_comment;
     });
     return lines.join('\n');
   }
@@ -15208,7 +15423,7 @@
         '<li><button class="dropdown-item" type="button" data-step-action="edit" data-step-id="' +
         esc(step.id) +
         '"><i class="fa-solid fa-pen-to-square me-2" aria-hidden="true"></i>Edit</button></li>';
-      if (step.kind === 'condition') {
+      if (step.kind === 'condition' || step.kind === 'loop') {
         html +=
           '<li><button class="dropdown-item" type="button" data-step-action="toggle-collapse" data-step-id="' +
           esc(step.id) +
@@ -15266,6 +15481,14 @@
       // Inline edit row shown when this step is being edited
       if (_inlineEditStepId === step.id) {
         html += renderInlineEditRow(step);
+      }
+      if (step.kind === 'loop') {
+        html +=
+          '<div class="editor-order-children' +
+          (isCollapsed ? ' d-none' : '') +
+          '">';
+        html += renderOrderBranch(step, depth + 1, 'then', 'Body');
+        html += '</div>';
       }
       if (step.kind === 'condition') {
         // The whole chain is drawn flat inside this one collapsible region, so
@@ -15520,6 +15743,18 @@
                   return;
                 }
 
+                if (
+                  !orderStepFitsLoopContext(
+                    sourceRecord.step,
+                    orderLocationInsideLoop(destinationParentId),
+                  )
+                ) {
+                  alert(
+                    'This step contains break or continue and must stay inside a loop.',
+                  );
+                  renderOrderBuilder();
+                  return;
+                }
                 var destinationList = state.orderSteps;
                 if (destinationParentId) {
                   var destinationParent = findStepRecord(
@@ -20936,6 +21171,7 @@
         markOrderDirty();
         renderCanvas();
       } else if (action === 'inline-save') {
+        readOrderStructuredFields(stepRecord.step, 'order-inline-edit');
         var inlineInvoke = document.getElementById('order-inline-edit-invoke');
         var inlineCondition = document.getElementById(
           'order-inline-edit-condition',
@@ -21571,6 +21807,7 @@
       target.matches('[data-fmod]') ||
       target.matches('.editor-field-showif-input') ||
       target.matches('.editor-field-showif-key') ||
+      target.matches('[data-order-field]') ||
       target.id === 'order-inline-edit-invoke' ||
       target.id === 'order-inline-edit-condition' ||
       target.id === 'order-inline-edit-value' ||
@@ -21593,6 +21830,15 @@
   });
 
   document.addEventListener('change', function (e) {
+    if (e.target.matches('[data-order-list-for]') && e.target.value) {
+      var iterableInput = document.getElementById(
+        e.target.dataset.orderListFor,
+      );
+      if (iterableInput) {
+        iterableInput.value = e.target.value;
+        iterableInput.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    }
     var target = e.target;
     if (target.matches('[data-screen-control]')) {
       markInterviewDirty();
@@ -21959,6 +22205,12 @@
   function renderInlineEditRow(step) {
     var html = '<div class="editor-order-inline-edit">';
     if (
+      ['loop', 'assignment', 'comment', 'break', 'continue'].indexOf(
+        step.kind,
+      ) !== -1
+    ) {
+      html += renderOrderStructuredFields(step, 'order-inline-edit');
+    } else if (
       step.kind === 'screen' ||
       step.kind === 'gather' ||
       step.kind === 'function'
@@ -22124,7 +22376,29 @@
       var valueEl = document.getElementById('order-add-value');
       var codeEl = document.getElementById('order-add-code');
 
-      if (kind === 'screen' || kind === 'function') {
+      if (
+        ['loop', 'assignment', 'comment', 'break', 'continue'].indexOf(kind) !==
+        -1
+      ) {
+        readOrderStructuredFields(newStep, 'order-add');
+        if (
+          (kind === 'loop' || kind === 'assignment') &&
+          (!newStep.target.trim() ||
+            !(kind === 'loop' ? newStep.iterable : newStep.expression).trim())
+        ) {
+          alert('Enter a target and an expression.');
+          return;
+        }
+        if (
+          !orderStepFitsLoopContext(
+            newStep,
+            orderLocationInsideLoop(_pendingOrderInsert.parentStepId),
+          )
+        ) {
+          alert('Break and continue must be inside a for loop.');
+          return;
+        }
+      } else if (kind === 'screen' || kind === 'function') {
         var invokeVal = invokeEl ? String(invokeEl.value || '').trim() : '';
         if (!invokeVal) return;
         newStep.invoke = invokeVal;

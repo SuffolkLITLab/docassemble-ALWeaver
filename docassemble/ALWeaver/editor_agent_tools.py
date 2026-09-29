@@ -1229,17 +1229,22 @@ def _invoked_names(steps: Sequence[Dict[str, Any]]) -> set:
 def _tool_replace_order_steps(
     context: ToolContext, arguments: Dict[str, Any]
 ) -> AgentToolResult:
-    from .editor_utils import parse_order_code, serialize_order_steps
+    from .editor_utils import (
+        parse_order_code,
+        serialize_order_steps,
+        validate_order_steps,
+    )
 
     steps = _normalize_order_steps(arguments["steps"])
     try:
+        validate_order_steps(steps)
         code_body = serialize_order_steps(steps)
     except Exception as exc:  # noqa: BLE001 - report the shape problem, do not crash
         return _reject(
             "replace_order_steps",
             "invalid_steps",
             "Those steps could not be turned into interview-order code "
-            f"({type(exc).__name__}). Each step is an object such as "
+            f"({exc}). Each step is an object such as "
             '{"kind": "screen", "invoke": "screen_id"} or '
             '{"kind": "condition", "condition": "not x", "children": [...]}.',
         )
@@ -1630,6 +1635,11 @@ _ORDER_STEP_BASE: Dict[str, Any] = {
                 "progress",
                 "function",
                 "condition",
+                "loop",
+                "assignment",
+                "comment",
+                "break",
+                "continue",
                 "raw",
             ],
         },
@@ -1639,6 +1649,9 @@ _ORDER_STEP_BASE: Dict[str, Any] = {
         "invoke": {"type": "string", "maxLength": 400},
         "code": {"type": "string", "maxLength": 2000},
         "condition": {"type": "string", "maxLength": 400},
+        "target": {"type": "string", "maxLength": 400},
+        "iterable": {"type": "string", "maxLength": 2000},
+        "expression": {"type": "string", "maxLength": 2000},
         "has_else": {"type": "boolean"},
         # Replaced by _order_step_schema with a validated nested item schema.
         # Leaving these unconstrained let a list of bare strings reach the
