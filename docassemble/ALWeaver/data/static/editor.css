@@ -4061,7 +4061,7 @@ body {
   font-size: 0.8125rem;
 }
 
-@media (max-width: 1200px) {
+@media (max-width: 1199.98px) {
   /* Not enough room for a third column: slide the panel over the canvas. */
   .editor-layout.editor-layout-assistant-open {
     grid-template-columns: var(--editor-left-width) minmax(0, 1fr);
