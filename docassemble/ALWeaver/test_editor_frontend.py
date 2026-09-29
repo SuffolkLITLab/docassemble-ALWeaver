@@ -24,6 +24,7 @@ NODE_TESTS = (
     "test_editor_agent_chat.js",
     "test_editor_screen_preview.js",
     "test_editor_interview_report.js",
+    "test_editor_include_report.js",
     "test_editor_runtime_inspector.js",
 )
 

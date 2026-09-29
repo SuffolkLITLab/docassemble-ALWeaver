@@ -53,6 +53,34 @@ const steps = [
 
 const blockMap = report.buildBlockMap(blocks);
 
+// Named order blocks in included files run where the parent calls their
+// completion variable, even when another named block is called in a branch.
+{
+  const childOrders = {
+    child_flow_done: [
+      { kind: 'screen', invoke: 'child_intro' },
+      { kind: 'condition', condition: 'has_children', children: [
+        { kind: 'screen', invoke: 'nested_flow_done' },
+      ], else_children: [] },
+    ],
+    nested_flow_done: [{ kind: 'screen', invoke: 'child_details' }],
+  };
+  const parent = [
+    { kind: 'screen', invoke: 'start' },
+    { kind: 'screen', invoke: 'child_flow_done' },
+    { kind: 'screen', invoke: 'finish' },
+  ];
+  const expanded = report.expandNamedOrders(parent, childOrders);
+  assert.deepStrictEqual(expanded.map((step) => step.invoke || step.kind),
+    ['start', 'child_intro', 'condition', 'finish']);
+  assert.strictEqual(expanded[2].children[0].invoke, 'child_details');
+  assert.strictEqual(parent[1].invoke, 'child_flow_done', 'the editable order is unchanged');
+  assert.deepStrictEqual(report.expandNamedOrders(
+    [{ kind: 'screen', invoke: 'child_flow_done' }],
+    { child_flow_done: [{ kind: 'screen', invoke: 'child_flow_done' }] },
+  ).map((step) => step.invoke), ['child_flow_done'], 'a cycle stops expanding');
+}
+
 // --- Flowchart --------------------------------------------------------------
 
 {

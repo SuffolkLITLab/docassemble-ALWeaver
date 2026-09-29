@@ -1284,6 +1284,48 @@ def _order_steps_from_model(model: Dict[str, Any]) -> Tuple[Dict[str, Any], list
     return order_step_map, order_steps
 
 
+def _named_order_steps_from_model(model: Dict[str, Any]) -> Dict[str, list]:
+    """Order blocks triggered by a final ``some_var = True`` assignment.
+
+    These can live in an included file without an ``id`` or ``mandatory`` key.
+    Keep this separate from the order builder's editable block map.
+    """
+    named: Dict[str, list] = {}
+
+    def asks_for_a_screen(steps: list) -> bool:
+        return any(
+            step.get("kind") in {"screen", "gather"}
+            or asks_for_a_screen(step.get("children") or [])
+            or asks_for_a_screen(step.get("else_children") or [])
+            for step in steps
+        )
+
+    for block in model.get("blocks", []):
+        if block.get("type") != "code":
+            continue
+        code = (block.get("data") or {}).get("code")
+        if not isinstance(code, str):
+            continue
+        try:
+            body = ast.parse(code).body
+        except SyntaxError:
+            continue
+        if not body or not isinstance(body[-1], ast.Assign):
+            continue
+        assignment = body[-1]
+        if not (
+            len(assignment.targets) == 1
+            and isinstance(assignment.targets[0], ast.Name)
+            and isinstance(assignment.value, ast.Constant)
+            and assignment.value.value is True
+        ):
+            continue
+        steps = parse_order_code(code)
+        if asks_for_a_screen(steps):
+            named.setdefault(assignment.targets[0].id, steps)
+    return named
+
+
 def _project_yaml_filenames(user_id: int, project: str) -> List[str]:
     """Interview filenames in a project, for walking its include graph.
 
@@ -4315,6 +4357,7 @@ def editor_api_get_package_file() -> Response:
                     # The blocks carry their own `include:` entries, which is
                     # how the caller walks on to the next package file.
                     "blocks": model["blocks"],
+                    "named_order_steps": _named_order_steps_from_model(model),
                 },
             }
         )
@@ -4376,6 +4419,7 @@ def editor_api_get_file() -> Response:
                     "order_blocks": model["order_blocks"],
                     "order_steps": order_steps,
                     "order_step_map": order_step_map,
+                    "named_order_steps": _named_order_steps_from_model(model),
                     "raw_yaml": raw_yaml,
                     "revision": source_revision(raw_yaml),
                     "metadata_raw_yaml": metadata_source_slice(raw_yaml),

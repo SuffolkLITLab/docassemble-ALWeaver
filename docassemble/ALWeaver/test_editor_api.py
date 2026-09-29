@@ -4359,6 +4359,32 @@ class TestOrderBlockLookup(unittest.TestCase):
         "---\nid: intro\nquestion: Hello\ncontinue button field: intro\n"
     )
 
+    def test_an_included_named_order_needs_no_id_or_mandatory_key(self):
+        from .editor_utils import parse_interview_yaml, parse_order_code
+
+        source = (
+            "---\ncomment: Child flow\ncode: |\n"
+            "  first_screen\n"
+            "  if has_children:\n"
+            "    children.gather()\n"
+            "  child_flow_done = True\n"
+        )
+        with patch.object(api_editor, "parse_order_code", parse_order_code):
+            named = api_editor._named_order_steps_from_model(
+                parse_interview_yaml(source)
+            )
+        self.assertEqual(set(named), {"child_flow_done"})
+        self.assertEqual(named["child_flow_done"][0]["invoke"], "first_screen")
+
+    def test_a_simple_assignment_is_not_mistaken_for_an_order(self):
+        from .editor_utils import parse_interview_yaml
+
+        source = "---\ncode: |\n  ordinary_flag = True\n"
+        self.assertEqual(
+            api_editor._named_order_steps_from_model(parse_interview_yaml(source)),
+            {},
+        )
+
     def _post_order_edit(self, path, payload):
         from . import editor_utils
 
@@ -5124,6 +5150,30 @@ class TestEditorReviewScreenAndTemplateApi(unittest.TestCase):
 
 class TestEditorPackageFileApi(unittest.TestCase):
     """Reading a YAML file out of an installed package, and nothing else."""
+
+    def test_package_exposes_its_named_order_steps(self):
+        from .editor_utils import parse_interview_yaml, parse_order_code
+
+        source = "---\ncode: |\n  framework_screen\n  framework_done = True\n"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "flow.yml")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(source)
+            with (
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(
+                    api_editor, "package_question_filename", return_value=path
+                ),
+                patch.object(api_editor, "parse_interview_yaml", parse_interview_yaml),
+                patch.object(api_editor, "parse_order_code", parse_order_code),
+            ):
+                with api_editor.app.test_request_context(
+                    "/al/editor/api/package-file?reference=docassemble.Framework:flow.yml"
+                ):
+                    response = api_editor.editor_api_get_package_file()
+
+        steps = response.get_json()["data"]["named_order_steps"]["framework_done"]
+        self.assertEqual(steps[0]["invoke"], "framework_screen")
 
     def test_reads_a_question_file_from_an_installed_package(self):
         source = (

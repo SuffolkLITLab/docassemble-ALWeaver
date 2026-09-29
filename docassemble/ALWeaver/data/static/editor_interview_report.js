@@ -823,6 +823,37 @@
     return parts;
   }
 
+  /* A child file can define a named order block whose last statement is
+   * `some_var = True`. Calling that variable from the main order runs the
+   * child's code at that point. Expand it before both the pages and chart are
+   * built, including when another child order is called inside a branch. */
+  function expandNamedOrders(steps, namedOrders) {
+    var orders = namedOrders || {};
+
+    function expand(items, active) {
+      var result = [];
+      (items || []).forEach(function (step) {
+        var name = step.kind === STEP_SCREEN ? String(step.invoke || '').trim() : '';
+        if (name && Object.prototype.hasOwnProperty.call(orders, name) &&
+            Array.isArray(orders[name]) && active.indexOf(name) === -1 && active.length < 40) {
+          result.push.apply(result, expand(orders[name], active.concat(name)));
+          return;
+        }
+        if (step.kind === STEP_CONDITION) {
+          var copy = Object.assign({}, step);
+          copy.children = expand(step.children, active);
+          copy.else_children = expand(step.else_children, active);
+          result.push(copy);
+        } else {
+          result.push(step);
+        }
+      });
+      return result;
+    }
+
+    return expand(steps, []);
+  }
+
   function renderBody(steps, ctx) {
     var parts = splitIntoParts(steps, ctx.sectionLabels);
     var html = '';
@@ -1497,6 +1528,7 @@
     objectDeclarations: objectDeclarations,
     attributesFromCode: attributesFromCode,
     splitIntoParts: splitIntoParts,
+    expandNamedOrders: expandNamedOrders,
     sectionLabels: sectionLabels,
   };
 });
