@@ -60,6 +60,10 @@ class TestEditorFrontend(unittest.TestCase):
         )
         self.assertIn('id="q-subquestion" rows="2"', editor)
         self.assertIn('class="editor-form-label-row"', editor)
+        self.assertIn("data-md-more-menu>", editor)
+        self.assertIn(
+            "host.querySelector('[data-md-more-menu]').prepend(menuItem)", editor
+        )
         self.assertIn('class="editor-content-label" for="q-title"', editor)
         self.assertIn('<dl class="editor-question-button-summary">', editor)
         self.assertNotRegex(css, r"font-size:\s*[\d.]+px")

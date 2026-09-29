@@ -1032,7 +1032,9 @@
         host.dataset.expressionReady = 'true';
         var action = document.createElement('button');
         action.type = 'button';
-        action.className = 'btn btn-sm btn-outline-secondary';
+        action.className = host.matches('textarea')
+          ? 'btn btn-sm btn-outline-secondary'
+          : 'dropdown-item';
         action.textContent = 'Insert / edit expression';
         action.title =
           'Select a Python expression or a complete ${ expression }, or insert at the cursor';
@@ -1058,7 +1060,7 @@
               );
             },
             'Python expression in template text',
-            action,
+            host.querySelector('.editor-md-kebab') || action,
           );
         });
         if (host.matches('textarea')) {
@@ -1066,7 +1068,11 @@
           group.className = 'expression-input-group';
           host.insertAdjacentElement('beforebegin', group);
           group.append(host, action);
-        } else host.appendChild(action);
+        } else {
+          var menuItem = document.createElement('li');
+          menuItem.appendChild(action);
+          host.querySelector('[data-md-more-menu]').prepend(menuItem);
+        }
       });
   }
 
@@ -5791,7 +5797,8 @@
     html += '<div class="dropdown d-inline-block">';
     html +=
       '<button type="button" class="editor-md-btn dropdown-toggle editor-md-kebab" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="More formatting" aria-label="More formatting"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i><span class="editor-md-fallback">More</span></button>';
-    html += '<ul class="dropdown-menu editor-md-overflow-menu">';
+    html +=
+      '<ul class="dropdown-menu editor-md-overflow-menu" data-md-more-menu>';
     html +=
       '<li><button type="button" class="dropdown-item" data-md-insert="symbol-raw" data-target-id="' +
       esc(targetId) +
