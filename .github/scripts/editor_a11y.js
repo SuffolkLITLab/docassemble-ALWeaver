@@ -279,10 +279,19 @@ async function main() {
     blockingViolations = blockingViolations.concat(
       await audit(page, "graphical question editor")
     );
-    const fieldSettingsButton = page.locator(".editor-field-kebab-btn").first();
+    // Add a field so this audit exercises the field authoring controls even
+    // when the loaded screen has no editable field rows.
+    await page.locator("#add-field-btn").click();
+    const newField = page.locator(".editor-field-row").last();
+    await newField.waitFor({ state: "visible", timeout: 30_000 });
+    const fieldSettingsButton = newField.locator(".editor-field-kebab-btn");
     await fieldSettingsButton.waitFor({ state: "visible", timeout: 30_000 });
     await fieldSettingsButton.click();
-    await page.waitForTimeout(250);
+    const fieldIndex = await newField.getAttribute("data-field-idx");
+    await page.locator(`.editor-field-mods-panel[data-field-idx="${fieldIndex}"]`).waitFor({
+      state: "visible",
+      timeout: 30_000,
+    });
     blockingViolations = blockingViolations.concat(
       await audit(page, "field settings editor")
     );
