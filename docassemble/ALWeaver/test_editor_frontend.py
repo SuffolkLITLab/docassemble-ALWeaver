@@ -218,6 +218,29 @@ class TestEditorFrontend(unittest.TestCase):
             source,
         )
 
+    def test_github_commit_message_supports_multiple_lines(self):
+        root = Path(__file__).parent / "data"
+        template = (root / "templates/editor.html").read_text()
+        css = (root / "static/editor.css").read_text()
+        editor = (root / "static/editor.js").read_text()
+        control = re.search(
+            r'<textarea\b(?=[^>]*\bid="github-commit-message")([^>]*)>([^<]*)</textarea>',
+            template,
+        )
+        self.assertIsNotNone(control)
+        attributes, default = control.groups()
+        self.assertIn('id="github-commit-message"', attributes)
+        self.assertIn('name="commit_message"', attributes)
+        self.assertIn('rows="2"', attributes)
+        self.assertIn('maxlength="500"', attributes)
+        self.assertIn("required", attributes)
+        self.assertEqual(default, "Update from Weaver")
+        self.assertIn(
+            ".github-commit-message-wrap textarea {\n  resize: vertical;", css
+        )
+        self.assertIn(".github-commit-message-wrap::after", css)
+        self.assertIn("commit_message: messageInput ? messageInput.value : ''", editor)
+
     def test_upload_generation_warnings_are_shown_to_the_author(self):
         source = (Path(__file__).parent / "data/static/editor.js").read_text()
         self.assertIn("_newProjectGenerationWarnings(jobData)", source)
