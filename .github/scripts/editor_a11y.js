@@ -325,6 +325,35 @@ async function main() {
     );
     await closeModal(page, "#insert-modal");
 
+    // The compact section switcher replaces the desktop tabs below 1400px.
+    // Audit its expanded Interview actions as part of the full page, too.
+    await page.setViewportSize({ width: 1024, height: 1200 });
+    await page.locator("#editor-section-menu").click();
+    await page
+      .locator('[data-section-submenu="editor-interview-submenu"]')
+      .click();
+    await page.locator("#editor-interview-submenu").waitFor({
+      state: "visible",
+    });
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "compact Interview menu")
+    );
+    await page
+      .locator('#editor-interview-submenu [data-action="run-style-check"]')
+      .click();
+    await settledFindings(page);
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "compact style-check results")
+    );
+
+    // On phones, the Interview menu moves inside the collapsed navbar.
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.locator(".navbar-toggler").click();
+    await openInterviewMenu(page);
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "phone Interview menu")
+    );
+
     if (pageErrors.length) {
       console.error("Browser page errors:");
       for (const error of pageErrors) console.error(error);
