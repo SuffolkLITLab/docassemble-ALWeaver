@@ -73,6 +73,10 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertLess(
             renderer.index('id="adv-id"'), renderer.index('id="question-screen-panel"')
         )
+        # Order rows grow with the browser font instead of clipping at 32px.
+        order_step = css.split("\n.editor-order-step {", 1)[1].split("}", 1)[0]
+        self.assertIn("min-height: 2rem;", order_step)
+        self.assertNotIn("height: 32px;", order_step)
 
     def test_assistant_has_a_read_only_question_control(self):
         chat = (self.package_dir / "data/static/editor_agent_chat.js").read_text()
@@ -196,6 +200,8 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn(".editor-field-settings-tabs .nav-link {", css)
         self.assertIn("color: var(--editor-primary);", css)
         self.assertIn(".editor-field-settings-tabpane[hidden]", css)
+        self.assertIn(".editor-field-mods-panel .btn-outline-secondary {", css)
+        self.assertIn("--bs-btn-color: #5c636a;", css)
 
     def test_compact_section_button_has_contrast_when_open(self):
         css = (self.package_dir / "data/static/editor.css").read_text()
@@ -471,6 +477,13 @@ class TestEditorFrontend(unittest.TestCase):
                         f"{relative_path}:{index + 1} uses the magic icon "
                         "without using AI: " + line.strip(),
                     )
+
+    def test_scrollable_source_editors_have_focusable_content(self):
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+        create = editor.split("  function createSourceEditor(", 1)[1]
+        create = create.split("\n  function ", 1)[0]
+        # axe's scrollable-region-focusable ignores bare contenteditable.
+        self.assertIn("view.contentDOM.setAttribute('tabindex', '0')", create)
 
     def test_docassemble_codemirror_contract_on_supported_tags(self):
         checkout = Path(

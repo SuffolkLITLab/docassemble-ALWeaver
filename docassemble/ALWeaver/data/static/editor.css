@@ -1083,6 +1083,14 @@ body {
   gap: 8px;
 }
 
+/* Bootstrap's #6c757d is only 4.45:1 on the tinted panel; #5c636a is 5.8:1. */
+.editor-field-mods-panel .btn-outline-secondary {
+  --bs-btn-color: #5c636a;
+  --bs-btn-border-color: #5c636a;
+  --bs-btn-hover-bg: #5c636a;
+  --bs-btn-hover-border-color: #5c636a;
+}
+
 .editor-field-mod-row {
   display: flex;
   flex-direction: column;
@@ -1707,7 +1715,7 @@ body {
   background: #fff;
   border: 0;
   border-radius: 6px;
-  height: 32px;
+  min-height: 2rem;
   padding: 0 8px;
   overflow: visible;
   transition:
@@ -1734,7 +1742,7 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 100%;
+  min-height: 2rem;
   min-width: 0;
 }
 
@@ -3718,6 +3726,11 @@ body {
 }
 
 /* ===== Order step action kebab — no border ===== */
+
+/* A block wrapper puts the kebab on a text line, adding a pixel below it. */
+.editor-order-step-actions .dropdown {
+  display: flex;
+}
 
 .editor-order-step-actions .dropdown .btn {
   border: 1px solid transparent;

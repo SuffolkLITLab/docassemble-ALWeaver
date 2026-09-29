@@ -768,6 +768,10 @@
         options.ariaLabel || 'Source editor',
       );
       view.contentDOM.setAttribute('aria-multiline', 'true');
+      // contenteditable is already a tab stop, but axe only recognises focusable
+      // content in a scrollable region by tabindex, so a long file fails
+      // scrollable-region-focusable without it.
+      view.contentDOM.setAttribute('tabindex', '0');
     }
     var editor = {
       getValue: function () {
