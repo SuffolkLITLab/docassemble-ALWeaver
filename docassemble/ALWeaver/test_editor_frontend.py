@@ -4,6 +4,7 @@ from collections import Counter
 from html.parser import HTMLParser
 import os
 from pathlib import Path
+import re
 import subprocess
 import unittest
 
@@ -219,6 +220,55 @@ class TestEditorFrontend(unittest.TestCase):
             self.assertLess(template.index(module), template.index("editor.js"))
         self.assertNotIn("monaco", editor.lower())
         self.assertNotIn("cdn.jsdelivr.net", editor)
+
+    def test_save_and_run_remain_available_when_navigation_collapses(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+        css = (self.package_dir / "data/static/editor.css").read_text()
+
+        self.assertIn("navbar navbar-expand-xxl editor-navbar", template)
+        section_menu = template.split('id="editor-section-menu"', 1)[1]
+        section_menu = section_menu.split('class="editor-compact-actions"', 1)[0]
+        for view in ("interview", "templates", "modules", "static", "data"):
+            self.assertIn(f'data-view="{view}"', section_menu)
+        for name in ("interview", "templates"):
+            compact_submenu = template.split(f'id="editor-{name}-submenu"', 1)[1].split(
+                "</ul>", 1
+            )[0]
+            full_submenu = template.split(f'aria-labelledby="{name}-menu">', 1)[
+                1
+            ].split("</ul>", 1)[0]
+            attributes = (
+                ("data-action",) if name == "interview" else ("data-templates-mode",)
+            )
+            for attribute in attributes:
+                self.assertEqual(
+                    set(re.findall(rf'{attribute}="([^"]+)"', compact_submenu)),
+                    set(re.findall(rf'{attribute}="([^"]+)"', full_submenu)),
+                )
+        self.assertIn('data-bs-auto-close="outside"', section_menu)
+        self.assertEqual(template.count("js-github-pull-menu-item"), 2)
+        compact_actions = template.split('class="editor-compact-actions"', 1)[1]
+        compact_actions = compact_actions.split("</div>", 1)[0]
+        for action in (
+            "preview-interview",
+            "open-runtime-inspector",
+            "save-file",
+            "toggle-assistant",
+        ):
+            self.assertIn(f'data-action="{action}"', compact_actions)
+        self.assertLess(
+            template.index('id="canvas-content"'),
+            template.index('id="editor-canvas-save"'),
+        )
+        self.assertNotIn("editor-canvas-actions", template)
+        self.assertEqual(template.count("js-save-file-btn"), 3)
+        self.assertEqual(template.count("js-assistant-toggle"), 2)
+        self.assertIn("querySelectorAll('.js-save-file-btn')", editor)
+        self.assertIn("state.canvasMode !== 'question'", editor)
+        self.assertIn("target.closest('.editor-top-tab, .editor-view-switch')", editor)
+        self.assertIn("function setSectionSubmenu(openId)", editor)
+        self.assertIn("@media (max-width: 1399.98px)", css)
 
     def test_screen_preview_sandbox_does_not_share_editor_origin(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
