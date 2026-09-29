@@ -768,6 +768,10 @@
         options.ariaLabel || 'Source editor',
       );
       view.contentDOM.setAttribute('aria-multiline', 'true');
+      // contenteditable is already a tab stop, but axe only recognises focusable
+      // content in a scrollable region by tabindex, so a long file fails
+      // scrollable-region-focusable without it.
+      view.contentDOM.setAttribute('tabindex', '0');
     }
     var editor = {
       getValue: function () {
@@ -1032,7 +1036,9 @@
         host.dataset.expressionReady = 'true';
         var action = document.createElement('button');
         action.type = 'button';
-        action.className = 'btn btn-sm btn-outline-secondary';
+        action.className = host.matches('textarea')
+          ? 'btn btn-sm btn-outline-secondary'
+          : 'dropdown-item';
         action.textContent = 'Insert / edit expression';
         action.title =
           'Select a Python expression or a complete ${ expression }, or insert at the cursor';
@@ -1058,7 +1064,7 @@
               );
             },
             'Python expression in template text',
-            action,
+            host.querySelector('.editor-md-kebab') || action,
           );
         });
         if (host.matches('textarea')) {
@@ -1066,7 +1072,11 @@
           group.className = 'expression-input-group';
           host.insertAdjacentElement('beforebegin', group);
           group.append(host, action);
-        } else host.appendChild(action);
+        } else {
+          var menuItem = document.createElement('li');
+          menuItem.appendChild(action);
+          host.querySelector('[data-md-more-menu]').prepend(menuItem);
+        }
       });
   }
 
@@ -5791,7 +5801,8 @@
     html += '<div class="dropdown d-inline-block">';
     html +=
       '<button type="button" class="editor-md-btn dropdown-toggle editor-md-kebab" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="More formatting" aria-label="More formatting"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i><span class="editor-md-fallback">More</span></button>';
-    html += '<ul class="dropdown-menu editor-md-overflow-menu">';
+    html +=
+      '<ul class="dropdown-menu editor-md-overflow-menu" data-md-more-menu>';
     html +=
       '<li><button type="button" class="dropdown-item" data-md-insert="symbol-raw" data-target-id="' +
       esc(targetId) +
@@ -9974,16 +9985,9 @@
   }
 
   function typeLabel(type) {
-    if (type === 'commented') return 'Off';
-    if (type === 'question') return 'Q';
-    if (type === 'review') return 'Rev';
-    if (type === 'code') return 'Py';
-    if (type === 'objects') return 'Obj';
-    if (type === 'metadata') return 'Meta';
-    if (type === 'includes') return 'Inc';
-    if (type === 'default_screen_parts') return 'Def';
-    if (type === 'comment') return 'Comment';
-    return type.charAt(0).toUpperCase() + type.slice(1, 3);
+    if (type === 'commented') return 'disabled';
+    if (type === 'default_screen_parts') return 'defaults';
+    return String(type).replace(/_/g, ' ').toLowerCase();
   }
 
   function _lintFindingLevel(finding) {
@@ -10100,6 +10104,12 @@
       var active = state.selectedBlockId === block.id;
       var displayType = getBlockDisplayType(block);
       var tl = typeLabel(displayType);
+      if (
+        displayType === 'question' &&
+        Object.prototype.hasOwnProperty.call(block.data || {}, 'signature')
+      ) {
+        tl = 'signature';
+      }
       var tc = typeClass(displayType);
       var lintFindings = getBlockLintFindings(block.id, block);
       var lintClass = lintFindings.length
@@ -11573,7 +11583,7 @@
     var html =
       '<div class="editor-new-project-shell"><div class="editor-card"><div class="editor-card-body d-flex justify-content-between align-items-start gap-3 flex-wrap">';
     html +=
-      '<div><h2 style="font-weight:700;font-size:18px;margin:0 0 6px">AssemblyLine settings ';
+      '<div><h2 style="font-weight:700;font-size:1.125rem;margin:0 0 6px">AssemblyLine settings ';
     html +=
       '<button type="button" class="btn btn-sm btn-link p-0 align-baseline editor-al-settings-explainer" data-al-settings-explainer data-bs-toggle="popover" data-bs-trigger="focus" data-bs-placement="bottom" data-bs-html="true" data-bs-title="What is this page?" data-bs-content="' +
       esc(_settingsExplainerHtml(data)) +
@@ -12782,7 +12792,7 @@
         esc(String(data.event)) +
         '</span>';
     html +=
-      '<div style="font-weight:600;font-size:16px;margin-top:6px">' +
+      '<div style="font-weight:600;font-size:1rem;margin-top:6px">' +
       esc(block.title) +
       '</div>';
     html += '</div>';
@@ -12812,6 +12822,22 @@
       (state.questionEditMode === 'yaml' ? 'true' : 'false') +
       '" data-question-mode="yaml"><i class="fa-solid fa-code me-1" aria-hidden="true"></i>YAML</button></li>';
     html += '</ul>';
+    if (isPreview && state.questionBlockTab === 'screen') {
+      // Keep the editable ID beside the tabs, without a separate form row.
+      html += '<div class="editor-block-id-row">';
+      html += '<label class="editor-block-id-label" for="adv-id">ID</label>';
+      html +=
+        '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="adv-id" value="' +
+        esc(_explicitBlockId(block)) +
+        '" autocomplete="off" aria-describedby="adv-id-hint">';
+      html +=
+        '<button type="button" class="btn btn-sm btn-link p-0 ms-1 text-muted" id="gen-block-id" title="Auto-generate from question text" aria-label="Auto-generate ID"><i class="fa-solid fa-rotate" aria-hidden="true"></i></button>';
+      if (!_explicitBlockId(block)) {
+        html +=
+          '<span class="editor-block-id-hint" id="adv-id-hint">Saving adds one from the question</span>';
+      }
+      html += '</div>';
+    }
     html += '<div class="editor-question-tabs-actions">';
     html +=
       '<button type="button" class="btn btn-sm btn-outline-primary" id="question-preview-tab" data-action="open-screen-preview" title="See this screen the way Docassemble will draw it"><i class="fa-regular fa-eye me-1" aria-hidden="true"></i>Preview</button>';
@@ -12826,20 +12852,6 @@
         html +=
           '<div class="editor-card editor-question-main-card" id="question-screen-panel" role="tabpanel" aria-labelledby="question-screen-tab" tabindex="0"><div class="editor-card-body editor-card-body-compact">';
 
-        // Block ID — always visible at top
-        html += '<div class="editor-block-id-row">';
-        html += '<label class="editor-block-id-label" for="adv-id">ID</label>';
-        html +=
-          '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="adv-id" value="' +
-          esc(_explicitBlockId(block)) +
-          '" autocomplete="off" aria-describedby="adv-id-hint">';
-        html +=
-          '<button type="button" class="btn btn-sm btn-link p-0 ms-1 text-muted" id="gen-block-id" title="Auto-generate from question text" aria-label="Auto-generate ID"><i class="fa-solid fa-rotate" aria-hidden="true"></i></button>';
-        if (!_explicitBlockId(block)) {
-          html +=
-            '<span class="editor-block-id-hint" id="adv-id-hint">Saving adds one from the question</span>';
-        }
-        html += '</div>';
         var eventFieldOpen = Boolean(
           data.event || _questionEventFieldOpen[block.id],
         );
@@ -12861,8 +12873,11 @@
 
         // Question
         html += '<div class="editor-form-group mt-2">';
-        html += '<label class="editor-tiny" for="q-title">Question</label>';
+        html += '<div class="editor-form-label-row">';
+        html +=
+          '<label class="editor-content-label" for="q-title">Question</label>';
         html += renderMarkdownToolbar('q-title', false);
+        html += '</div>';
         html +=
           '<textarea class="form-control editor-form-control" id="q-title" rows="1" data-block-id="' +
           esc(block.id) +
@@ -12884,30 +12899,32 @@
 
         // Subquestion — always shown
         html += '<div class="editor-form-group">';
+        html += '<div class="editor-form-label-row">';
         html +=
-          '<label class="editor-tiny" for="q-subquestion">Subquestion</label>';
+          '<label class="editor-content-label" for="q-subquestion">Subquestion</label>';
         html += renderMarkdownToolbar('q-subquestion', false);
+        html += '</div>';
         html +=
-          '<textarea class="form-control editor-form-control" id="q-subquestion" rows="5">' +
+          '<textarea class="form-control editor-form-control" id="q-subquestion" rows="2">' +
           esc(String(data.subquestion || '')) +
           '</textarea>';
         html += '</div>';
 
         if (data['continue button field'] || data['continue button label']) {
-          html += '<div class="editor-info-box mt-2">';
+          html += '<dl class="editor-question-button-summary">';
           if (data['continue button field']) {
             html +=
-              '<div><strong>Continue button field:</strong> ' +
+              '<div><dt>Continue button field</dt><dd><code>' +
               esc(String(data['continue button field'])) +
-              '</div>';
+              '</code></dd></div>';
           }
           if (data['continue button label']) {
             html +=
-              '<div><strong>Continue button label:</strong> ' +
+              '<div><dt>Continue button label</dt><dd>' +
               esc(String(data['continue button label'])) +
-              '</div>';
+              '</dd></div>';
           }
-          html += '</div>';
+          html += '</dl>';
         }
 
         // A standalone screen has its own answer controls.
@@ -13277,7 +13294,7 @@
       var qTitle = document.getElementById('q-title');
       if (qTitle) _initAutoResize(qTitle, 36);
       var qSub = document.getElementById('q-subquestion');
-      if (qSub) _initAutoResize(qSub, 120);
+      if (qSub) _initAutoResize(qSub, 0);
       var helpInput = document.getElementById('adv-help');
       if (helpInput && data.help && typeof data.help === 'object') {
         helpInput.value = JSON.stringify(data.help, null, 2);
@@ -13383,7 +13400,7 @@
     if (data['continue button field'] || data.field)
       html += ' <span class="editor-pill">continue field</span>';
     html +=
-      '<div style="font-weight:600;font-size:16px;margin-top:6px">' +
+      '<div style="font-weight:600;font-size:1rem;margin-top:6px">' +
       esc(block.title || 'Review') +
       '</div>';
     html += '</div>';
@@ -13482,11 +13499,11 @@
     }
 
     html +=
-      '<div class="editor-form-group mt-3"><label class="editor-tiny" for="review-question">Question</label><input class="form-control editor-form-control" id="review-question" value="' +
+      '<div class="editor-form-group mt-3"><label class="editor-content-label" for="review-question">Question</label><input class="form-control editor-form-control" id="review-question" value="' +
       esc(String(data.question || 'Review your answers')) +
       '"></div>';
     html +=
-      '<div class="editor-form-group"><label class="editor-tiny" for="review-subquestion">Subquestion</label><textarea class="form-control editor-form-control" id="review-subquestion" rows="3">' +
+      '<div class="editor-form-group"><label class="editor-content-label" for="review-subquestion">Subquestion</label><textarea class="form-control editor-form-control" id="review-subquestion" rows="2">' +
       esc(String(data.subquestion || '')) +
       '</textarea></div>';
     html += '</div></div>';
@@ -13673,7 +13690,7 @@
 
     ['review-subquestion'].forEach(function (id) {
       var el = document.getElementById(id);
-      if (el) _initAutoResize(el, 80);
+      if (el) _initAutoResize(el, 0);
     });
     document
       .querySelectorAll(
@@ -13696,7 +13713,7 @@
     if (block.tags && block.tags.indexOf('mandatory') !== -1)
       html += ' <span class="editor-pill">mandatory</span>';
     html +=
-      '<div style="font-weight:600;font-size:16px;margin-top:6px">' +
+      '<div style="font-weight:600;font-size:1rem;margin-top:6px">' +
       esc(block.title) +
       '</div>';
     html += '</div>';
@@ -13787,7 +13804,7 @@
     html +=
       '<span class="editor-pill" style="background:#d1fae5;color:#065f46">Objects</span>';
     html +=
-      '<div style="font-weight:600;font-size:16px;margin-top:6px">' +
+      '<div style="font-weight:600;font-size:1rem;margin-top:6px">' +
       esc(block.title) +
       '</div>';
     html += '</div>';
@@ -13954,7 +13971,7 @@
       esc(block.type) +
       '</span>';
     html +=
-      '<div style="font-weight:600;font-size:16px;margin-top:6px">' +
+      '<div style="font-weight:600;font-size:1rem;margin-top:6px">' +
       esc(block.title) +
       '</div>';
     html += '</div>';
@@ -13994,7 +14011,7 @@
     html += '<div>';
     html += '<span class="editor-pill editor-pill-muted">Disabled</span>';
     html +=
-      '<div style="font-weight:600;font-size:16px;margin-top:6px">' +
+      '<div style="font-weight:600;font-size:1rem;margin-top:6px">' +
       esc(block.title || block.id) +
       '</div>';
     html += '</div>';
@@ -14475,7 +14492,7 @@
           '">',
       );
       out +=
-        '<div class="editor-tiny mt-2 mb-1" style="color:#6b7280;letter-spacing:0.04em;text-transform:uppercase;font-size:10px;">JavaScript conditions</div>';
+        '<div class="editor-tiny mt-2 mb-1" style="color:#6b7280;letter-spacing:0.04em;text-transform:uppercase;font-size:0.8125rem;">JavaScript conditions</div>';
       out += row(
         'fmod-jsshowif-' + fi,
         'js show if',
@@ -15222,9 +15239,9 @@
 
       // Show more toggle
       html +=
-        '<button type="button" class="btn btn-link btn-sm p-0 mt-1 mb-1" id="adv-show-more" style="font-size:12px"><i class="fa-solid ' +
+        '<button type="button" class="btn btn-link btn-sm p-0 mt-1 mb-1" id="adv-show-more" style="font-size:0.8125rem"><i class="fa-solid ' +
         (showMore ? 'fa-chevron-up' : 'fa-chevron-down') +
-        ' me-1" aria-hidden="true" style="font-size:10px"></i>' +
+        ' me-1" aria-hidden="true" style="font-size:0.8125rem"></i>' +
         (showMore ? 'Show fewer options' : 'Show more options') +
         '</button>';
 
@@ -15572,7 +15589,7 @@
     var html = '<div class="editor-full-yaml-shell">';
     html += '<div class="editor-full-yaml-header">';
     html +=
-      '<div><h2 style="font-weight:700;font-size:18px;margin:0">Full YAML</h2></div>';
+      '<div><h2 style="font-weight:700;font-size:1.125rem;margin:0">Full YAML</h2></div>';
     html += '<div class="d-flex gap-2">';
     var backLabel =
       state._prevCanvasMode === 'order-builder'
@@ -16040,7 +16057,7 @@
     var html = '<div class="editor-order-shell">';
     html += '<div class="editor-center-bar">';
     html +=
-      '<div><h2 style="font-weight:700;font-size:18px;margin:0">Interview Order</h2></div>';
+      '<div><h2 style="font-weight:700;font-size:1.125rem;margin:0">Interview Order</h2></div>';
     html += '<div class="d-flex gap-2">';
     html +=
       '<button class="btn btn-sm btn-outline-secondary" id="generate-draft-order">Auto-generate</button>';
@@ -16108,7 +16125,7 @@
           '<strong>No interview order block found.</strong> To use the order builder, add a mandatory code block with <code>id: interview_order</code> to your interview. ';
         html += 'For example:';
         html +=
-          '<pre class="mt-2 mb-0" style="font-size:12px">---\nid: interview_order\nmandatory: True\ncode: |\n  # Steps will go here\n  interview_order = True</pre>';
+          '<pre class="mt-2 mb-0" style="font-size:0.8125rem">---\nid: interview_order\nmandatory: True\ncode: |\n  # Steps will go here\n  interview_order = True</pre>';
         html += '</div>';
       }
       html +=
@@ -16274,7 +16291,7 @@
       '<div class="d-flex justify-content-between align-items-start flex-wrap gap-3">';
     html += '<div>';
     html +=
-      '<h2 style="font-weight:700;font-size:18px;margin:0 0 6px">Create a new project</h2>';
+      '<h2 style="font-weight:700;font-size:1.125rem;margin:0 0 6px">Create a new project</h2>';
     html +=
       '<p class="text-muted small mb-0" style="max-width:600px">Upload a PDF or DOCX template and Weaver will generate a scaffolded interview draft, or start with a blank project.</p>';
     html += '</div>';
@@ -17387,7 +17404,7 @@
     var html = '<div class="editor-full-yaml-shell">';
     html += '<div class="editor-full-yaml-header">';
     html +=
-      '<div><h2 style="font-weight:700;font-size:18px;margin:0">Tests</h2>';
+      '<div><h2 style="font-weight:700;font-size:1.125rem;margin:0">Tests</h2>';
     html +=
       '<p class="text-muted small mb-0 mt-1">Create and keep ALKiln tests in sync with the screens in this interview.</p></div>';
     html +=
@@ -19063,7 +19080,7 @@
     var html = '<div class="editor-full-yaml-shell">';
     html += '<div class="editor-full-yaml-header">';
     html +=
-      '<div><h2 style="font-weight:700;font-size:18px;margin:0">Document setup</h2>';
+      '<div><h2 style="font-weight:700;font-size:1.125rem;margin:0">Document setup</h2>';
     html +=
       '<div class="editor-tiny text-muted mt-1">' +
       (state.filename ? esc(state.filename) : 'No interview file open') +
@@ -19144,7 +19161,7 @@
     html += '<div class="editor-full-yaml-shell">';
     html += '<div class="editor-full-yaml-header">';
     html +=
-      '<div><h2 style="font-weight:700;font-size:18px;margin:0">' +
+      '<div><h2 style="font-weight:700;font-size:1.125rem;margin:0">' +
       esc(sectionTitle(view)) +
       (fileMeta ? ' — ' + esc(fileMeta.filename) : '') +
       '</h2></div>';
@@ -19399,6 +19416,18 @@
 
   function handleEditorClick(e) {
     var target = e.target;
+    var railToggle = target.closest('[data-action="toggle-rail"]');
+    if (railToggle) {
+      var layout = document.querySelector('.editor-layout');
+      var collapsed = layout.classList.toggle('editor-rail-collapsed');
+      railToggle.setAttribute('aria-expanded', String(!collapsed));
+      railToggle.setAttribute(
+        'aria-label',
+        collapsed ? 'Expand outline' : 'Collapse outline',
+      );
+      railToggle.title = collapsed ? 'Expand outline' : 'Collapse outline';
+      return;
+    }
     // Clicking a button whose visible content is a Font Awesome <i> (or a badge
     // <span>) makes that child the event target, so the many `target.id === ...`
     // branches below never match. Resolve to the control that carries the id.
