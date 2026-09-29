@@ -106,6 +106,29 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("blankQuestionNeedsDecision() ||", source)
         self.assertIn("Add a question label before saving.", source)
 
+    def test_markdown_toolbar_has_labels_when_icons_do_not_load(self):
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+        css = (self.package_dir / "data/static/editor.css").read_text()
+        toolbar = editor.split(
+            "  function renderMarkdownToolbar(targetId, compact) {", 1
+        )[1].split("\n  function _buildDocassembleImageToken", 1)[0]
+        for label, fallback in (
+            ("Bold", "Bold"),
+            ("Italic", "Italic"),
+            ("Link", "Link"),
+            ("Insert Mako variable", "Variable"),
+            ("Heading", "Heading"),
+            ("List", "List"),
+            ("More formatting", "More"),
+        ):
+            with self.subTest(label=label):
+                self.assertIn(f'aria-label="{label}"', toolbar)
+                self.assertIn(
+                    f'<span class="editor-md-fallback">{fallback}</span></button>',
+                    toolbar,
+                )
+        self.assertIn(".editor-md-btn svg + .editor-md-fallback", css)
+
     def test_check_and_uncheck_others_have_logic_tab_boolean_controls(self):
         source = (Path(__file__).parent / "data/static/editor.js").read_text()
         logic = source.split("    function renderLogicTab() {", 1)[1]

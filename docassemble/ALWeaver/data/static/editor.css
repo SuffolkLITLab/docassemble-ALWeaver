@@ -1400,6 +1400,12 @@ body {
   color: var(--editor-fg);
 }
 
+/* Font Awesome replaces the <i> with an SVG. Keep the control readable if
+   that script is blocked or fails to load. */
+.editor-md-btn svg + .editor-md-fallback {
+  display: none;
+}
+
 .editor-md-dropdown-toggle::after {
   font-size: 8px;
   vertical-align: 1px;
@@ -3197,7 +3203,6 @@ body {
 .editor-md-kebab {
   min-width: 26px;
   padding: 0;
-  width: 26px;
 }
 
 .editor-md-kebab::after {
