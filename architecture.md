@@ -465,13 +465,14 @@ The Weaver has two kinds of test that are currently configured to run on push to
 GitHub:
 
 1. Standard unit tests of pure-Python modules
-1. Integration tests using the [ALKiln](https://github.com/suffolkLITLab/ALKiln)
-   testing framework
+1. Playwright and Axe accessibility audits of the editor on a temporary
+   docassemble server
 
 Unit tests can be found in docassemble/ALWeaver/. Filenames begin with `test_`.
 
-The integration tests are located in docassemble/ALWeaver/data/sources/ and
-filenames ending with .feature will be run as ALKiln tests.
+The accessibility workflow seeds the fixtures in `.github/fixtures/editor_a11y/`
+and runs `.github/scripts/editor_a11y.js`. It audits the loaded interview,
+secondary source editors, dialogs, authoring controls, and responsive menus.
 
 In addition, `generator_test.yml` is an interactive Docassemble interview that
 will test the `map_raw_to_final_display()` function from

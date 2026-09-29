@@ -280,16 +280,13 @@ async function main() {
       await audit(page, "graphical question editor")
     );
     const fieldSettingsButton = page.locator(".editor-field-kebab-btn").first();
-    if (await fieldSettingsButton.count()) {
-      await fieldSettingsButton.click();
-      await page.waitForTimeout(250);
-      blockingViolations = blockingViolations.concat(
-        await audit(page, "field settings editor")
-      );
-      await fieldSettingsButton.click();
-    } else {
-      console.log("field settings editor: fixture field has no settings control");
-    }
+    await fieldSettingsButton.waitFor({ state: "visible", timeout: 30_000 });
+    await fieldSettingsButton.click();
+    await page.waitForTimeout(250);
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "field settings editor")
+    );
+    await fieldSettingsButton.click();
     await page.locator('[data-question-tab="options"]').click();
     await page.waitForTimeout(250);
     blockingViolations = blockingViolations.concat(
