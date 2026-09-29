@@ -11693,9 +11693,76 @@
     var packageQueue = firstPass.packages.slice();
     var projectBlocks = [];
     var packageBlocks = [];
+    var namedOrders = Object.create(null);
+    var openNames = Object.create(null);
+
+    function hasScreenStep(steps) {
+      return (steps || []).some(function (step) {
+        return (
+          step.kind === 'screen' ||
+          step.kind === 'gather' ||
+          hasScreenStep(step.children) ||
+          hasScreenStep(step.else_children)
+        );
+      });
+    }
+
+    function addNamedOrders(orders) {
+      Object.keys(orders || {}).forEach(function (name) {
+        if (!Object.prototype.hasOwnProperty.call(namedOrders, name)) {
+          namedOrders[name] = orders[name];
+        }
+      });
+    }
+
+    // The open file is the editor's current buffer, which may have unsaved
+    // changes. Parse its named blocks from that buffer instead of rereading it.
+    function readOpenFileOrders() {
+      var pending = (state.blocks || [])
+        .map(function (block) {
+          var code =
+            block && block.type === 'code' && block.data
+              ? block.data.code
+              : null;
+          if (typeof code !== 'string') return null;
+          var match = code
+            .trim()
+            .match(/(?:^|\n)\s*([A-Za-z_]\w*)\s*=\s*True\s*(?:#.*)?$/);
+          if (!match || openNames[match[1]]) return null;
+          var name = match[1];
+          openNames[name] = true;
+          var saved =
+            block.id === state.activeOrderBlockId
+              ? state.orderSteps
+              : state.orderStepMap && state.orderStepMap[block.id];
+          var parsed = Array.isArray(saved)
+            ? Promise.resolve(saved)
+            : apiGet('/api/parse-order?code=' + encodeURIComponent(code)).then(
+                function (res) {
+                  return res && res.success && res.data
+                    ? res.data.steps || []
+                    : [];
+                },
+              );
+          return parsed
+            .then(function (steps) {
+              if (hasScreenStep(steps)) {
+                addNamedOrders({ [name]: steps });
+              }
+            })
+            .catch(function () {
+              return null;
+            });
+        })
+        .filter(Boolean);
+      return Promise.all(pending);
+    }
 
     function done() {
-      return [].concat(state.blocks || [], projectBlocks, packageBlocks);
+      return {
+        blocks: [].concat(state.blocks || [], projectBlocks, packageBlocks),
+        namedOrders: namedOrders,
+      };
     }
 
     function readPackages() {
@@ -11712,6 +11779,7 @@
           .then(function (res) {
             var blocks =
               res && res.success && res.data ? res.data.blocks || [] : [];
+            addNamedOrders(res && res.data && res.data.named_order_steps);
             blocks.forEach(function (block) {
               block.sourceFile = reference;
               // "AssemblyLine" reads better on a screen than the whole path.
@@ -11751,6 +11819,7 @@
         .then(function (res) {
           var blocks =
             res && res.success && res.data ? res.data.blocks || [] : [];
+          addNamedOrders(res && res.data && res.data.named_order_steps);
           blocks.forEach(function (block) {
             block.sourceFile = filename;
             block.sourceLabel = filename;
@@ -11772,7 +11841,7 @@
         .then(readProjectFiles);
     }
 
-    return readProjectFiles();
+    return readOpenFileOrders().then(readProjectFiles);
   }
 
   /**
@@ -11807,36 +11876,37 @@
     win.document.close();
 
     _collectInterviewBlocks()
-      .then(function (blocks) {
+      .then(function (collected) {
+        var blocks = collected.blocks;
+        var steps = ALWeaverInterviewReport.expandNamedOrders(
+          state.orderSteps || [],
+          collected.namedOrders,
+        );
         var resolved = _screenPreviewContext();
         var interviewName = state.filename
           ? state.filename.replace(/\.ya?ml$/, '')
           : '';
-        var html = ALWeaverInterviewReport.buildReport(
-          state.orderSteps || [],
-          blocks,
-          {
-            assets: resolved.assets,
-            extraCss: resolved.extraCss,
-            theme: _screenPreviewDark ? 'dark' : 'light',
-            // Draw the screens the way the preview modal is currently drawing
-            // them, falling back to whatever the interview itself declares.
-            labelLayout: _screenPreviewLabelLayout || resolved.declaredLayout,
-            continueLabel: resolved.continueLabel,
-            backButtonLabel: _screenPreviewBackLabel || resolved.backLabel,
-            interview:
-              typeof ALWeaverScreenPreview !== 'undefined'
-                ? ALWeaverScreenPreview.buildInterviewContext(blocks)
-                : null,
-            title:
-              (interviewName ? interviewName + ' \u2014 ' : '') +
-              'Interview flow report',
-            subtitle: state.filename || '',
-            // The report is served from a blob: URL, which cannot resolve a
-            // root-relative stylesheet path on its own.
-            origin: window.location.origin,
-          },
-        );
+        var html = ALWeaverInterviewReport.buildReport(steps, blocks, {
+          assets: resolved.assets,
+          extraCss: resolved.extraCss,
+          theme: _screenPreviewDark ? 'dark' : 'light',
+          // Draw the screens the way the preview modal is currently drawing
+          // them, falling back to whatever the interview itself declares.
+          labelLayout: _screenPreviewLabelLayout || resolved.declaredLayout,
+          continueLabel: resolved.continueLabel,
+          backButtonLabel: _screenPreviewBackLabel || resolved.backLabel,
+          interview:
+            typeof ALWeaverScreenPreview !== 'undefined'
+              ? ALWeaverScreenPreview.buildInterviewContext(blocks)
+              : null,
+          title:
+            (interviewName ? interviewName + ' \u2014 ' : '') +
+            'Interview flow report',
+          subtitle: state.filename || '',
+          // The report is served from a blob: URL, which cannot resolve a
+          // root-relative stylesheet path on its own.
+          origin: window.location.origin,
+        });
 
         if (win.closed) return;
         var url = URL.createObjectURL(
