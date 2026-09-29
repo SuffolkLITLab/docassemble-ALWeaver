@@ -51,6 +51,7 @@ async function audit(page, label) {
         help: violation.help,
         helpUrl: violation.helpUrl,
         targets: violation.nodes.map((node) => node.target),
+        details: violation.nodes.map((node) => node.failureSummary),
       })
     );
   }
@@ -352,6 +353,7 @@ async function main() {
     await page.locator("#editor-interview-submenu").waitFor({
       state: "visible",
     });
+    await page.waitForTimeout(350);
     blockingViolations = blockingViolations.concat(
       await audit(page, "compact Interview menu")
     );
