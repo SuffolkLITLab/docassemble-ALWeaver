@@ -1,3 +1,4 @@
+# do not pre-load
 """Coverage for interpreter selection in scripts/run_unit_tests.sh."""
 
 import os
