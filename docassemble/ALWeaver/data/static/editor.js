@@ -111,6 +111,301 @@
     assemblyLineSettingsFilter: '',
   };
 
+  // Durable navigation is committed in one place after rendering. This also
+  // covers links from validation, search, and file-management controls.
+  var router = window.ALWeaverRouter;
+  var routeReady = false;
+  var routeApplying = false;
+  var routeSequence = 0;
+  var routeSyncQueued = false;
+  var routeReplaceNext = false;
+  var routeError = null;
+  var routeIndex = 0;
+  var routeCommittedUrl = '';
+  var routeRestoring = null;
+  var routeAcceptedPop = null;
+  var loadedInterviewKey = null;
+  var loadingFilesProject = null;
+  var fileLoadSequence = 0;
+
+  function editorRoute() {
+    var view = state.currentView;
+    var mode = state.canvasMode;
+    var documents = view === 'templates' && state.templatesMode === 'documents';
+    if (
+      !state.project ||
+      (view === 'interview' &&
+        (mode === 'project-selector' || mode === 'new-project'))
+    ) {
+      return {
+        mode: mode === 'new-project' ? mode : 'project-selector',
+        view: 'interview',
+      };
+    }
+    return {
+      project: state.project,
+      filename: view === 'interview' || documents ? state.filename : null,
+      blockId:
+        view === 'interview' && mode === 'question'
+          ? state.selectedBlockId
+          : null,
+      view: view,
+      mode: documents ? 'documents' : view === 'interview' ? mode : 'question',
+      sectionFilename:
+        view !== 'interview' && !documents
+          ? state.sectionSelectedFile[view]
+          : null,
+    };
+  }
+
+  function interviewKey() {
+    return JSON.stringify([state.project, state.filename]);
+  }
+
+  function routeFailure(message) {
+    routeError = {
+      message: message,
+      path: router.routeForState(editorRoute()),
+    };
+  }
+
+  function commitEditorRoute(replace) {
+    var path = router.routeForState(editorRoute());
+    if (!path) return;
+    var currentPath = new URL(
+      routeCommittedUrl || window.location.href,
+      window.location.href,
+    ).pathname;
+    if (path === currentPath && routeCommittedUrl) {
+      routeReplaceNext = false;
+      return;
+    }
+    var previous = router.parseRoute(currentPath);
+    var next = editorRoute();
+    // A section may choose its first file after its listing arrives. That
+    // completes the original navigation instead of adding a second Back stop.
+    if (
+      previous &&
+      previous.project === next.project &&
+      previous.view === next.view &&
+      next.view !== 'interview' &&
+      previous.mode !== 'documents' &&
+      !previous.sectionFilename &&
+      next.sectionFilename
+    )
+      replace = true;
+    if (!replace && !routeReplaceNext) routeIndex += 1;
+    window.history[replace || routeReplaceNext ? 'replaceState' : 'pushState'](
+      { alEditorIndex: routeIndex },
+      '',
+      path,
+    );
+    routeCommittedUrl = window.location.href;
+    routeReplaceNext = false;
+  }
+
+  function scheduleEditorRoute() {
+    if (!routeReady || routeSyncQueued) return;
+    routeSyncQueued = true;
+    Promise.resolve().then(function () {
+      routeSyncQueued = false;
+      if (
+        routeApplying ||
+        routeRestoring ||
+        routeAcceptedPop ||
+        _pendingNavigationAction
+      )
+        return;
+      if (state.project && loadingFilesProject === state.project) return;
+      if (
+        state.currentView === 'interview' &&
+        state.filename &&
+        state.canvasMode !== 'project-selector' &&
+        state.canvasMode !== 'new-project' &&
+        loadedInterviewKey !== interviewKey() &&
+        !routeError
+      )
+        return;
+      commitEditorRoute(false);
+    });
+  }
+
+  function resetProjectNavigation() {
+    state.filename = null;
+    state.files = [];
+    state.blocks = [];
+    state.selectedBlockId = null;
+    state.rawYaml = '';
+    state.revision = null;
+    state.documents = null;
+    state.documentsLoaded = null;
+    state.assemblyLineSettings = null;
+    state.sectionFiles = { templates: [], modules: [], static: [], data: [] };
+    state.sectionSelectedFile = {
+      templates: null,
+      modules: null,
+      static: null,
+      data: null,
+    };
+    loadedInterviewKey = null;
+  }
+
+  async function applyEditorRoute(route) {
+    var sequence = ++routeSequence;
+    function isCurrentDestination() {
+      return (
+        sequence === routeSequence &&
+        state.project === (route.project || null) &&
+        state.currentView === (route.view || 'interview') &&
+        state.canvasMode ===
+          (route.mode === 'documents' ? 'question' : route.mode)
+      );
+    }
+    routeApplying = true;
+    loadingFilesProject = null;
+    routeError = null;
+    // All in-flight resource loads carry this sequence as well as their keys.
+    // Going back to the selector must invalidate them even without another GET.
+    var sameInterview =
+      route.project === state.project &&
+      route.filename === state.filename &&
+      loadedInterviewKey === interviewKey();
+    if (route.project !== state.project) resetProjectNavigation();
+    state.project = route.project || null;
+    state.currentView = route.view || 'interview';
+    state.canvasMode = route.mode === 'documents' ? 'question' : route.mode;
+    state.templatesMode = route.mode === 'documents' ? 'documents' : 'files';
+    state.searchQuery = '';
+    searchInput.value = '';
+    state.fullYamlTab = 'full';
+    state.questionEditMode = 'preview';
+    if (state.currentView === 'interview') {
+      state.filename = route.filename || null;
+      state.selectedBlockId = route.blockId || null;
+    } else {
+      if (route.filename) state.filename = route.filename;
+      state.sectionSelectedFile[state.currentView] =
+        route.sectionFilename || null;
+    }
+    populateProjects();
+    renderOutline();
+    renderCanvas();
+    try {
+      if (route.project && state.projects.indexOf(route.project) === -1) {
+        routeFailure('Project "' + route.project + '" was not found.');
+      } else if (route.project) {
+        if (!sameInterview) await loadFiles(route);
+        if (!isCurrentDestination()) return;
+        if (!routeError && route.view !== 'interview') {
+          await loadSectionFiles(route.view, route.sectionFilename);
+        }
+        if (!isCurrentDestination()) return;
+        if (!routeError && sameInterview && !route.blockId) {
+          state.selectedBlockId = getDefaultVisibleBlockId();
+        }
+        if (!routeError && route.blockId) {
+          var requestedBlock = getBlockById(route.blockId);
+          state.selectedBlockId = route.blockId;
+          if (!requestedBlock) {
+            routeFailure(
+              'Block "' + route.blockId + '" was not found in this interview.',
+            );
+          } else if (!isBlockVisibleInOutline(requestedBlock)) {
+            state.jumpTarget = 'all';
+            syncJumpSelect();
+          }
+        }
+        if (
+          !routeError &&
+          route.mode === 'runtime-inspector' &&
+          !(BOOT.features && BOOT.features.runtimeInspector)
+        ) {
+          routeFailure('The runtime inspector is not enabled on this server.');
+        }
+        if (!routeError && route.mode === 'assemblyline-settings')
+          await loadAssemblyLineSettings();
+        if (!routeError && route.mode === 'tests-overview')
+          await loadKilnTestsOverview();
+        if (!routeError && route.mode === 'order-builder')
+          await enterOrderBuilder(null, 'route');
+      }
+    } catch (error) {
+      if (sequence === routeSequence && !isSupersededRequest(error)) {
+        routeFailure(error.message || 'Unable to open this editor location.');
+      }
+    } finally {
+      if (sequence === routeSequence) {
+        var restoredDestination = isCurrentDestination();
+        routeApplying = false;
+        dirtyState.activate(state.filename, state.selectedBlockId);
+        populateFiles();
+        renderOutline();
+        renderCanvas();
+        // Default interview/block selections normalize the entry being loaded.
+        commitEditorRoute(restoredDestination);
+      }
+    }
+  }
+
+  function startEditorRouter() {
+    var existingIndex =
+      window.history.state && window.history.state.alEditorIndex;
+    routeIndex = Number.isInteger(existingIndex) ? existingIndex : 0;
+    window.history.replaceState(
+      { alEditorIndex: routeIndex },
+      '',
+      window.location.href,
+    );
+    routeCommittedUrl = window.location.href;
+    routeReady = true;
+    var route = router.parseRoute(window.location.pathname);
+    if (route) applyEditorRoute(route);
+    else {
+      state.canvasMode = 'project-selector';
+      routeFailure('This editor location was not found.');
+      renderCanvas();
+    }
+  }
+
+  window.addEventListener('popstate', function (event) {
+    if (!routeReady) return;
+    var nextIndex = event.state && event.state.alEditorIndex;
+    var destination = { url: window.location.href, index: nextIndex };
+    if (routeRestoring && nextIndex === routeIndex) {
+      destination = routeRestoring;
+      routeRestoring = null;
+      var resume = function () {
+        routeAcceptedPop = destination.url;
+        window.history.go(destination.index - routeIndex);
+      };
+      if (
+        !deferNavigationForUnsavedChanges(
+          'go to another editor location',
+          resume,
+        )
+      )
+        resume();
+      return;
+    }
+    var route = router.parseRoute(window.location.pathname);
+    if (!route) return;
+    var accepted = routeAcceptedPop === window.location.href;
+    routeAcceptedPop = null;
+    if (!accepted && Number.isInteger(nextIndex) && nextIndex !== routeIndex) {
+      // Restore the current entry BEFORE asking. Stay (or failed Save) then
+      // leaves both the history pointer and dirty editor exactly where they were.
+      if (stashCurrentEditorState() === false || hasUnsavedChanges()) {
+        routeRestoring = destination;
+        window.history.go(routeIndex - nextIndex);
+        return;
+      }
+    }
+    routeIndex = Number.isInteger(nextIndex) ? nextIndex : 0;
+    routeCommittedUrl = window.location.href;
+    dismissTransientTools({});
+    applyEditorRoute(route);
+  });
+
   var RECENT_PROJECTS_STORAGE_KEY = 'alweaver_recent_projects';
   var VALIDATION_DOCK_STORAGE_KEY = 'alweaver_validation_dock';
   var VALIDATION_DOCKS = ['bottom', 'tall', 'side', 'full'];
@@ -1542,6 +1837,7 @@
   }
 
   function refreshAfterBlockSave(data, originalBlockId, savedBlockId) {
+    if (originalBlockId !== savedBlockId) routeReplaceNext = true;
     refreshFromFileResponse(data, {
       savedBlockId: originalBlockId,
       selectedBlockId: savedBlockId,
@@ -2828,39 +3124,51 @@
       filename: state.filename,
       revision: state.revision,
     });
-    return apiClient.post(path, body, options).catch(function (error) {
-      if (
-        !error ||
-        error.code !== 'draft_confirmation_required' ||
-        !body ||
-        typeof body !== 'object' ||
-        Array.isArray(body)
-      )
-        throw error;
-      var details = error.details || {};
-      var count = Number(details.blocking_count || 0);
-      var description = count
-        ? count + ' validation error' + (count === 1 ? '' : 's')
-        : 'validation errors';
-      var message =
-        'This source has ' +
-        description +
-        '. Save it as a draft anyway? You can keep editing it; run Check errors before relying on the interview.';
-      if (!window.confirm(message)) {
-        return {
-          success: false,
-          error: {
-            code: 'draft_save_cancelled',
-            message: 'Draft save cancelled; your unsaved changes remain.',
-          },
-        };
-      }
-      return apiClient.post(
-        path,
-        Object.assign({}, body, { save_as_draft: true }),
-        options,
-      );
-    });
+    return apiClient
+      .post(path, body, options)
+      .catch(function (error) {
+        if (
+          !error ||
+          error.code !== 'draft_confirmation_required' ||
+          !body ||
+          typeof body !== 'object' ||
+          Array.isArray(body)
+        )
+          throw error;
+        var details = error.details || {};
+        var count = Number(details.blocking_count || 0);
+        var description = count
+          ? count + ' validation error' + (count === 1 ? '' : 's')
+          : 'validation errors';
+        var message =
+          'This source has ' +
+          description +
+          '. Save it as a draft anyway? You can keep editing it; run Check errors before relying on the interview.';
+        if (!window.confirm(message)) {
+          return {
+            success: false,
+            error: {
+              code: 'draft_save_cancelled',
+              message: 'Draft save cancelled; your unsaved changes remain.',
+            },
+          };
+        }
+        return apiClient.post(
+          path,
+          Object.assign({}, body, { save_as_draft: true }),
+          options,
+        );
+      })
+      .then(function (res) {
+        if (
+          res.success &&
+          /\/(rename|delete)$/.test(path) &&
+          body &&
+          body.project === state.project
+        )
+          routeReplaceNext = true;
+        return res;
+      });
   }
 
   function apiDelete(path, body, options) {
@@ -6271,6 +6579,9 @@
   }
 
   function stashCurrentEditorState() {
+    // Hydration temporarily replaces the form with a loading message. Reading
+    // that DOM as a question would mistake absent field rows for deleted fields.
+    if (routeApplying) return;
     _stashFullYamlContent();
     if (!isInterviewView()) return;
     if (state.canvasMode === 'order-builder') {
@@ -6278,6 +6589,7 @@
       syncActiveOrderStepMap();
       return;
     }
+    if (state.canvasMode !== 'question') return;
     var block = getSelectedBlock();
     if (!block || state.questionEditMode !== 'preview') return;
     if (isQuestionEditorBlock(block)) {
@@ -9028,10 +9340,12 @@
     return files.length ? files[0] : null;
   }
 
-  function loadSectionFiles(view) {
+  function loadSectionFiles(view, requestedFilename) {
     if (view === 'templates') loadDocuments();
     var section = getSectionFromView(view);
-    if (!section || !state.project) {
+    var project = state.project;
+    var sequence = routeSequence;
+    if (!section || !project) {
       if (section) {
         state.sectionFiles[view] = [];
         state.sectionSelectedFile[view] = null;
@@ -9042,106 +9356,170 @@
     }
     return apiGet(
       '/api/section-files?project=' +
-        encodeURIComponent(state.project) +
+        encodeURIComponent(project) +
         '&section=' +
         encodeURIComponent(section),
+      { staleKey: 'section-files:' + view },
     )
       .then(function (res) {
+        if (project !== state.project || sequence !== routeSequence) return;
         if (!res.success || !res.data) return;
         var files = Array.isArray(res.data.files) ? res.data.files : [];
         state.sectionFiles[view] = files;
-        var selected = state.sectionSelectedFile[view];
-        var stillExists = false;
-        for (var i = 0; i < files.length; i++) {
-          if (files[i].filename === selected) {
-            stillExists = true;
-            break;
-          }
-        }
-        if (!stillExists) {
+        var selected = requestedFilename || state.sectionSelectedFile[view];
+        var stillExists = files.some(function (file) {
+          return file.filename === selected;
+        });
+        if (requestedFilename && !stillExists) {
+          state.sectionSelectedFile[view] = requestedFilename;
+          routeFailure(
+            'File "' + requestedFilename + '" was not found in this section.',
+          );
+        } else if (!stillExists) {
           state.sectionSelectedFile[view] = files.length
             ? files[0].filename
             : null;
         }
-        if (!isInterviewView()) {
+        if (state.currentView === view) {
           renderOutline();
           renderCanvas();
         }
       })
-      .catch(swallowNavigationLoadError);
+      .catch(function (error) {
+        if (
+          project !== state.project ||
+          sequence !== routeSequence ||
+          isSupersededRequest(error)
+        )
+          return;
+        if (requestedFilename)
+          routeFailure(error.message || 'Unable to open this file.');
+        swallowNavigationLoadError(error);
+      });
   }
 
-  function loadFiles() {
+  function cancelRouteHydration() {
+    loadingFilesProject = null;
+    routeSequence += 1;
+    routeApplying = false;
+    routeError = null;
+  }
+
+  function loadFiles(requestedRoute) {
+    if (!requestedRoute) cancelRouteHydration();
+    var project = state.project;
+    var sequence = routeSequence;
+    loadingFilesProject = project;
     refreshGithubSyncAction();
     if (moduleRestart) moduleRestart.refresh();
-    if (!state.project) {
+    if (!project) {
       state.files = [];
       state.filename = null;
       state.blocks = [];
+      loadingFilesProject = null;
       populateFiles();
       renderOutline();
       renderCanvas();
       return Promise.resolve();
     }
-    return apiGet('/api/files?project=' + encodeURIComponent(state.project))
+    return apiGet('/api/files?project=' + encodeURIComponent(project))
       .then(function (res) {
+        if (project !== state.project || sequence !== routeSequence) return;
         if (!res.success) return;
-        rememberRecentProject(state.project);
+        rememberRecentProject(project);
         state.files = res.data.files || [];
         var currentStillExists =
           state.filename &&
           state.files.some(function (f) {
             return f.filename === state.filename;
           });
+        if (requestedRoute && requestedRoute.filename && !currentStillExists) {
+          state.blocks = [];
+          state.rawYaml = '';
+          routeFailure(
+            'Interview "' +
+              requestedRoute.filename +
+              '" was not found in this project.',
+          );
+          return;
+        }
         if (!currentStillExists) {
           state.filename = state.files.length ? state.files[0].filename : null;
+          state.selectedBlockId = null;
         }
         populateFiles();
-        if (state.files.length === 0) {
+        if (!state.filename) {
           state.blocks = [];
           renderOutline();
           renderCanvas();
-          loadSectionFiles('templates');
-          loadSectionFiles('modules');
-          loadSectionFiles('static');
-          loadSectionFiles('data');
           return;
         }
-        return loadFile().then(function () {
-          loadSectionFiles('templates');
-          loadSectionFiles('modules');
-          loadSectionFiles('static');
-          loadSectionFiles('data');
-        });
+        return loadFile(requestedRoute || {});
       })
-      .catch(swallowNavigationLoadError);
+      .then(function () {
+        if (project !== state.project || sequence !== routeSequence) return;
+        // Route hydration loads its requested section explicitly. Normal project
+        // navigation also warms the other file lists, with independent request keys.
+        if (!requestedRoute) {
+          ['templates', 'modules', 'static', 'data'].forEach(function (view) {
+            loadSectionFiles(view);
+          });
+        }
+      })
+      .catch(function (error) {
+        if (
+          project !== state.project ||
+          sequence !== routeSequence ||
+          isSupersededRequest(error)
+        )
+          return;
+        routeFailure(error.message || 'Unable to open this project.');
+        swallowNavigationLoadError(error);
+      })
+      .finally(function () {
+        if (project !== state.project || sequence !== routeSequence) return;
+        loadingFilesProject = null;
+        renderOutline();
+        renderCanvas();
+      });
   }
 
-  function loadFile() {
+  function loadFile(requestedRoute) {
+    if (!requestedRoute) cancelRouteHydration();
     if (!state.filename) return Promise.resolve();
+    var project = state.project;
+    var filename = state.filename;
+    var sequence = routeSequence;
+    var loadSequence = ++fileLoadSequence;
+    var selectedBlockId =
+      (requestedRoute && requestedRoute.blockId) || state.selectedBlockId;
+    function isCurrentLoad() {
+      return (
+        project === state.project &&
+        filename === state.filename &&
+        sequence === routeSequence &&
+        loadSequence === fileLoadSequence
+      );
+    }
+    loadedInterviewKey = null;
     var runtimeSession = runtimeInspector.getSession();
     if (
       runtimeSession &&
-      (runtimeSession.project !== state.project ||
-        runtimeSession.filename !== state.filename)
+      (runtimeSession.project !== project ||
+        runtimeSession.filename !== filename)
     ) {
       runtimeInspector.releaseSession();
     }
     endAssistantSessionForFileChange();
     return apiGet(
       '/api/file?project=' +
-        encodeURIComponent(state.project) +
+        encodeURIComponent(project) +
         '&filename=' +
-        encodeURIComponent(state.filename),
+        encodeURIComponent(filename),
     )
       .then(function (res) {
-        if (!res.success) {
-          state.blocks = [];
-          state.rawYaml = '';
-          renderOutline();
-          renderCanvas();
-          return;
-        }
+        if (!isCurrentLoad()) return;
+        if (!res.success) throw new Error('Unable to open this interview.');
         var d = res.data;
         state.blocks = d.blocks || [];
         state.metadataIndices = d.metadata_blocks || [];
@@ -9153,26 +9531,28 @@
         state.revision = d.revision || null;
         state.metadataRawYaml = d.metadata_raw_yaml || '';
         state.fullYamlStash = {};
-        state.selectedBlockId = getDefaultVisibleBlockId();
+        state.selectedBlockId = getBlockById(selectedBlockId)
+          ? selectedBlockId
+          : getDefaultVisibleBlockId();
         setActiveOrderBlock(getDefaultOrderBlockId(), d.order_steps || []);
+        loadedInterviewKey = interviewKey();
         dirtyState.setFileSaved(
-          state.filename,
+          filename,
           state.revision,
           captureInterviewModel(),
         );
-        dirtyState.activate(state.filename, state.selectedBlockId);
+        dirtyState.activate(filename, state.selectedBlockId);
         loadAvailableSymbols(true);
-        // Which documents exist, and which templates are still orphans, are
-        // facts about *this* file. Reading it is the one moment both can change.
         loadDocuments();
         renderOutline();
         renderCanvas();
         runValidation();
       })
       .catch(function (error) {
-        if (isSupersededRequest(error)) return;
+        if (!isCurrentLoad() || isSupersededRequest(error)) return;
         state.blocks = [];
         state.rawYaml = '';
+        routeFailure(error.message || 'Unable to open this interview.');
         renderOutline();
         renderCanvas();
       });
@@ -9180,7 +9560,9 @@
 
   function openProject(projectName) {
     if (!projectName) return;
+    if (projectName !== state.project) resetProjectNavigation();
     state.project = projectName;
+    state.currentView = 'interview';
     state.selectedBlockId = null;
     state.canvasMode = 'question';
     populateProjects();
@@ -9406,9 +9788,12 @@
       if (replacementName) {
         state.project = replacementName;
       } else if (projectName && state.project === projectName) {
+        cancelRouteHydration();
+        resetProjectNavigation();
         state.project = null;
-        state.filename = null;
-        state.blocks = [];
+        state.currentView = 'interview';
+        state.canvasMode = 'project-selector';
+        dirtyState.activate(null, null);
       }
       if (replacementName) {
         loadFiles();
@@ -9696,6 +10081,10 @@
   }
 
   function renderOutline() {
+    if (routeApplying) {
+      outlineList.innerHTML = '';
+      return;
+    }
     updateOutlineHeader();
     updateOutlineFilterSummary();
     if (!isInterviewView()) {
@@ -10858,6 +11247,16 @@
 
   function loadAssemblyLineSettings() {
     if (!state.project || !state.filename) return Promise.resolve(false);
+    var requestedKey = interviewKey();
+    var sequence = routeSequence;
+    function isCurrentSettings() {
+      return (
+        requestedKey === interviewKey() &&
+        sequence === routeSequence &&
+        state.currentView === 'interview' &&
+        state.canvasMode === 'assemblyline-settings'
+      );
+    }
     state.assemblyLineSettings = null;
     state.assemblyLineSettingsDirty = false;
     renderAssemblyLineSettings();
@@ -10868,6 +11267,7 @@
         encodeURIComponent(state.filename),
     )
       .then(function (res) {
+        if (!isCurrentSettings()) return false;
         if (!res.success || !res.data)
           throw new Error(
             (res.error && res.error.message) || 'Unable to load settings.',
@@ -10879,6 +11279,7 @@
         return true;
       })
       .catch(function (error) {
+        if (!isCurrentSettings() || isSupersededRequest(error)) return false;
         canvasContent.innerHTML =
           '<div class="alert alert-danger">' +
           esc(error.message || 'Unable to load AssemblyLine settings.') +
@@ -11326,6 +11727,7 @@
   }
 
   function renderCanvas() {
+    scheduleEditorRoute();
     disposeSourceEditors();
     // Runtime observations finish asynchronously. Every non-debugger render
     // must first invalidate the debugger's canvas ownership so a late response
@@ -11352,6 +11754,35 @@
     updateLeftSearchPlaceholder();
     updateTopbarProject();
     updateTopbarSaveState();
+    if (routeApplying) {
+      canvasContent.innerHTML =
+        '<p class="text-muted p-4" role="status">Loading editor location…</p>';
+      return;
+    }
+    if (routeError) {
+      if (routeError.path === router.routeForState(editorRoute())) {
+        canvasContent.innerHTML =
+          '<div class="alert alert-warning" role="alert">' +
+          esc(routeError.message) +
+          ' <a href="' +
+          esc(
+            state.project && state.projects.indexOf(state.project) !== -1
+              ? router.routeForState({
+                  project: state.project,
+                  view: 'interview',
+                  mode: 'question',
+                })
+              : '/al/editor',
+          ) +
+          '">Return to ' +
+          (state.project && state.projects.indexOf(state.project) !== -1
+            ? 'project'
+            : 'projects') +
+          '</a></div>';
+        return;
+      }
+      routeError = null;
+    }
     if (state.currentView !== 'interview') {
       renderSecondaryView();
       renderValidationDrawer();
@@ -16907,6 +17338,11 @@
 
   function loadKilnTestsOverview() {
     if (!state.project) return Promise.resolve();
+    var project = state.project;
+    var sequence = routeSequence;
+    function isCurrentTests() {
+      return project === state.project && sequence === routeSequence;
+    }
     state.kilnTestsLoading = true;
     state.kilnTestsError = '';
     renderTestsOverview();
@@ -16914,6 +17350,7 @@
       '/api/kiln-tests?project=' + encodeURIComponent(state.project),
     )
       .then(function (res) {
+        if (!isCurrentTests()) return;
         if (!res.success || !res.data) {
           throw new Error(
             (res.error && res.error.message) || 'Unable to list tests.',
@@ -16930,10 +17367,12 @@
         }
       })
       .catch(function (error) {
+        if (!isCurrentTests() || isSupersededRequest(error)) return;
         state.kilnTestsError =
           error && error.message ? error.message : 'Unable to list tests.';
       })
       .finally(function () {
+        if (!isCurrentTests()) return;
         state.kilnTestsLoading = false;
         if (
           state.currentView === 'interview' &&
@@ -17433,6 +17872,8 @@
       state.documents = null;
       return Promise.resolve();
     }
+    var requestedKey = interviewKey();
+    var sequence = routeSequence;
     return apiGet(
       '/api/documents?project=' +
         encodeURIComponent(state.project) +
@@ -17440,6 +17881,8 @@
         encodeURIComponent(state.filename),
     )
       .then(function (res) {
+        if (requestedKey !== interviewKey() || sequence !== routeSequence)
+          return;
         // An edit in progress outranks a background refresh. Nothing can reach
         // this while the pane is dirty without the author having been asked
         // first, so replacing what they typed would only ever be a surprise.
@@ -17457,7 +17900,12 @@
         }
       })
       .catch(function (error) {
-        if (isSupersededRequest(error)) return;
+        if (
+          requestedKey !== interviewKey() ||
+          sequence !== routeSequence ||
+          isSupersededRequest(error)
+        )
+          return;
         state.documents = null;
         state.documentsLoaded = null;
       });
@@ -19193,6 +19641,7 @@
           // see. Move the findings beside the editor rather than jumping to a
           // block behind them.
           if (state.validationDock === 'full') setValidationDock('side');
+          state.canvasMode = 'question';
           state.selectedBlockId = validationBlockId;
           dirtyState.setActiveBlock(validationBlockId);
           var interviewTab = document.querySelector(
@@ -22471,7 +22920,10 @@
     function changeProject() {
       projectSelect.value = nextProject;
       if (stashCurrentEditorState() === false) return;
+      cancelRouteHydration();
+      if (nextProject !== state.project) resetProjectNavigation();
       state.project = nextProject || null;
+      state.currentView = 'interview';
       state.selectedBlockId = null;
       dirtyState.activate(null, null);
       if (!state.project) {
@@ -22667,8 +23119,7 @@
     }
     initSourceEditor(function () {
       populateProjects();
-      state.canvasMode = 'project-selector';
-      renderCanvas();
+      startEditorRouter();
     });
   }
 
@@ -22680,7 +23131,7 @@
       e.returnValue = '';
       return;
     }
-    if (!dirtyState.hasDirty(state.filename) && !state.sectionDirty) return;
+    if (!hasUnsavedChanges()) return;
     e.preventDefault();
     e.returnValue = '';
   });

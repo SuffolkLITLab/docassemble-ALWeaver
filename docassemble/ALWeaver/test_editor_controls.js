@@ -489,6 +489,7 @@ let blockLookupCalls = 0;
 const outlineIndices = [];
 const outlineList = { innerHTML: '' };
 const outlineContext = {
+  routeApplying: false,
   state: {
     blocks: outlineBlocks,
     selectedBlockId: 'block_0',
@@ -537,6 +538,11 @@ assert.deepStrictEqual(
   Array.from({ length: 1000 }, (_, index) => index),
 );
 assert.ok(outlineList.innerHTML.includes('data-block-id="block_999"'));
+
+// Old block controls must not remain editable during deep-link hydration.
+outlineContext.routeApplying = true;
+outlineContext.renderOutline();
+assert.strictEqual(outlineList.innerHTML, '');
 
 // A successful block save refreshes and renders the model once while keeping
 // the saved block selected. The save callback uses this same helper, avoiding

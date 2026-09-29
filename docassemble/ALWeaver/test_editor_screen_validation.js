@@ -23,6 +23,7 @@ async function checkInvalidScreen(data, values, message, blockType = 'question')
   let saved = 0;
   let redrawn = 0;
   const context = {
+    routeApplying: false,
     document: {getElementById: id => values[id] || null, querySelectorAll: () => []},
     window: {ALWeaverSerializers: serializers, alert: text => alerts.push(text)},
     state: {questionEditMode: 'preview', questionBlockTab: 'screen', canvasMode: 'question',

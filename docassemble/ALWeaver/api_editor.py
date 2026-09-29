@@ -2084,6 +2084,7 @@ def _validate_block_yaml_payload(
 
 
 @app.route(EDITOR_BASE_PATH, methods=["GET"])
+@app.route(f"{EDITOR_BASE_PATH}/", methods=["GET"])
 def editor_page() -> Response:
     """Serve the WYSIWYM interview editor page."""
     if not _editor_auth_check():
@@ -2095,6 +2096,45 @@ def editor_page() -> Response:
         log("ALWeaver: editor template not found", "error")
         return Response("Editor template not found.", status=500, mimetype="text/plain")
     return Response(html, mimetype="text/html")
+
+
+def _editor_spa_route(**_route_values: str) -> Response:
+    """Serve the shell through the canonical page handler."""
+    return editor_page()
+
+
+# Browser routes mirror the editor's project/interview hierarchy.  Keep these
+# explicit: an unrestricted catch-all here could mask API or asset endpoints.
+for _index, _route in enumerate(
+    (
+        f"{EDITOR_BASE_PATH}/projects/<project>",
+        f"{EDITOR_BASE_PATH}/projects/<project>/interviews/<filename>",
+        f"{EDITOR_BASE_PATH}/projects/<project>/interviews/<filename>/blocks/<block_id>",
+        f"{EDITOR_BASE_PATH}/projects/<project>/interviews/<filename>/source",
+        f"{EDITOR_BASE_PATH}/projects/<project>/interviews/<filename>/order",
+        f"{EDITOR_BASE_PATH}/projects/<project>/interviews/<filename>/settings",
+        f"{EDITOR_BASE_PATH}/projects/<project>/interviews/<filename>/tests",
+        f"{EDITOR_BASE_PATH}/projects/<project>/interviews/<filename>/debug",
+        f"{EDITOR_BASE_PATH}/projects/<project>/interviews/<filename>/documents",
+        f"{EDITOR_BASE_PATH}/projects/<project>/templates",
+        f"{EDITOR_BASE_PATH}/projects/<project>/templates/<filename>",
+        f"{EDITOR_BASE_PATH}/projects/<project>/modules",
+        f"{EDITOR_BASE_PATH}/projects/<project>/modules/<filename>",
+        f"{EDITOR_BASE_PATH}/projects/<project>/static",
+        f"{EDITOR_BASE_PATH}/projects/<project>/static/<filename>",
+        f"{EDITOR_BASE_PATH}/projects/<project>/sources",
+        f"{EDITOR_BASE_PATH}/projects/<project>/sources/<filename>",
+        f"{EDITOR_BASE_PATH}/projects/<project>/documents",
+        f"{EDITOR_BASE_PATH}/create",
+    )
+):
+    app.add_url_rule(
+        _route,
+        endpoint=f"editor_spa_{_index}",
+        view_func=_editor_spa_route,
+        methods=["GET"],
+        strict_slashes=False,
+    )
 
 
 @app.route(f"{EDITOR_BASE_PATH}/static/<path:filename>", methods=["GET"])
