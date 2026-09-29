@@ -160,6 +160,47 @@ def main() -> None:
                     f"uncaught browser errors at {route_fragment}: {page_errors}"
                 )
 
+        # Collection URLs resolve to existing screens and replace themselves
+        # with the selected resource URL, including after a hard refresh.
+        first_interview = api_data("files", project=args.project)["files"][0][
+            "filename"
+        ]
+        first_interview_path = (
+            f"/projects/{project}/interviews/{quote(first_interview, safe='')}/blocks/"
+        )
+        for trailing in ("", "/"):
+            load_and_check(
+                f"{root}/projects{trailing}", "/al/editor", marker="Choose a project"
+            )
+            for parent in (f"/projects/{project}", f"/projects/{project}/interviews"):
+                page.goto(root + parent + trailing, wait_until="domcontentloaded")
+                page.wait_for_load_state("networkidle")
+                expect(page).to_have_url(
+                    re.compile(re.escape(root + first_interview_path) + r"[^/]+$")
+                )
+                canonical = page.url
+                page.reload(wait_until="domcontentloaded")
+                page.wait_for_load_state("networkidle")
+                expect(page).to_have_url(canonical)
+                expect(page.locator("#file-select")).to_have_value(first_interview)
+            page.goto(f"{interview}/blocks{trailing}", wait_until="domcontentloaded")
+            page.wait_for_load_state("networkidle")
+            expect(page).to_have_url(
+                re.compile(re.escape(interview + "/blocks/") + r"[^/]+$")
+            )
+            canonical = page.url
+            page.reload(wait_until="domcontentloaded")
+            page.wait_for_load_state("networkidle")
+            expect(page).to_have_url(canonical)
+            for view, expected in expected_sections.items():
+                section = section_api_names[view]
+                load_and_check(
+                    f"{root}/projects/{project}/{section}{trailing}",
+                    expected,
+                    marker=section_filenames[view],
+                )
+        print("PASS collection routes with and without trailing slashes + refresh")
+
         # Direct interview and panel deep links survive a hard refresh.
         load_and_check(
             start,

@@ -2108,7 +2108,10 @@ def _editor_spa_route(**_route_values: str) -> Response:
 for _index, _route in enumerate(
     (
         f"{EDITOR_BASE_PATH}/projects/<project>",
+        f"{EDITOR_BASE_PATH}/projects",
+        f"{EDITOR_BASE_PATH}/projects/<project>/interviews",
         f"{EDITOR_BASE_PATH}/projects/<project>/interviews/<filename>",
+        f"{EDITOR_BASE_PATH}/projects/<project>/interviews/<filename>/blocks",
         f"{EDITOR_BASE_PATH}/projects/<project>/interviews/<filename>/blocks/<block_id>",
         f"{EDITOR_BASE_PATH}/projects/<project>/interviews/<filename>/source",
         f"{EDITOR_BASE_PATH}/projects/<project>/interviews/<filename>/order",

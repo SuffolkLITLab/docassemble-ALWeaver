@@ -6,6 +6,7 @@ All page routes render the same editor shell; API and asset URLs are unchanged.
 | Path under `/al/editor` | Location |
 | --- | --- |
 | `/` | Project selector |
+| `/projects` | Project selector |
 | `/create` | New project |
 | `/projects/<project>` | Project, selecting its default interview |
 | `/projects/<project>/interviews/<filename>` | Interview, selecting its default visible block |
@@ -25,6 +26,14 @@ All page routes render the same editor shell; API and asset URLs are unchanged.
 The canonical Document setup route includes the filename because its settings
 are stored in that interview's YAML. Project, interview, and section entry
 points replace their current history entry after choosing a default resource.
+The parent aliases `/projects/<project>/interviews` and
+`/projects/<project>/interviews/<filename>/blocks` also select the project's
+default interview and the interview's default visible block, respectively.
+The browser router resolves these aliases into existing editor states and
+hydrates the default resources. Hydration replaces `/projects` with `/al/editor`,
+the interview collection alias with the selected interview URL, and the blocks
+collection alias with the selected block URL. A trailing slash is accepted on
+each alias.
 
 Each path component is URL-encoded. Refresh restores the saved resource and
 view; it does not save unsaved edits. Outline filters and transient dialogs,

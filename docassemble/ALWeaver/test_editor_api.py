@@ -229,8 +229,14 @@ class TestEditorNavigationRoutes(unittest.TestCase):
     def test_deep_editor_pages_serve_the_shell_and_keep_auth_guard(self):
         paths = [
             "/al/editor/",
+            "/al/editor/projects",
+            "/al/editor/projects/",
             "/al/editor/projects/FaxCoverSheet",
+            "/al/editor/projects/FaxCoverSheet/interviews",
+            "/al/editor/projects/FaxCoverSheet/interviews/",
             "/al/editor/projects/FaxCoverSheet/interviews/filename.yml",
+            "/al/editor/projects/FaxCoverSheet/interviews/filename.yml/blocks",
+            "/al/editor/projects/FaxCoverSheet/interviews/filename.yml/blocks/",
             "/al/editor/projects/FaxCoverSheet/interviews/filename.yml/blocks/block-id",
             "/al/editor/projects/FaxCoverSheet/interviews/filename.yml/blocks/block-id/",
             "/al/editor/projects/FaxCoverSheet/interviews/filename.yml/source",

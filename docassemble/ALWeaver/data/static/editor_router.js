@@ -71,6 +71,9 @@
     if (decoded.length === 1 && decoded[0] === 'create') {
       return route('interview', 'new-project', null, null, null, null);
     }
+    if (decoded[0] === 'projects' && decoded.length === 1) {
+      return route('interview', 'project-selector', null, null, null, null);
+    }
     if (decoded[0] !== 'projects' || decoded.length < 2) return null;
     var project = decoded[1];
     if (decoded.length === 3 && decoded[2] === 'documents') {
@@ -89,9 +92,13 @@
       debug: ['interview', 'runtime-inspector'],
     };
     if (section === 'interviews') {
+      if (decoded.length === 3)
+        return route('interview', 'question', project, null, null, null);
       if (decoded.length < 4) return null;
       var interview = decoded[3];
       if (decoded.length === 4)
+        return route('interview', 'question', project, interview, null, null);
+      if (decoded.length === 5 && decoded[4] === 'blocks')
         return route('interview', 'question', project, interview, null, null);
       if (decoded.length === 5 && decoded[4] === 'documents') {
         return route('templates', 'documents', project, interview, null, null);

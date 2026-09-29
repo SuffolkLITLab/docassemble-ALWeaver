@@ -123,12 +123,28 @@ for (const [path, expected] of cases) {
   );
 }
 
+const aliases = [
+  ['/al/editor/projects', route({})],
+  ['/al/editor/projects/', route({})],
+  ['/al/editor/projects/P/interviews', route({ project: 'P', mode: 'question' })],
+  ['/al/editor/projects/P/interviews/', route({ project: 'P', mode: 'question' })],
+  [
+    '/al/editor/projects/P/interviews/F/blocks',
+    route({ project: 'P', filename: 'F', mode: 'question' }),
+  ],
+  [
+    '/al/editor/projects/P/interviews/F/blocks/',
+    route({ project: 'P', filename: 'F', mode: 'question' }),
+  ],
+];
+for (const [path, expected] of aliases) {
+  assert.deepEqual(JSON.parse(JSON.stringify(parseRoute(path))), expected, path);
+  assert.notEqual(routeForState(expected), path.replace(/\/$/, ''), path);
+}
+
 for (const path of [
   '/wrong/editor',
-  '/al/editor/projects',
-  '/al/editor/projects/P/interviews',
   '/al/editor/projects/P/interviews/F/unknown',
-  '/al/editor/projects/P/interviews/F/blocks',
   '/al/editor/projects/P/interviews/F/documents/extra',
   '/al/editor/projects/P/templates/a/b',
   '/al/editor/projects/P%2FQ/interviews/F',
