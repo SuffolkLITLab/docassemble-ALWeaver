@@ -47,6 +47,26 @@ class _TemplateCollector(HTMLParser):
 
 
 class TestEditorFrontend(unittest.TestCase):
+    def test_comfortable_editor_controls_remain_accessible(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+        css = (self.package_dir / "data/static/editor.css").read_text()
+        self.assertIn(
+            'data-action="toggle-rail" aria-controls="left-rail" aria-expanded="true"',
+            template,
+        )
+        self.assertIn(
+            "railToggle.setAttribute('aria-expanded', String(!collapsed))", editor
+        )
+        self.assertIn('id="q-subquestion" rows="2"', editor)
+        self.assertNotRegex(css, r"font-size:\s*[\d.]+px")
+        self.assertNotRegex(css, r"font-size:\s*0\.[0-7]\d*rem")
+        renderer = editor.split("  function renderQuestionBlock(block) {", 1)[1]
+        renderer = renderer.split("\n  function ", 1)[0]
+        self.assertLess(
+            renderer.index('id="adv-id"'), renderer.index('id="question-screen-panel"')
+        )
+
     def test_assistant_has_a_read_only_question_control(self):
         chat = (self.package_dir / "data/static/editor_agent_chat.js").read_text()
         self.assertIn("Ask only (no edits)", chat)

@@ -136,7 +136,11 @@
   <div class="editor-layout" id="editor-layout">
 
     <!-- LEFT RAIL -->
-    <aside class="editor-left" id="left-rail">
+    <aside class="editor-left" id="left-rail" aria-label="Project outline">
+      <div class="editor-rail-heading">
+        <strong>Project outline</strong>
+        <button type="button" class="btn btn-sm btn-outline-secondary editor-rail-toggle" data-action="toggle-rail" aria-controls="left-rail" aria-expanded="true" aria-label="Collapse outline" title="Collapse outline"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i></button>
+      </div>
       <div class="editor-section">
         <label class="editor-tiny" for="project-select">Project</label>
         <div class="d-flex gap-2 align-items-center mt-1">

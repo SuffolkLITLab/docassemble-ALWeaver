@@ -13,8 +13,8 @@
   --editor-accent: #861e36;
   --editor-topbar-bg: #0d3970;
   /* Matches docassemble's navbar: 0.5rem padding + a 40px navbar-brand. */
-  --editor-navbar-height: 56px;
-  --editor-left-width: 280px;
+  --editor-navbar-height: 3.5rem;
+  --editor-left-width: 17.5rem;
   --editor-validation-side-width: 400px;
   --editor-radius: 8px;
   --editor-radius-sm: 6px;
@@ -32,7 +32,11 @@ body {
   font-family:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
     Arial, sans-serif;
-  font-size: 14px;
+}
+
+body {
+  font-size: 1rem;
+  line-height: 1.45;
 }
 
 #editor-app {
@@ -59,7 +63,7 @@ body {
 
 @media (min-width: 1200px) {
   .editor-navbar {
-    height: var(--editor-navbar-height);
+    height: auto;
     flex-wrap: nowrap;
   }
 
@@ -320,13 +324,13 @@ body {
   align-items: center;
   justify-content: center;
   line-height: 1;
-  font-size: 14px;
+  font-size: 0.9375rem;
 }
 
 .editor-icon-btn > i,
 .editor-icon-btn > .fa-solid,
 .editor-icon-btn > .fa-regular {
-  font-size: 14px;
+  font-size: 0.9375rem;
 }
 
 .editor-section-hidden {
@@ -392,7 +396,7 @@ body {
   padding: 0.55rem 0.75rem;
   background: #f4f6f9;
   border-bottom: 1px solid var(--editor-border);
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   font-weight: 700;
 }
 
@@ -423,7 +427,7 @@ body {
 .editor-project-search-file-count {
   margin-left: auto;
   color: var(--editor-muted);
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   white-space: nowrap;
 }
 
@@ -438,7 +442,7 @@ body {
 .editor-project-search-context {
   min-width: 0;
   font-family: var(--bs-font-monospace);
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   line-height: 1.45;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -453,17 +457,17 @@ body {
 
 .editor-project-search-line {
   color: var(--editor-muted);
-  font-size: 0.72rem;
+  font-size: 0.8125rem;
 }
 
 .editor-project-search-classification {
   margin-left: 0.35rem;
   font-family: var(--bs-body-font-family);
-  font-size: 0.7rem;
+  font-size: 0.8125rem;
 }
 
 .editor-tiny {
-  font-size: 11px;
+  font-size: 0.8125rem;
   letter-spacing: 0.02em;
   color: var(--editor-muted);
   font-weight: 600;
@@ -481,7 +485,7 @@ body {
 }
 
 .editor-outline-show-all {
-  font-size: 11px;
+  font-size: 0.8125rem;
   font-weight: 600;
   line-height: 1.1;
   text-decoration: none;
@@ -513,7 +517,7 @@ body {
   line-height: 1.15;
   white-space: nowrap;
   flex: 0 0 auto;
-  font-size: 12px;
+  font-size: 0.8125rem;
   border: 1px solid transparent;
   background: transparent;
   color: var(--editor-primary);
@@ -586,7 +590,7 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 9px;
+  font-size: 0.8125rem;
   font-weight: 300;
   color: var(--editor-muted);
   border: 1px solid #d0d9e7;
@@ -640,7 +644,7 @@ body {
 .editor-outline-item {
   border: 1px solid transparent;
   border-radius: var(--editor-radius-sm);
-  padding: 7px 8px;
+  padding: 5px 8px;
   background: #fff;
   cursor: pointer;
   transition:
@@ -771,7 +775,7 @@ body {
 
 .editor-outline-title {
   font-weight: 500;
-  font-size: 13px;
+  font-size: 0.9375rem;
   line-height: 1.35;
   white-space: nowrap;
   overflow: hidden;
@@ -804,7 +808,7 @@ body {
   border-radius: 5px;
   background: #f6f8fb;
   color: var(--editor-muted);
-  font-size: 10px;
+  font-size: 0.8125rem;
   line-height: 1.3;
   min-width: 0;
 }
@@ -859,20 +863,20 @@ body {
   align-items: center;
   gap: 6px;
   margin-top: 1px;
-  font-size: 11px;
+  font-size: 0.8125rem;
   color: var(--editor-muted);
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
+/* Block types are quiet metadata, rather than colored badges. */
 .editor-outline-type {
-  font-size: 9px;
-  letter-spacing: 0.04em;
+  font-size: 0.8125rem;
+  line-height: 1.15;
   white-space: nowrap;
   color: var(--editor-muted);
-  background: #f1f3f7;
-  padding: 1px 5px;
-  border-radius: 3px;
+  background: transparent;
+  padding: 0;
   font-weight: 600;
   flex: 0 0 auto;
 }
@@ -941,7 +945,7 @@ body {
 
 .editor-section-legend {
   margin-bottom: 10px;
-  font-size: 11px;
+  font-size: 0.8125rem;
   font-weight: 600;
   color: var(--editor-muted);
 }
@@ -961,17 +965,17 @@ body {
 .editor-shell .form-select {
   display: block;
   width: 100%;
-  min-height: 36px;
-  padding: 6px 10px;
-  font-size: 13px;
-  line-height: 1.4;
+  min-height: 2.5rem;
+  padding: 5px 9px;
+  font-size: 0.9375rem;
+  line-height: 1.45;
   box-sizing: border-box;
   max-width: 100%;
 }
 
 .editor-shell textarea.form-control,
 .editor-shell textarea.editor-form-control {
-  min-height: 72px;
+  min-height: 3.375rem;
 }
 
 .editor-card-header {
@@ -979,14 +983,14 @@ body {
   border-bottom: 1px solid var(--editor-border);
   background: #f8f9fb;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 0.9375rem;
 }
 
 .editor-pill {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: 0.8125rem;
   padding: 2px 8px;
   border-radius: 4px;
   background: var(--editor-primary-bg);
@@ -1006,7 +1010,7 @@ body {
   grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1.2fr) auto;
   gap: 10px;
   align-items: center;
-  padding: 8px 0;
+  padding: 5px 0;
   border-bottom: 1px solid #f0f2f5;
 }
 
@@ -1020,7 +1024,7 @@ body {
   gap: 8px;
   padding: 6px 0;
   border-top: 1px solid #f0f2f5;
-  font-size: 11px;
+  font-size: 0.8125rem;
   letter-spacing: 0.02em;
   color: var(--editor-muted);
   font-weight: 600;
@@ -1059,7 +1063,7 @@ body {
   width: auto;
   min-width: 80px;
   max-width: 100px;
-  font-size: 12px;
+  font-size: 0.8125rem;
   padding: 3px 6px;
 }
 
@@ -1098,7 +1102,7 @@ body {
 }
 
 .editor-field-mods-panel .editor-tiny {
-  font-size: 11px;
+  font-size: 0.8125rem;
   color: var(--editor-muted);
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -1112,7 +1116,7 @@ body {
 .editor-field-label-input,
 .editor-field-var-input,
 .editor-field-type-select {
-  font-size: 13px;
+  font-size: 0.9375rem;
   padding: 6px 10px;
   border: 1px solid var(--editor-border);
   border-radius: var(--editor-radius-sm);
@@ -1135,7 +1139,7 @@ body {
 /* field action btn sizing moved to bottom of file for specificity */
 
 .editor-question-tabs .nav-link {
-  font-size: 13px;
+  font-size: 0.9375rem;
   padding: 8px 14px;
   color: var(--editor-primary);
   border-bottom-color: transparent;
@@ -1190,7 +1194,7 @@ body {
 
 .editor-question-mandatory-switch .form-check-label {
   margin: 0;
-  font-size: 13px;
+  font-size: 0.9375rem;
   font-weight: 600;
 }
 
@@ -1207,7 +1211,7 @@ body {
   width: 100%;
   min-width: 0;
   padding: 6px 10px;
-  font-size: 12px;
+  font-size: 0.8125rem;
   text-transform: capitalize;
 }
 
@@ -1228,7 +1232,7 @@ body {
 }
 
 .editor-field-type-menu .dropdown-header {
-  font-size: 10px;
+  font-size: 0.8125rem;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   font-weight: 700;
@@ -1238,7 +1242,7 @@ body {
 .editor-field-type-item {
   display: flex;
   align-items: center;
-  font-size: 13px;
+  font-size: 0.9375rem;
   text-transform: capitalize;
 }
 
@@ -1272,7 +1276,7 @@ body {
 
 .editor-field-switch-wrap .form-check-label {
   margin: 0;
-  font-size: 11px;
+  font-size: 0.8125rem;
   color: var(--editor-muted);
 }
 
@@ -1283,7 +1287,7 @@ body {
   border-radius: 6px;
   padding: 5px 8px;
   color: rgba(255, 255, 255, 0.85);
-  font-size: 13px;
+  font-size: 0.9375rem;
   cursor: pointer;
   transition:
     background 0.12s,
@@ -1306,7 +1310,7 @@ body {
   margin-top: 8px;
 }
 .editor-block-id-label {
-  font-size: 11px;
+  font-size: 0.8125rem;
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--editor-muted);
@@ -1314,7 +1318,7 @@ body {
   flex: 0 0 auto;
 }
 .editor-block-id-input {
-  font-size: 12px;
+  font-size: 0.8125rem;
   flex: 1 1 auto;
   min-width: 0;
   max-width: 300px;
@@ -1324,11 +1328,11 @@ body {
 }
 .editor-add-event-btn {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: 0.8125rem;
   text-decoration: none;
 }
 .editor-block-id-hint {
-  font-size: 11px;
+  font-size: 0.8125rem;
   color: var(--editor-muted);
   white-space: nowrap;
 }
@@ -1339,13 +1343,13 @@ body {
 }
 
 .editor-field-indicators .badge {
-  font-size: 10px;
+  font-size: 0.8125rem;
   font-weight: 600;
   border: 1px solid #d9e1ec;
 }
 
 .editor-field-settings-tabs .nav-link {
-  font-size: 12px;
+  font-size: 0.8125rem;
   padding: 4px 10px;
   color: var(--editor-primary);
 }
@@ -1390,7 +1394,7 @@ body {
 
 .editor-inline-toggle .form-check-label {
   color: var(--editor-fg);
-  font-size: 13px;
+  font-size: 0.9375rem;
 }
 
 /* ===== Markdown / Mako insertion tools ===== */
@@ -1407,7 +1411,7 @@ body {
   min-width: 28px;
   height: 28px;
   padding: 3px 7px;
-  font-size: 13px;
+  font-size: 0.9375rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1436,7 +1440,7 @@ body {
 }
 
 .editor-md-dropdown-toggle::after {
-  font-size: 8px;
+  font-size: 0.8125rem;
   vertical-align: 1px;
   margin-left: 2px;
 }
@@ -1444,7 +1448,7 @@ body {
 .editor-md-toolbar .btn {
   min-width: 32px;
   padding: 3px 9px;
-  font-size: 13px;
+  font-size: 0.9375rem;
 }
 
 .editor-md-toolbar-compact {
@@ -1475,7 +1479,7 @@ body {
   justify-content: space-between;
   gap: 8px;
   padding: 6px 8px;
-  font-size: 12px;
+  font-size: 0.8125rem;
 }
 
 .editor-symbol-item:last-child {
@@ -1495,7 +1499,7 @@ body {
 
 .editor-symbol-item-group {
   color: var(--editor-muted);
-  font-size: 10px;
+  font-size: 0.8125rem;
   white-space: nowrap;
 }
 
@@ -1515,7 +1519,7 @@ body {
 
 .editor-symbol-typeahead-more {
   padding: 6px 8px;
-  font-size: 11px;
+  font-size: 0.8125rem;
   color: var(--editor-muted);
   background: #f8fafc;
   border-top: 1px solid #edf2f8;
@@ -1531,7 +1535,7 @@ body {
   justify-content: space-between;
   gap: 8px;
   padding: 6px 8px;
-  font-size: 12px;
+  font-size: 0.8125rem;
 }
 
 .editor-symbol-typeahead-item:last-child {
@@ -1546,7 +1550,7 @@ body {
 
 .editor-symbol-typeahead-group {
   color: var(--editor-muted);
-  font-size: 10px;
+  font-size: 0.8125rem;
   white-space: nowrap;
 }
 
@@ -1554,7 +1558,7 @@ body {
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  font-size: 11px;
+  font-size: 0.8125rem;
 }
 
 .editor-insert-doc-links a {
@@ -1645,7 +1649,7 @@ body {
   border: 1px solid var(--editor-border);
   border-radius: var(--editor-radius-sm);
   padding: 10px 12px;
-  font-size: 13px;
+  font-size: 0.9375rem;
   font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
   box-sizing: border-box;
   resize: vertical;
@@ -1691,7 +1695,7 @@ body {
 .editor-inline-meta {
   display: inline-block;
   margin-left: 4px;
-  font-size: 10px;
+  font-size: 0.8125rem;
   opacity: 0.75;
 }
 
@@ -1746,7 +1750,7 @@ body {
 
 .editor-order-title {
   font-weight: 500;
-  font-size: 13px;
+  font-size: 0.9375rem;
   font-family:
     ui-monospace, 'Cascadia Code', 'SFMono-Regular', Consolas, monospace;
   white-space: nowrap;
@@ -1774,7 +1778,7 @@ body {
 
 .editor-order-detail {
   color: #758195;
-  font-size: 12px;
+  font-size: 0.8125rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1787,7 +1791,7 @@ body {
 .editor-order-type {
   flex: 0 0 74px;
   color: #7a8595;
-  font-size: 10.5px;
+  font-size: 0.8125rem;
   font-weight: 500;
   letter-spacing: 0.065em;
   line-height: 1;
@@ -1865,7 +1869,7 @@ body {
   padding-left: 6px;
   font-family:
     ui-monospace, 'Cascadia Code', 'SFMono-Regular', Consolas, monospace;
-  font-size: 11.5px;
+  font-size: 0.8125rem;
   font-weight: 500;
   color: #66778f;
 }
@@ -1889,7 +1893,7 @@ body {
   flex: 0 0 auto;
   font-family:
     ui-monospace, 'Cascadia Code', 'SFMono-Regular', Consolas, monospace;
-  font-size: 11.5px;
+  font-size: 0.8125rem;
   font-weight: 600;
   color: #66778f;
   letter-spacing: 0.02em;
@@ -1912,7 +1916,7 @@ body {
 }
 
 .editor-order-actions .btn {
-  font-size: 11px;
+  font-size: 0.8125rem;
   padding: 2px 8px;
 }
 
@@ -1944,7 +1948,7 @@ body {
   color: #334155;
   font-family:
     ui-monospace, 'Cascadia Code', 'SFMono-Regular', Consolas, monospace;
-  font-size: 12.5px;
+  font-size: 0.8125rem;
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1957,7 +1961,7 @@ body {
   padding: 4px 9px;
   border-color: #dfe5ec;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: 0.8125rem;
 }
 
 .editor-order-insert {
@@ -1979,7 +1983,7 @@ body {
   background: transparent;
   color: transparent;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 0.8125rem;
   font-weight: 500;
   transition: color 140ms ease;
 }
@@ -2105,7 +2109,7 @@ body {
 
 .editor-tab-bar .btn {
   border-radius: var(--editor-radius-sm);
-  font-size: 12px;
+  font-size: 0.8125rem;
   padding: 4px 12px;
   font-weight: 500;
   border: none;
@@ -2166,7 +2170,7 @@ body {
 
 .editor-upload-modal-title {
   margin: 0;
-  font-size: 22px;
+  font-size: 1.375rem;
   line-height: 1.2;
   font-weight: 700;
   color: #0d2c54;
@@ -2257,7 +2261,7 @@ body {
   background: #f8f9fb;
   padding: 10px 14px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 0.9375rem;
   font-weight: 500;
   color: var(--editor-muted);
   transition: background 0.12s;
@@ -2335,7 +2339,7 @@ body {
 }
 
 .editor-review-kind {
-  font-size: 11px;
+  font-size: 0.8125rem;
   font-weight: 700;
   color: #166534;
   background: #dcfce7;
@@ -2354,7 +2358,7 @@ body {
 .editor-review-meta,
 .editor-review-edit-hint {
   color: var(--editor-muted);
-  font-size: 12px;
+  font-size: 0.8125rem;
 }
 
 .editor-review-item-editor {
@@ -2449,7 +2453,7 @@ body {
 }
 
 .editor-obj-input {
-  font-size: 13px;
+  font-size: 0.9375rem;
   padding: 6px 8px;
   border: 1px solid var(--editor-border);
   border-radius: var(--editor-radius-sm);
@@ -2470,13 +2474,13 @@ body {
 }
 
 .editor-obj-hint {
-  font-size: 11px;
+  font-size: 0.8125rem;
   color: #6b7280;
   line-height: 1.45;
 }
 
 .editor-obj-hint code {
-  font-size: 11px;
+  font-size: 0.8125rem;
 }
 
 .editor-obj-quantity {
@@ -2503,7 +2507,7 @@ body {
 }
 
 .editor-obj-quantity .form-check-label {
-  font-size: 13px;
+  font-size: 0.9375rem;
   line-height: 1.4;
 }
 
@@ -2545,7 +2549,7 @@ body {
 }
 
 .editor-dropzone-icon {
-  font-size: 28px;
+  font-size: 1.75rem;
   line-height: 1;
   margin-bottom: 6px;
 }
@@ -2555,7 +2559,7 @@ body {
   background: transparent;
   color: var(--editor-muted);
   cursor: pointer;
-  font-size: 16px;
+  font-size: 1rem;
   line-height: 1;
   padding: 0 2px;
 }
@@ -2575,7 +2579,7 @@ body {
   align-items: center;
   gap: 8px;
   padding: 4px 0;
-  font-size: 13px;
+  font-size: 0.9375rem;
 }
 
 .editor-upload-item-name {
@@ -2605,7 +2609,7 @@ body {
   opacity: 1;
   cursor: pointer;
   padding: 4px 6px;
-  font-size: 11px;
+  font-size: 0.8125rem;
   line-height: 1;
   border-radius: 4px;
 }
@@ -2638,7 +2642,7 @@ body {
 
 .editor-doc-section-title {
   margin: 0;
-  font-size: 15px;
+  font-size: 0.9375rem;
   font-weight: 700;
   color: var(--editor-fg);
 }
@@ -2658,13 +2662,13 @@ body {
 }
 
 .editor-bundle-card-name {
-  font-size: 13px;
+  font-size: 0.9375rem;
   font-weight: 700;
   color: #fff;
 }
 
 .editor-bundle-card-subtitle {
-  font-size: 12px;
+  font-size: 0.8125rem;
   color: rgba(255, 255, 255, 0.82);
 }
 
@@ -2693,14 +2697,14 @@ body {
 
 .editor-doc-row-name {
   font-family: var(--bs-font-monospace, monospace);
-  font-size: 13px;
+  font-size: 0.9375rem;
   font-weight: 600;
   color: var(--editor-primary);
   overflow-wrap: anywhere;
 }
 
 .editor-doc-row-file {
-  font-size: 12px;
+  font-size: 0.8125rem;
   color: var(--editor-muted);
   margin-top: 1px;
   overflow-wrap: anywhere;
@@ -2730,7 +2734,7 @@ body {
 }
 
 .editor-enabled-label {
-  font-size: 12px;
+  font-size: 0.8125rem;
   font-weight: 600;
   color: var(--editor-muted);
 }
@@ -2815,7 +2819,7 @@ body {
   align-items: center;
   gap: 8px;
   padding: 3px 0;
-  font-size: 13px;
+  font-size: 0.9375rem;
 }
 
 .editor-doc-item-name {
@@ -2832,7 +2836,7 @@ body {
 
 .editor-outline-status {
   flex: 0 0 auto;
-  font-size: 10px;
+  font-size: 0.8125rem;
   font-weight: 600;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -2863,44 +2867,9 @@ body {
   border-radius: 4px;
   padding: 8px 10px;
   margin: 6px 0 0;
-  font-size: 12px;
+  font-size: 0.8125rem;
   max-height: 260px;
   overflow: auto;
-}
-
-/* ===== Block type colors in outline ===== */
-
-.editor-outline-type-q {
-  background: #dbeafe;
-  color: #1e40af;
-}
-.editor-outline-type-review {
-  background: #dcfce7;
-  color: #166534;
-}
-.editor-outline-type-py {
-  background: #fef3c7;
-  color: #92400e;
-}
-.editor-outline-type-obj {
-  background: #d1fae5;
-  color: #065f46;
-}
-.editor-outline-type-meta {
-  background: #ede9fe;
-  color: #5b21b6;
-}
-.editor-outline-type-inc {
-  background: #fce7f3;
-  color: #9d174d;
-}
-.editor-outline-type-comment {
-  background: #fff7ed;
-  color: #9a3412;
-}
-.editor-outline-type-oth {
-  background: #f1f3f7;
-  color: var(--editor-muted);
 }
 
 /* ===== Drag handle (order builder) ===== */
@@ -2912,7 +2881,7 @@ body {
   height: 28px;
   cursor: grab;
   color: #9aa6b5;
-  font-size: 15px;
+  font-size: 0.9375rem;
   padding: 0;
   user-select: none;
 }
@@ -2921,10 +2890,10 @@ body {
   color: var(--editor-primary);
 }
 
-/* active outline item — ensure child badges stay readable */
+/* Keep metadata readable on the selected row. */
 .editor-outline-item.active .editor-outline-type {
-  background: rgba(255, 255, 255, 0.2);
-  color: #fff;
+  background: transparent;
+  color: #d8e5f3;
 }
 
 .editor-outline-item-commented {
@@ -2957,12 +2926,12 @@ body {
 
 .editor-outline-item-commented .editor-outline-type,
 .editor-outline-item-commented.active .editor-outline-type {
-  background: #dbe3ec;
+  background: transparent;
   color: #5d6c7e;
 }
 
 .editor-outline-type-disabled {
-  background: #dbe3ec;
+  background: transparent;
   color: #5d6c7e;
 }
 
@@ -2978,7 +2947,7 @@ body {
   margin-top: 14px;
   padding-top: 9px;
   border-top: 1px solid #eef1f4;
-  font-size: 11px;
+  font-size: 0.8125rem;
   color: var(--editor-muted);
 }
 
@@ -2999,7 +2968,7 @@ body {
 
 .editor-question-context-help a .fa-arrow-up-right-from-square {
   margin-left: 3px;
-  font-size: 8px;
+  font-size: 0.8125rem;
   vertical-align: 1px;
 }
 
@@ -3009,7 +2978,7 @@ body {
   border-left: 3px solid var(--editor-primary);
   border-radius: var(--editor-radius-sm);
   padding: 10px 14px;
-  font-size: 13px;
+  font-size: 0.9375rem;
   color: var(--editor-fg);
 }
 
@@ -3034,7 +3003,7 @@ body {
 }
 
 .editor-login-card h2 {
-  font-size: 28px;
+  font-size: 1.75rem;
   margin: 0 0 10px;
   color: #0d2c54;
 }
@@ -3053,7 +3022,7 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 24px;
+  font-size: 1.5rem;
   color: #fff;
   background: linear-gradient(135deg, #0d3970, #1f5da3);
 }
@@ -3077,7 +3046,7 @@ body {
 
 .editor-project-selector-header h2 {
   margin: 0;
-  font-size: 30px;
+  font-size: 1.875rem;
   color: #0d2c54;
 }
 
@@ -3092,7 +3061,7 @@ body {
 }
 
 .editor-project-section-title {
-  font-size: 12px;
+  font-size: 0.8125rem;
   letter-spacing: 0.03em;
   color: var(--editor-muted);
   text-transform: uppercase;
@@ -3172,7 +3141,7 @@ body {
   display: inline-flex;
   width: fit-content;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: 0.8125rem;
   letter-spacing: 0.03em;
   text-transform: uppercase;
   color: #0d3970;
@@ -3182,7 +3151,7 @@ body {
 }
 
 .editor-project-card-title {
-  font-size: 16px;
+  font-size: 1rem;
   color: #0d2c54;
   font-weight: 700;
   line-height: 1.3;
@@ -3190,7 +3159,7 @@ body {
 }
 
 .editor-project-card-meta {
-  font-size: 12px;
+  font-size: 0.8125rem;
   color: var(--editor-muted);
 }
 
@@ -3208,7 +3177,7 @@ body {
   color: var(--editor-muted);
   border-radius: var(--editor-radius-sm);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 0.9375rem;
   transition:
     border-color 0.12s,
     background 0.12s,
@@ -3240,7 +3209,7 @@ body {
 
 .editor-md-overflow-menu {
   min-width: 200px;
-  font-size: 13px;
+  font-size: 0.9375rem;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
   max-height: min(62vh, 360px);
   overflow-y: auto;
@@ -3249,13 +3218,13 @@ body {
 
 .editor-md-overflow-menu .dropdown-item {
   padding: 6px 14px;
-  font-size: 13px;
+  font-size: 0.9375rem;
 }
 
 .editor-md-overflow-menu .dropdown-item i {
   width: 16px;
   text-align: center;
-  font-size: 12px;
+  font-size: 0.8125rem;
 }
 
 /* The collapsed navbar can grow taller than the viewport once every action is
@@ -3321,7 +3290,7 @@ body {
   background: transparent;
   padding: 6px 16px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 0.8125rem;
   font-weight: 600;
   color: var(--editor-muted);
   transition: background 0.12s;
@@ -3369,7 +3338,7 @@ body {
   max-height: 200px;
   overflow-y: auto;
   padding: 0 16px 10px;
-  font-size: 13px;
+  font-size: 0.9375rem;
 }
 
 .editor-validation-drawer.open .editor-validation-body {
@@ -3499,7 +3468,7 @@ body {
   align-items: center;
   justify-content: center;
   line-height: 1;
-  font-size: 11px;
+  font-size: 0.8125rem;
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
@@ -3546,7 +3515,7 @@ body {
   height: 18px;
   padding: 0 5px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: 0.8125rem;
   font-weight: 700;
   line-height: 1;
   color: #fff;
@@ -3573,7 +3542,7 @@ body {
   gap: 8px;
   padding: 6px 0;
   border-bottom: 1px solid #f0f2f5;
-  font-size: 13px;
+  font-size: 0.9375rem;
   line-height: 1.4;
 }
 
@@ -3614,14 +3583,14 @@ body {
 }
 
 .editor-validation-item-meta {
-  font-size: 11px;
+  font-size: 0.8125rem;
   color: var(--editor-muted);
   margin-top: 2px;
 }
 
 .editor-validation-item-var {
   font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
-  font-size: 12px;
+  font-size: 0.8125rem;
   background: #fef3c7;
   color: #92400e;
   padding: 1px 4px;
@@ -3694,7 +3663,7 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
+  font-size: 0.9375rem;
   line-height: 1;
 }
 
@@ -3717,7 +3686,7 @@ body {
   color: var(--editor-muted);
   border-radius: var(--editor-radius-sm);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 0.9375rem;
   transition:
     border-color 0.12s,
     background 0.12s,
@@ -3801,7 +3770,7 @@ body {
 }
 
 .editor-section-file-actions .btn {
-  font-size: 12px;
+  font-size: 0.8125rem;
   padding: 3px 10px;
 }
 
@@ -3813,7 +3782,7 @@ body {
 .editor-section-file-kebab .editor-file-actions-kebab {
   width: 22px;
   height: 22px;
-  font-size: 12px;
+  font-size: 0.8125rem;
 }
 
 .editor-project-card-menu-btn {
@@ -3928,7 +3897,7 @@ body {
 .editor-agent-status {
   margin: 0;
   padding: 0 12px 8px;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   color: var(--editor-muted);
   flex-shrink: 0;
 }
@@ -3967,7 +3936,7 @@ body {
 }
 
 .editor-agent-message-role {
-  font-size: 0.7rem;
+  font-size: 0.8125rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--editor-muted);
@@ -4003,7 +3972,7 @@ body {
   list-style: none;
   margin: 8px 0 0;
   padding: 0;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
 }
 
 .editor-agent-step {
@@ -4027,7 +3996,7 @@ body {
 }
 
 .editor-agent-stop-reason {
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   color: var(--editor-muted);
   margin: 6px 0 0;
 }
@@ -4036,7 +4005,7 @@ body {
   list-style: none;
   margin: 8px 0 0;
   padding: 0;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
 }
 
 .editor-agent-diagnostic {
@@ -4054,7 +4023,7 @@ body {
 
 .editor-agent-diff {
   margin-top: 8px;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
 }
 
 .editor-agent-diff > summary {
@@ -4070,12 +4039,12 @@ body {
   border-radius: 6px;
   padding: 8px;
   margin: 6px 0 0;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   white-space: pre;
 }
 
 .editor-agent-diff-note {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   color: var(--editor-muted);
   margin: 4px 0 0;
 }
@@ -4089,7 +4058,7 @@ body {
 .editor-agent-disclosure {
   margin: 0 0 8px;
   color: var(--editor-muted);
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
 }
 
 @media (max-width: 1200px) {
@@ -4139,7 +4108,7 @@ body {
   list-style: none;
   margin: 0 0 8px;
   padding: 0;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
 }
 
 .editor-agent-repair {
@@ -4201,7 +4170,7 @@ body {
 
 .editor-agent-working-time {
   font-variant-numeric: tabular-nums;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   color: var(--editor-muted);
 }
 
@@ -4302,7 +4271,7 @@ body {
 }
 
 .editor-agent-nudge-text {
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   color: var(--editor-muted);
   margin: 0 0 6px;
 }
@@ -4485,7 +4454,7 @@ body {
 
 .editor-new-project-accordion .accordion-button {
   font-weight: 600;
-  font-size: 14px;
+  font-size: 0.9375rem;
 }
 
 .editor-new-project-accordion .accordion-body {
@@ -4495,15 +4464,15 @@ body {
 .editor-al-settings-documents {
   margin-bottom: 12px;
   color: var(--editor-muted);
-  font-size: 11px;
+  font-size: 0.8125rem;
 }
 
 .editor-al-settings-document {
-  font-size: 11px;
+  font-size: 0.8125rem;
 }
 
 .editor-al-settings-explainer {
-  font-size: 12px;
+  font-size: 0.8125rem;
   font-weight: 500;
 }
 
@@ -4543,7 +4512,7 @@ body {
 .editor-insert-title {
   grid-column: 2;
   margin: 0;
-  font-size: 16px;
+  font-size: 1rem;
   font-weight: 600;
   text-align: center;
   white-space: nowrap;
@@ -4553,7 +4522,7 @@ body {
   justify-self: start;
   padding: 2px 4px;
   border: 0;
-  font-size: 14px;
+  font-size: 0.9375rem;
   text-decoration: none;
   color: var(--editor-primary);
 }
@@ -4576,7 +4545,7 @@ body {
 .editor-insert-group-label {
   margin: 4px 4px 6px;
   color: var(--editor-muted);
-  font-size: 11px;
+  font-size: 0.8125rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -4634,7 +4603,7 @@ body {
   border-radius: 10px;
   background: var(--editor-primary-bg);
   color: var(--editor-primary);
-  font-size: 16px;
+  font-size: 1rem;
 }
 
 .editor-insert-text {
@@ -4646,13 +4615,13 @@ body {
 }
 
 .editor-insert-name {
-  font-size: 14px;
+  font-size: 0.9375rem;
   font-weight: 600;
 }
 
 .editor-insert-desc {
   color: var(--editor-muted);
-  font-size: 12px;
+  font-size: 0.8125rem;
 }
 
 .editor-insert-plus {
@@ -4665,7 +4634,7 @@ body {
   border-radius: 50%;
   background: var(--editor-primary-bg);
   color: var(--editor-primary);
-  font-size: 12px;
+  font-size: 0.8125rem;
   transition:
     background-color 0.12s ease,
     color 0.12s ease;
@@ -4679,7 +4648,7 @@ body {
 .editor-insert-footnote {
   margin-top: 4px;
   padding: 4px;
-  font-size: 12px;
+  font-size: 0.8125rem;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -4722,7 +4691,7 @@ body {
   border-radius: 6px;
   padding: 0;
   margin: 0;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   line-height: 1.45;
 }
 
@@ -4887,7 +4856,7 @@ body {
   padding-left: 16px;
   color: var(--editor-muted);
   font-family: var(--bs-font-monospace);
-  font-size: 0.72rem;
+  font-size: 0.8125rem;
   overflow-wrap: anywhere;
 }
 
@@ -4902,7 +4871,7 @@ body {
   cursor: pointer;
   padding: 6px 8px;
   font-family: var(--bs-font-monospace);
-  font-size: 0.76rem;
+  font-size: 0.8125rem;
   overflow-wrap: anywhere;
 }
 
@@ -4913,7 +4882,7 @@ body {
   overflow: auto;
   border-top: 1px solid var(--editor-border);
   background: #f8f9fa;
-  font-size: 0.72rem;
+  font-size: 0.8125rem;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -5008,7 +4977,7 @@ body {
 }
 .expression-dialog > h2 {
   margin: 0 0 20px;
-  font-size: 18px;
+  font-size: 1.125rem;
   font-weight: 600;
 }
 .expression-workspace {
@@ -5051,7 +5020,7 @@ body {
 }
 .expression-workspace .expression-intro h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: 0.9375rem;
   font-weight: 600;
   color: var(--editor-fg);
 }
@@ -5076,7 +5045,7 @@ body {
 }
 .expression-status {
   margin: 0 0 20px;
-  font-size: 12px;
+  font-size: 0.8125rem;
 }
 .expression-columns,
 .expression-definition {
@@ -5087,7 +5056,7 @@ body {
 .expression-columns {
   padding: 0 14px 8px;
   color: var(--editor-muted);
-  font-size: 12px;
+  font-size: 0.8125rem;
   font-weight: 600;
 }
 .expression-definition {
@@ -5108,11 +5077,11 @@ body {
 }
 .expression-target input {
   color: var(--editor-primary);
-  font-size: 13px;
+  font-size: 0.9375rem;
 }
 .expression-equals {
   text-align: center;
-  font-size: 18px;
+  font-size: 1.125rem;
   line-height: 34px;
   margin-top: var(--expression-label-offset, 0px);
   color: var(--editor-muted);
@@ -5139,7 +5108,7 @@ body {
   padding: 2px 23px 2px 0;
   background-size: 10px 8px;
   background-position: right 6px center;
-  font-size: 12px;
+  font-size: 0.8125rem;
   color: var(--editor-muted);
   border-color: transparent;
   border-radius: 4px;
@@ -5156,7 +5125,7 @@ body {
   min-width: 0;
   width: 100%;
   min-height: 34px;
-  font-size: 13px;
+  font-size: 0.9375rem;
 }
 .expression-node--variable > .form-control {
   font-family: var(--bs-font-monospace);
@@ -5184,7 +5153,7 @@ body {
 }
 .expression-leaf > .expression-node-header > .form-select {
   width: 79px;
-  font-size: 11px;
+  font-size: 0.8125rem;
   padding-left: 7px;
   height: 32px;
   min-height: 32px;
@@ -5236,7 +5205,7 @@ body {
   align-self: flex-end;
   margin-bottom: 1px;
   min-height: 34px;
-  font-size: 12px;
+  font-size: 0.8125rem;
 }
 .expression-operands > .form-select[aria-label='Operator'] {
   width: 52px;
@@ -5261,7 +5230,7 @@ body {
   color: var(--editor-primary);
   padding: 4px 0;
   margin-top: 8px;
-  font-size: 12px;
+  font-size: 0.8125rem;
 }
 .expression-add:hover {
   text-decoration: underline;
@@ -5276,7 +5245,7 @@ body {
   border-radius: 4px;
   color: var(--editor-muted);
   background: transparent;
-  font-size: 20px;
+  font-size: 1.25rem;
 }
 .expression-remove:hover {
   background: #fff0f2;
@@ -5293,7 +5262,7 @@ body {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--editor-muted);
-  font-size: 12px;
+  font-size: 0.8125rem;
   margin-top: 8px;
 }
 .expression-leading-comment {
@@ -5307,7 +5276,7 @@ body {
 }
 .expression-preview-panel > summary {
   color: var(--editor-muted);
-  font-size: 12px;
+  font-size: 0.8125rem;
   cursor: pointer;
 }
 .expression-preview {
@@ -5317,7 +5286,7 @@ body {
   margin: 10px 0 0;
   border-radius: 6px;
   background: var(--editor-bg);
-  font-size: 12px;
+  font-size: 0.8125rem;
 }
 .expression-dialog-footer {
   position: sticky;
@@ -5480,12 +5449,12 @@ body {
   display: block;
 }
 .expression-argument-label {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   color: var(--bs-secondary-color, #666);
 }
 .expression-function-help,
 .expression-argument-options {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   margin: 4px 0 8px;
 }
 .expression-signature {
@@ -5506,7 +5475,145 @@ body {
   color: var(--bs-secondary-color, #666);
 }
 .expression-call-order {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   color: var(--bs-secondary-color, #666);
   margin: 4px 0 0;
+}
+
+/* Comfortable controls also apply to dialogs, rails, and secondary views. */
+.form-control,
+.form-select,
+.editor-field-label-input,
+.editor-field-var-input,
+.editor-field-type-select {
+  font-size: 0.9375rem;
+  min-height: 2.5rem;
+  line-height: 1.45;
+}
+.btn-sm,
+.btn-group-sm > .btn {
+  font-size: 0.875rem;
+}
+.badge {
+  font-size: 0.8125rem;
+}
+.editor-rail-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--editor-border);
+  flex-shrink: 0;
+  font-size: 0.875rem;
+}
+.editor-rail-toggle {
+  flex: 0 0 auto;
+  min-width: 2rem;
+}
+.editor-layout.editor-rail-collapsed {
+  --editor-left-width: 3.5rem;
+}
+.editor-rail-collapsed .editor-left > :not(.editor-rail-heading),
+.editor-rail-collapsed .editor-rail-heading strong {
+  display: none;
+}
+.editor-rail-collapsed .editor-rail-heading {
+  justify-content: center;
+  padding: 8px 4px;
+}
+.editor-rail-collapsed .editor-rail-toggle svg {
+  transform: rotate(180deg);
+}
+.editor-question-tabs-row {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.editor-question-tabs-row > .editor-block-id-row {
+  flex: 1 1 15rem;
+  min-width: 0;
+  margin: 0;
+  padding: 4px 8px;
+  border: 0;
+  flex-wrap: wrap;
+}
+.editor-question-tabs-row .editor-block-id-input {
+  width: 8rem;
+}
+.editor-block-id-hint {
+  white-space: normal;
+}
+.editor-section-menu-list {
+  max-width: calc(100vw - 24px);
+  min-width: min(17.5rem, calc(100vw - 24px));
+}
+@media (max-width: 900px), (max-height: 500px) {
+  html,
+  body,
+  #editor-app {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+  .editor-workspace,
+  .editor-layout,
+  .editor-main {
+    overflow: visible;
+    height: auto;
+  }
+  .editor-layout {
+    flex: 1 0 auto;
+  }
+  .editor-left {
+    height: auto;
+  }
+  .editor-main {
+    min-width: 0;
+  }
+  .editor-canvas {
+    padding: 12px;
+  }
+}
+@media (max-width: 900px) {
+  .editor-layout {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .editor-left {
+    max-height: none;
+  }
+  .editor-outline-list {
+    max-height: 14rem;
+    overflow: auto;
+  }
+  .editor-rail-collapsed .editor-rail-heading {
+    justify-content: flex-start;
+    padding: 8px 12px;
+  }
+  .editor-rail-collapsed .editor-rail-heading strong {
+    display: block;
+  }
+}
+
+.editor-shell textarea.form-control[rows="1"] {
+  min-height: 2.5rem;
+}
+.editor-field-type-btn {
+  min-height: 2.5rem;
+  font-size: 0.9375rem;
+}
+
+/* Bootstrap display utilities must not expose controls in the collapsed rail. */
+.editor-rail-collapsed .editor-left > :not(.editor-rail-heading) {
+  display: none !important;
+}
+
+/* Larger browser text can exhaust the desktop navbar before its breakpoint. */
+.editor-navbar > .container-fluid,
+.editor-navbar .navbar-collapse,
+.editor-navbar .navbar-nav {
+  flex-wrap: wrap;
+}
+.editor-navbar .navbar-collapse {
+  min-width: 0;
+  gap: 0 0.5rem;
 }
