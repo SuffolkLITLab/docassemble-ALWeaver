@@ -102,7 +102,7 @@
           <li class="nav-item"><button type="button" class="nav-link editor-top-tab" data-view="data">Sources</button></li>
         </ul>
         <div class="editor-top-actions">
-          <span id="editor-error-count" class="editor-validation-badge d-none" role="status" aria-live="polite" aria-atomic="true"></span>
+          <span id="editor-error-count" class="editor-validation-badge d-none" aria-hidden="true"></span>
           <button type="button" class="btn btn-sm btn-outline-light" data-action="preview-interview"><i class="fa-solid fa-arrow-up-right-from-square me-1" aria-hidden="true"></i>Run</button>
           <button type="button" class="btn btn-sm btn-outline-light" id="btn-debug-interview" data-action="open-runtime-inspector"><i class="fa-solid fa-bug me-1" aria-hidden="true"></i>Debug</button>
           <button type="button" class="btn btn-sm btn-light js-save-file-btn" id="btn-save-file" data-action="save-file" title="Save your changes (Ctrl+S)" aria-label="Save your changes" disabled><i class="fa-solid fa-floppy-disk me-1" aria-hidden="true"></i>Save<span class="editor-save-badge js-save-badge d-none"></span></button>
@@ -112,6 +112,7 @@
       </div>
     </div>
   </nav>
+  <span id="editor-error-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true">0 errors</span>
 
   <div class="alert alert-warning alert-dismissible rounded-0 border-start-0 border-end-0 mb-0 d-none"
        id="editor-celery-warning" role="status" aria-live="polite">

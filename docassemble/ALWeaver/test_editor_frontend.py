@@ -325,6 +325,13 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertNotIn('data-action="check-errors"', template)
         self.assertIn('<span id="editor-error-count"', template)
         self.assertIn('aria-label="Run"', template)
+        status = template.split('id="editor-error-status"', 1)[1].split("</span>")[0]
+        self.assertIn('class="visually-hidden"', status)
+        self.assertIn('role="status"', status)
+        self.assertIn(">0 errors", status)
+        self.assertGreater(
+            template.index('id="editor-error-status"'), template.index("</nav>")
+        )
 
     def test_compact_navigation_has_only_one_visible_home(self):
         css = (self.package_dir / "data/static/editor.css").read_text()

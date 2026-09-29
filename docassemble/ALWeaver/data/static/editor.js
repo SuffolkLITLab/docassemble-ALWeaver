@@ -10509,7 +10509,9 @@
       var errorLabel = errorCount + (errorCount === 1 ? ' error' : ' errors');
       errorBadge.textContent = errorCount > 0 ? String(errorCount) : '';
       errorBadge.classList.toggle('d-none', errorCount === 0);
-      errorBadge.setAttribute('aria-label', errorLabel);
+      var errorStatus = document.getElementById('editor-error-status');
+      if (errorStatus && errorStatus.textContent !== errorLabel)
+        errorStatus.textContent = errorLabel;
       errorBadge.setAttribute('title', errorLabel);
     }
 
