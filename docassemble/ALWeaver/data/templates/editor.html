@@ -13,12 +13,58 @@
 <div id="editor-app">
 
   <!-- ===== TOP BAR ===== -->
-  <nav class="navbar navbar-expand-lg editor-navbar" id="topbar" data-bs-theme="dark" aria-label="Editor">
+  <nav class="navbar navbar-expand-xxl editor-navbar" id="topbar" data-bs-theme="dark" aria-label="Editor">
     <div class="container-fluid">
       <button type="button" class="navbar-brand editor-brand" data-action="open-project-selector" title="Choose a different project">
         <img class="editor-brand-logo" src="/packagestatic/docassemble.ALWeaver/logo.svg?v=2.1.0" alt="ALWeaver">
         <span class="editor-brand-project" id="topbar-project-name">No project selected</span>
       </button>
+      <div class="dropdown editor-section-switcher">
+        <button type="button" class="btn btn-sm btn-outline-light dropdown-toggle" id="editor-section-menu" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false"><span id="editor-section-label">Interview</span></button>
+        <ul class="dropdown-menu editor-section-menu-list" data-bs-theme="light" aria-labelledby="editor-section-menu">
+          <li><h6 class="dropdown-header">Sections</h6></li>
+          <li class="editor-section-menu-group">
+            <div class="editor-section-menu-row">
+              <button type="button" class="dropdown-item editor-view-switch active" data-view="interview" aria-current="page">Interview</button>
+              <button type="button" class="editor-section-submenu-toggle" data-section-submenu="editor-interview-submenu" aria-controls="editor-interview-submenu" aria-expanded="false" aria-label="Interview menu"><i class="fa-solid fa-angle-right" aria-hidden="true"></i></button>
+            </div>
+            <ul class="editor-section-submenu-list d-none" id="editor-interview-submenu">
+              <li><button type="button" class="dropdown-item" data-action="open-interview-order"><i class="fa-solid fa-list-ol fa-fw me-2" aria-hidden="true"></i>Interview Order</button></li>
+              <li><button type="button" class="dropdown-item" data-action="open-interview-flow-report"><i class="fa-solid fa-file-lines fa-fw me-2" aria-hidden="true"></i>Flow report</button></li>
+              <li><button type="button" class="dropdown-item" data-action="run-style-check"><i class="fa-solid fa-ruler fa-fw me-2" aria-hidden="true"></i>Style check</button></li>
+              <li><button type="button" class="dropdown-item" data-action="run-style-check-ai"><i class="fa-solid fa-wand-magic-sparkles fa-fw me-2" aria-hidden="true"></i>Style check + AI suggestions</button></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><button type="button" class="dropdown-item" data-action="open-full-yaml"><i class="fa-solid fa-code fa-fw me-2" aria-hidden="true"></i>YAML source</button></li>
+              <li><button type="button" class="dropdown-item" data-action="open-assemblyline-settings"><i class="fa-solid fa-sliders fa-fw me-2" aria-hidden="true"></i>AssemblyLine settings</button></li>
+              <li><button type="button" class="dropdown-item" data-action="open-standard-playground"><i class="fa-solid fa-flask fa-fw me-2" aria-hidden="true"></i>Open in Playground</button></li>
+              <li><button type="button" class="dropdown-item" data-action="open-tests-overview"><i class="fa-solid fa-vial-circle-check fa-fw me-2" aria-hidden="true"></i>Tests</button></li>
+              <li><button type="button" class="dropdown-item" data-action="open-github-publish"><i class="fa-brands fa-github fa-fw me-2" aria-hidden="true"></i>Commit to GitHub</button></li>
+              <li class="d-none js-github-pull-menu-item"><button type="button" class="dropdown-item" data-action="pull-github"><i class="fa-solid fa-code-pull-request fa-fw me-2" aria-hidden="true"></i>Pull changes from GitHub</button></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><button type="button" class="dropdown-item" data-action="open-project-selector"><i class="fa-solid fa-folder-open fa-fw me-2" aria-hidden="true"></i>Switch project</button></li>
+            </ul>
+          </li>
+          <li class="editor-section-menu-group">
+            <div class="editor-section-menu-row">
+              <button type="button" class="dropdown-item editor-view-switch" data-view="templates">Templates</button>
+              <button type="button" class="editor-section-submenu-toggle" data-section-submenu="editor-templates-submenu" aria-controls="editor-templates-submenu" aria-expanded="false" aria-label="Templates menu"><i class="fa-solid fa-angle-right" aria-hidden="true"></i></button>
+            </div>
+            <ul class="editor-section-submenu-list d-none" id="editor-templates-submenu">
+              <li><button type="button" class="dropdown-item" data-templates-mode="files"><i class="fa-solid fa-file-lines fa-fw me-2" aria-hidden="true"></i>Template files</button></li>
+              <li><button type="button" class="dropdown-item" data-templates-mode="documents"><i class="fa-solid fa-layer-group fa-fw me-2" aria-hidden="true"></i>Document setup</button></li>
+            </ul>
+          </li>
+          <li><button type="button" class="dropdown-item editor-view-switch" data-view="modules">Modules</button></li>
+          <li><button type="button" class="dropdown-item editor-view-switch" data-view="static">Static</button></li>
+          <li><button type="button" class="dropdown-item editor-view-switch" data-view="data">Sources</button></li>
+        </ul>
+      </div>
+      <div class="editor-compact-actions" role="group" aria-label="Interview actions">
+        <button type="button" class="btn btn-sm btn-outline-light" data-action="preview-interview" aria-label="Open interview" title="Open interview"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i><span class="editor-compact-action-label">Open interview</span></button>
+        <button type="button" class="btn btn-sm btn-outline-light" data-action="open-runtime-inspector" aria-label="Debug interview" title="Debug interview"><i class="fa-solid fa-bug" aria-hidden="true"></i><span class="editor-compact-action-label">Debug</span></button>
+        <button type="button" class="btn btn-sm btn-light js-save-file-btn" data-action="save-file" title="Save your changes (Ctrl+S)" aria-label="Save your changes" disabled><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i><span class="editor-compact-action-label">Save</span><span class="editor-save-badge js-save-badge d-none"></span></button>
+        <button type="button" class="btn btn-sm btn-outline-light d-none js-assistant-toggle" data-action="toggle-assistant" aria-controls="editor-assistant" aria-expanded="false" aria-label="Toggle the editing assistant" title="Toggle the editing assistant"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i><span class="editor-compact-action-label">Assistant</span></button>
+      </div>
       <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#editor-navbar-collapse" aria-controls="editor-navbar-collapse" aria-expanded="false" aria-label="Show the menu">
         <span class="navbar-toggler-icon"></span>
       </button>
@@ -38,7 +84,7 @@
               <li><button type="button" class="dropdown-item" data-action="open-standard-playground"><i class="fa-solid fa-flask fa-fw me-2" aria-hidden="true"></i>Open in Playground</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-tests-overview"><i class="fa-solid fa-vial-circle-check fa-fw me-2" aria-hidden="true"></i>Tests</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-github-publish"><i class="fa-brands fa-github fa-fw me-2" aria-hidden="true"></i>Commit to GitHub</button></li>
-              <li class="d-none" id="github-pull-menu-item"><button type="button" class="dropdown-item" data-action="pull-github"><i class="fa-solid fa-code-pull-request fa-fw me-2" aria-hidden="true"></i>Pull changes from GitHub</button></li>
+              <li class="d-none js-github-pull-menu-item" id="github-pull-menu-item"><button type="button" class="dropdown-item" data-action="pull-github"><i class="fa-solid fa-code-pull-request fa-fw me-2" aria-hidden="true"></i>Pull changes from GitHub</button></li>
               <li><hr class="dropdown-divider"></li>
               <li><button type="button" class="dropdown-item" data-action="open-project-selector"><i class="fa-solid fa-folder-open fa-fw me-2" aria-hidden="true"></i>Switch project</button></li>
             </ul>
@@ -168,6 +214,9 @@
         <div class="text-center py-5 text-muted">
           <p>Select a project and file to begin editing.</p>
         </div>
+      </div>
+      <div class="editor-canvas-save d-none" id="editor-canvas-save">
+        <button type="button" class="btn btn-primary js-save-file-btn" data-action="save-file" title="Save your changes (Ctrl+S)" disabled><i class="fa-solid fa-floppy-disk me-1" aria-hidden="true"></i>Save<span class="editor-save-badge js-save-badge d-none"></span></button>
       </div>
     </main>
 

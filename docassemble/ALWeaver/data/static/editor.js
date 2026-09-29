@@ -211,6 +211,15 @@
   function updateTopbarSaveState() {
     var buttons = document.querySelectorAll('.js-save-file-btn');
     if (!buttons.length) return;
+    var canvasSave = document.getElementById('editor-canvas-save');
+    if (canvasSave)
+      canvasSave.classList.toggle(
+        'd-none',
+        !state.project ||
+          !isInterviewView() ||
+          state.canvasMode !== 'question' ||
+          !getSelectedBlock(),
+      );
     dirtyState.activate(state.filename, state.selectedBlockId);
     var isDirty =
       blankQuestionNeedsDecision() ||
@@ -1585,8 +1594,11 @@
   }
 
   function setActiveTopTab(targetTab) {
-    $$('.editor-top-tab').forEach(function (tab) {
-      var isActive = tab === targetTab;
+    var activeView = targetTab.getAttribute('data-view');
+    var sectionLabel = document.getElementById('editor-section-label');
+    if (sectionLabel) sectionLabel.textContent = targetTab.textContent.trim();
+    $$('.editor-top-tab, .editor-view-switch').forEach(function (tab) {
+      var isActive = tab.getAttribute('data-view') === activeView;
       tab.classList.toggle('active', isActive);
       if (isActive) {
         tab.setAttribute('aria-current', 'page');
@@ -1594,6 +1606,26 @@
         tab.removeAttribute('aria-current');
       }
     });
+  }
+
+  function setSectionSubmenu(openId) {
+    document
+      .querySelectorAll('.editor-section-submenu-toggle')
+      .forEach(function (toggle) {
+        var submenu = document.getElementById(
+          toggle.getAttribute('data-section-submenu'),
+        );
+        var isOpen = Boolean(submenu && submenu.id === openId);
+        toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        if (submenu) submenu.classList.toggle('d-none', !isOpen);
+      });
+  }
+
+  function hideSectionSwitcher() {
+    var trigger = document.getElementById('editor-section-menu');
+    if (!trigger || !window.bootstrap || !window.bootstrap.Dropdown) return;
+    var dropdown = window.bootstrap.Dropdown.getInstance(trigger);
+    if (dropdown) dropdown.hide();
   }
 
   // -------------------------------------------------------------------------
@@ -3155,9 +3187,11 @@
   }
 
   function refreshGithubSyncAction() {
-    var item = document.getElementById('github-pull-menu-item');
-    if (!item) return;
-    item.classList.add('d-none');
+    var items = document.querySelectorAll('.js-github-pull-menu-item');
+    if (!items.length) return;
+    items.forEach(function (item) {
+      item.classList.add('d-none');
+    });
     if (!state.project || state.canvasMode === 'project-selector') return;
     var checkedProject = state.project;
     apiGet(
@@ -3169,26 +3203,34 @@
           state.project !== checkedProject ||
           state.canvasMode === 'project-selector'
         ) {
-          item.classList.add('d-none');
+          items.forEach(function (item) {
+            item.classList.add('d-none');
+          });
           return;
         }
         if (res.success && res.data && res.data.sync) {
           state.projectSyncs[checkedProject] = res.data.sync;
-          item.classList.remove('d-none');
-          var button = item.querySelector('[data-action="pull-github"]');
-          if (button)
-            button.title =
-              'Merge ' +
-              res.data.sync.branch +
-              ' from ' +
-              res.data.sync.repository_url;
+          items.forEach(function (item) {
+            item.classList.remove('d-none');
+            var button = item.querySelector('[data-action="pull-github"]');
+            if (button)
+              button.title =
+                'Merge ' +
+                res.data.sync.branch +
+                ' from ' +
+                res.data.sync.repository_url;
+          });
         } else {
           delete state.projectSyncs[checkedProject];
-          item.classList.add('d-none');
+          items.forEach(function (item) {
+            item.classList.add('d-none');
+          });
         }
       })
       .catch(function () {
-        item.classList.add('d-none');
+        items.forEach(function (item) {
+          item.classList.add('d-none');
+        });
       });
   }
 
@@ -4889,18 +4931,20 @@
     state.assistantOpen = Boolean(open);
     var panel = document.getElementById('editor-assistant');
     var layout = document.getElementById('editor-layout');
-    var toggle = document.getElementById('btn-toggle-assistant');
     if (panel) panel.classList.toggle('d-none', !state.assistantOpen);
     if (layout)
       layout.classList.toggle(
         'editor-layout-assistant-open',
         state.assistantOpen,
       );
-    if (toggle)
-      toggle.setAttribute(
-        'aria-expanded',
-        state.assistantOpen ? 'true' : 'false',
-      );
+    document
+      .querySelectorAll('.js-assistant-toggle')
+      .forEach(function (toggle) {
+        toggle.setAttribute(
+          'aria-expanded',
+          state.assistantOpen ? 'true' : 'false',
+        );
+      });
     if (!state.assistantOpen) return;
     agentChat.render(document.getElementById('editor-assistant-body'));
     var input = document.getElementById('editor-agent-input');
@@ -11092,6 +11136,10 @@
           state.canvasMode === 'runtime-inspector',
       );
     }
+    var currentTab = document.querySelector(
+      '.editor-top-tab[data-view="' + state.currentView + '"]',
+    );
+    if (currentTab) setActiveTopTab(currentTab);
     updateLeftRailMode();
     updateLeftSearchPlaceholder();
     updateTopbarProject();
@@ -11252,8 +11300,11 @@
   }
 
   function renderProjectSelector() {
-    var globalPullItem = document.getElementById('github-pull-menu-item');
-    if (globalPullItem) globalPullItem.classList.add('d-none');
+    document
+      .querySelectorAll('.js-github-pull-menu-item')
+      .forEach(function (item) {
+        item.classList.add('d-none');
+      });
     var query = state.projectSearchQuery.toLowerCase().trim();
     var recent = getRecentProjectsInWorkspace();
     var filteredProjects = state.projects.filter(function (name) {
@@ -18593,6 +18644,17 @@
       var controlHost = target.closest('button, a, [role="button"]');
       if (controlHost) target = controlHost;
     }
+    var sectionSubmenuToggle = target.closest('.editor-section-submenu-toggle');
+    if (sectionSubmenuToggle) {
+      var submenuId = sectionSubmenuToggle.getAttribute('data-section-submenu');
+      setSectionSubmenu(
+        sectionSubmenuToggle.getAttribute('aria-expanded') === 'true'
+          ? null
+          : submenuId,
+      );
+      return;
+    }
+    if (target.closest('.editor-section-menu-list')) hideSectionSwitcher();
     var actionControl = target.closest('[data-action]');
     var uiAction = actionControl
       ? actionControl.getAttribute('data-action')
@@ -18605,7 +18667,7 @@
       saveCeleryConfiguration();
       return;
     }
-    var topTab = target.closest('.editor-top-tab');
+    var topTab = target.closest('.editor-top-tab, .editor-view-switch');
     var outlineInsertBtn = target.closest('.editor-outline-insert-btn');
     var insertChoiceBtn = target.closest('[data-insert]');
     var mdInsertBtn = target.closest('[data-md-insert]');
@@ -22218,6 +22280,11 @@
       authState.authenticated || BOOT.authenticated,
     );
     renderAccountMenu();
+    var sectionMenu = document.getElementById('editor-section-menu');
+    if (sectionMenu)
+      sectionMenu.addEventListener('hidden.bs.dropdown', function () {
+        setSectionSubmenu(null);
+      });
     if (!isAuthenticated) {
       renderLoginRequired();
       return;

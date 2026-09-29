@@ -57,7 +57,7 @@ body {
   z-index: 10;
 }
 
-@media (min-width: 992px) {
+@media (min-width: 1400px) {
   .editor-navbar {
     height: var(--editor-navbar-height);
     flex-wrap: nowrap;
@@ -103,6 +103,152 @@ body {
   white-space: nowrap;
 }
 
+.editor-section-switcher,
+.editor-compact-actions {
+  display: none;
+}
+
+@media (max-width: 1399.98px) {
+  .editor-brand {
+    margin-right: 0;
+  }
+
+  .editor-compact-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    margin-right: 8px;
+    flex: 0 0 auto;
+  }
+
+  .editor-compact-actions .btn {
+    white-space: nowrap;
+  }
+
+  .editor-compact-actions .js-assistant-toggle .editor-compact-action-label {
+    display: none;
+  }
+
+  .editor-top-actions [data-action="preview-interview"],
+  .editor-top-actions [data-action="save-file"] {
+    display: none;
+  }
+
+  .editor-compact-action-label {
+    margin-left: 5px;
+  }
+}
+
+@media (min-width: 576px) and (max-width: 1399.98px) {
+  .editor-brand {
+    max-width: min(35vw, 280px);
+  }
+
+  .editor-section-switcher {
+    display: block;
+    flex: 0 0 auto;
+    margin-left: 8px;
+  }
+
+  .editor-section-switcher > .btn {
+    white-space: nowrap;
+  }
+}
+
+.editor-section-menu-list {
+  min-width: 280px;
+  max-height: min(70vh, 600px);
+  overflow-y: auto;
+}
+
+.editor-section-menu-row {
+  display: flex;
+  align-items: stretch;
+}
+
+.editor-section-menu-row .editor-view-switch {
+  flex: 1 1 auto;
+  width: auto;
+}
+
+.editor-section-submenu-toggle {
+  flex: 0 0 36px;
+  border: 0;
+  background: transparent;
+  color: #334155;
+}
+
+.editor-section-submenu-toggle:hover,
+.editor-section-submenu-toggle:focus-visible {
+  background: #e9eef5;
+}
+
+.editor-section-submenu-toggle[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+
+.editor-section-submenu-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  background: #f4f6f9;
+}
+
+.editor-section-submenu-list .dropdown-item {
+  padding-left: 28px;
+  white-space: normal;
+}
+
+@media (max-width: 899.98px) {
+  .editor-compact-action-label {
+    display: none;
+  }
+
+  .editor-compact-actions .btn {
+    min-width: 32px;
+  }
+
+  .editor-compact-actions [data-action="save-file"] .editor-compact-action-label {
+    display: inline;
+  }
+}
+
+@media (min-width: 576px) and (max-width: 1399.98px) {
+  .editor-top-actions [data-action="open-runtime-inspector"] {
+    display: none;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .editor-brand-project {
+    display: none;
+  }
+
+  .editor-compact-actions {
+    gap: 4px;
+    margin-right: 4px;
+  }
+
+  .editor-compact-actions [data-action="save-file"] {
+    padding-inline: 0.35rem;
+  }
+
+  .editor-navbar .navbar-toggler {
+    width: 44px;
+    height: 40px;
+    padding: 0;
+  }
+
+  .editor-compact-actions [data-action="open-runtime-inspector"] {
+    display: none;
+  }
+
+  .editor-compact-actions .js-assistant-toggle {
+    display: none;
+  }
+}
+
 .editor-top-tab {
   /* nav-link renders an <a>; these are <button>s doing the same job. */
   border-width: 0 0 var(--bs-nav-underline-border-width);
@@ -119,7 +265,7 @@ body {
   padding-block: 0.5rem;
 }
 
-@media (min-width: 992px) {
+@media (min-width: 1400px) {
   .editor-top-actions {
     flex-wrap: nowrap;
     padding-block: 0;
@@ -136,7 +282,7 @@ body {
   flex-direction: row;
 }
 
-@media (min-width: 992px) {
+@media (min-width: 1400px) {
   .editor-account-nav {
     margin-left: 0.75rem;
   }
@@ -713,6 +859,15 @@ body {
   min-width: 0;
   overflow-y: auto;
   height: 100%;
+}
+
+.editor-canvas-save {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+  max-width: 1008px;
+  margin: 0 auto;
+  padding: 0 24px 24px;
 }
 
 .editor-canvas {
@@ -3071,7 +3226,7 @@ body {
 
 /* The collapsed navbar can grow taller than the viewport once every action is
    stacked, so let it scroll instead of burying the editor below it. */
-@media (max-width: 991.98px) {
+@media (max-width: 1399.98px) {
   .editor-navbar .navbar-collapse {
     max-height: calc(100vh - var(--editor-navbar-height));
     overflow-y: auto;
