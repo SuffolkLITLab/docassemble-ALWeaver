@@ -221,7 +221,7 @@ async function main() {
     await closeModal(page, "#project-search-modal");
 
     // Validation actions and the open results drawer.
-    await page.locator('[data-action="check-errors"]').click();
+    await page.locator("#btn-run-validation").click();
     await settledFindings(page);
     blockingViolations = blockingViolations.concat(
       await audit(page, "validation drawer")
@@ -343,7 +343,7 @@ async function main() {
     );
     await closeModal(page, "#insert-modal");
 
-    // The compact section switcher replaces the desktop tabs below 1400px.
+    // The compact section switcher replaces the desktop tabs below 1200px.
     // Audit its expanded Interview actions as part of the full page, too.
     await page.setViewportSize({ width: 1024, height: 1200 });
     await page.locator("#editor-section-menu").click();

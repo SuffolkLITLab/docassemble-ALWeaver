@@ -57,10 +57,18 @@ body {
   z-index: 10;
 }
 
-@media (min-width: 1400px) {
+@media (min-width: 1200px) {
   .editor-navbar {
     height: var(--editor-navbar-height);
     flex-wrap: nowrap;
+  }
+
+  .editor-brand {
+    max-width: min(20vw, 280px);
+  }
+
+  .editor-navbar .navbar-collapse {
+    min-width: 0;
   }
   /* Bootstrap's .nav-underline adds a 2px border to every link, which would
      make the tabs taller than the brand and push the bar past 56px. */
@@ -108,7 +116,7 @@ body {
   display: none;
 }
 
-@media (max-width: 1399.98px) {
+@media (max-width: 1199.98px) {
   .editor-brand {
     margin-right: 0;
   }
@@ -140,7 +148,7 @@ body {
   }
 }
 
-@media (min-width: 576px) and (max-width: 1399.98px) {
+@media (min-width: 576px) and (max-width: 1199.98px) {
   .editor-brand {
     max-width: min(35vw, 280px);
   }
@@ -221,9 +229,13 @@ body {
   }
 }
 
-@media (min-width: 576px) and (max-width: 1399.98px) {
+@media (min-width: 576px) and (max-width: 1199.98px) {
+  /* The section picker owns navigation at tablet widths. Keep only the
+     remaining actions and account menu in the hamburger. */
+  #view-tabs,
+  .editor-top-actions .js-assistant-toggle,
   .editor-top-actions [data-action="open-runtime-inspector"] {
-    display: none;
+    display: none !important;
   }
 }
 
@@ -272,7 +284,7 @@ body {
   padding-block: 0.5rem;
 }
 
-@media (min-width: 1400px) {
+@media (min-width: 1200px) {
   .editor-top-actions {
     flex-wrap: nowrap;
     padding-block: 0;
@@ -287,9 +299,14 @@ body {
 
 .editor-account-nav {
   flex-direction: row;
+  flex-shrink: 0;
 }
 
-@media (min-width: 1400px) {
+#editor-account-menu {
+  white-space: nowrap;
+}
+
+@media (min-width: 1200px) {
   .editor-account-nav {
     margin-left: 0.75rem;
   }
@@ -3243,7 +3260,7 @@ body {
 
 /* The collapsed navbar can grow taller than the viewport once every action is
    stacked, so let it scroll instead of burying the editor below it. */
-@media (max-width: 1399.98px) {
+@media (max-width: 1199.98px) {
   .editor-navbar .navbar-collapse {
     max-height: calc(100vh - var(--editor-navbar-height));
     overflow-y: auto;
@@ -3542,18 +3559,6 @@ body {
 
 .editor-validation-badge.validation-info {
   background: #0d6efd;
-}
-
-.js-check-errors-btn.editor-validation-has-issues {
-  border-color: #ffd5d9;
-  background: #9f2137;
-  color: #fff;
-}
-
-.js-check-errors-btn.editor-validation-has-info {
-  border-color: #bfdbfe;
-  background: #1b4f8f;
-  color: #fff;
 }
 
 .editor-validation-list {
@@ -3855,12 +3860,6 @@ body {
   background: #fbbf24;
   margin-left: 4px;
   vertical-align: middle;
-}
-
-/* ===== Errors button icon spacing ===== */
-
-.js-check-errors-btn .js-check-errors-icon {
-  margin-right: 4px;
 }
 
 /* ===== Editing assistant drawer ===== */
