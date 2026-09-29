@@ -162,6 +162,13 @@ body {
   overflow-y: auto;
 }
 
+#editor-section-menu.show,
+#editor-section-menu:hover,
+#editor-section-menu:focus-visible {
+  color: var(--editor-primary);
+  background-color: #f8f9fa;
+}
+
 .editor-section-menu-row {
   display: flex;
   align-items: stretch;

@@ -167,6 +167,14 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("color: var(--editor-primary);", css)
         self.assertIn(".editor-field-settings-tabpane[hidden]", css)
 
+    def test_compact_section_button_has_contrast_when_open(self):
+        css = (self.package_dir / "data/static/editor.css").read_text()
+        section_button = css.split("#editor-section-menu.show,", 1)[1].split(
+            "}", 1
+        )[0]
+        self.assertIn("color: var(--editor-primary);", section_button)
+        self.assertIn("background-color: #f8f9fa;", section_button)
+
     def test_github_partial_publish_shows_warning_and_setup_guidance(self):
         source = (Path(__file__).parent / "data/static/editor.js").read_text()
         self.assertIn("warnings.length ? 'warning' : 'success'", source)

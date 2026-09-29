@@ -303,7 +303,11 @@ async function main() {
     );
     await page.locator("#toggle-edit-mode-tab").click();
     const unsavedChanges = page.locator("#unsaved-changes-modal");
-    await unsavedChanges.waitFor({ state: "visible", timeout: 10_000 });
+    await page.locator("#unsaved-changes-modal.show").waitFor({
+      state: "visible",
+      timeout: 10_000,
+    });
+    await page.waitForTimeout(350);
     blockingViolations = blockingViolations.concat(
       await audit(page, "unsaved changes dialog")
     );
