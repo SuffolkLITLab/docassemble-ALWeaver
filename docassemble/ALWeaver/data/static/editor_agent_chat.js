@@ -76,17 +76,6 @@
   function createAgentChat(options) {
     options = options || {};
     var api = options.api;
-    var privacy = options.privacy || {};
-    var providerName =
-      typeof privacy.provider_name === 'string' && privacy.provider_name.trim()
-        ? privacy.provider_name.trim()
-        : 'the configured model provider';
-    var modelName =
-      typeof privacy.model_name === 'string' ? privacy.model_name.trim() : '';
-    var providerRetention =
-      typeof privacy.provider_retention === 'string'
-        ? privacy.provider_retention.trim()
-        : '';
     var getContext =
       options.getContext ||
       function () {
@@ -830,25 +819,6 @@
         Boolean(errorMessage),
       );
       panel.appendChild(status);
-
-      var privacyNotice = element(
-        'p',
-        'editor-agent-privacy-notice',
-        'Before you send: your request and relevant interview source may be sent ' +
-          'to ' +
-          providerName +
-          (modelName ? ' (model ' + modelName + ')' : '') +
-          '. Weaver stores this owner-scoped ' +
-          'chat for up to 2 hours after its last update and progress details for ' +
-          'up to 30 minutes after their last update. ' +
-          (providerRetention
-            ? 'Provider retention (configured by your administrator): ' +
-              providerRetention
-            : 'Ask your administrator about provider data handling; provider ' +
-              'retention terms are not configured here.'),
-      );
-      privacyNotice.setAttribute('role', 'note');
-      panel.appendChild(privacyNotice);
 
       var log = element('div', 'editor-agent-transcript');
       log.setAttribute('role', 'log');

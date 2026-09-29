@@ -169,9 +169,7 @@ class TestEditorFrontend(unittest.TestCase):
 
     def test_compact_section_button_has_contrast_when_open(self):
         css = (self.package_dir / "data/static/editor.css").read_text()
-        section_button = css.split("#editor-section-menu.show,", 1)[1].split(
-            "}", 1
-        )[0]
+        section_button = css.split("#editor-section-menu.show,", 1)[1].split("}", 1)[0]
         self.assertIn("color: var(--editor-primary);", section_button)
         self.assertIn("background-color: #f8f9fa;", section_button)
 
@@ -277,7 +275,7 @@ class TestEditorFrontend(unittest.TestCase):
         editor = (self.package_dir / "data/static/editor.js").read_text()
         css = (self.package_dir / "data/static/editor.css").read_text()
 
-        self.assertIn("navbar navbar-expand-xxl editor-navbar", template)
+        self.assertIn("navbar navbar-expand-xl editor-navbar", template)
         section_menu = template.split('id="editor-section-menu"', 1)[1]
         section_menu = section_menu.split('class="editor-compact-actions"', 1)[0]
         for view in ("interview", "templates", "modules", "static", "data"):
@@ -319,7 +317,15 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("state.canvasMode !== 'question'", editor)
         self.assertIn("target.closest('.editor-top-tab, .editor-view-switch')", editor)
         self.assertIn("function setSectionSubmenu(openId)", editor)
-        self.assertIn("@media (max-width: 1399.98px)", css)
+        self.assertIn("@media (max-width: 1199.98px)", css)
+
+    def test_compact_navigation_has_only_one_visible_home(self):
+        css = (self.package_dir / "data/static/editor.css").read_text()
+        tablet_rules = css.split("@media (min-width: 576px) and (max-width: 1199.98px)")
+        self.assertIn(".editor-section-switcher {", tablet_rules[1])
+        self.assertIn("#view-tabs,", tablet_rules[2])
+        self.assertIn(".editor-top-actions .js-assistant-toggle,", tablet_rules[2])
+        self.assertIn("display: none !important;", tablet_rules[2])
 
     def test_screen_preview_sandbox_does_not_share_editor_origin(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
