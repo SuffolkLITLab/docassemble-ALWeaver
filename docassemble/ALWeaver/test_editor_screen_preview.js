@@ -104,6 +104,11 @@ function fieldLabels(fields) {
   assert.deepStrictEqual(fieldLabels(fields), ['Gender', 'Self-described gender']);
   assert.strictEqual(fields[0].choices.length, 6);
   assert.deepStrictEqual(fields[1]['show if'], { variable: 'users[0].gender', is: 'self-described' });
+
+  const custom = preview.expandALMethod(preview.parseMethodCall(
+    'users[0].gender_fields(choices=[{"key": "x", "label": "Shown"}])'
+  )).fields;
+  assert.deepStrictEqual(custom[0].choices, [{ label: 'Shown', value: 'x' }]);
 }
 
 {
@@ -161,6 +166,21 @@ function fieldLabels(fields) {
     { label: 'Two', value: 'Two' },
   ]);
 
+  const mapped = preview.describeField({ label: 'Role', field: 'role',
+    choices: [
+      { key: 'plaintiff', label: 'Person who started the case' },
+      { label: 'Person responding', key: 'defendant' },
+      { label: 'Other person', value: 'other' },
+      { 'Court clerk': 'clerk' },
+    ],
+  }).fields[0];
+  assert.deepStrictEqual(mapped.choices, [
+    { label: 'Person who started the case', value: 'plaintiff' },
+    { label: 'Person responding', value: 'defendant' },
+    { label: 'Other person', value: 'other' },
+    { label: 'Court clerk', value: 'clerk' },
+  ]);
+
   const note = preview.describeField({ note: 'Read **this** first' }).fields[0];
   assert.strictEqual(note.kind, 'note');
 
@@ -170,6 +190,27 @@ function fieldLabels(fields) {
   const noLabel = preview.describeField({ 'no label': 'anything_else', datatype: 'area' }).fields[0];
   assert.strictEqual(noLabel.noLabel, true);
   assert.strictEqual(noLabel.datatype, 'area');
+}
+
+{
+  const choices = [
+    { key: 'plaintiff', label: 'Person who started the case' },
+    { label: 'Person responding', key: 'defendant' },
+  ];
+  const radio = { question: 'Role?', fields: [{ label: 'Role', field: 'role',
+    choices: choices, 'input type': 'radio', default: 'defendant' }] };
+  for (const widgetStyle of ['native', 'labelauty']) {
+    const html = preview.renderQuestion(radio, { widgetStyle }).html;
+    assert.ok(html.includes('value="plaintiff"'));
+    assert.ok(html.includes('value="defendant" checked="checked"'));
+    assert.ok(html.includes('Person who started the case'));
+    assert.ok(html.includes('Person responding'));
+    assert.ok(!html.includes('>key<'));
+    const dropdown = preview.renderQuestion({ question: 'Role?', fields: [
+      { label: 'Role', field: 'role', choices: choices },
+    ] }, { widgetStyle }).html;
+    assert.ok(dropdown.includes('<option value="plaintiff">Person who started the case</option>'));
+  }
 }
 
 // --- Docassemble markup ------------------------------------------------------
@@ -248,6 +289,31 @@ function fieldLabels(fields) {
   assert.ok(doc.includes('.labelauty({class: "labelauty da-active-invisible dafullwidth"})'));
   assert.ok(doc.includes('<body class="dabody">'));
   assert.ok(doc.includes('data-bs-theme="light"'));
+}
+
+{
+  const block = { question: 'Choose and upload', fields: [
+    { label: 'Agree?', field: 'agree', datatype: 'yesno' },
+    { label: 'Colors', field: 'colors', datatype: 'checkboxes', choices: ['Red', 'Blue'], 'none of the above': 'None' },
+    { label: 'Pick one', field: 'choice', choices: ['One', 'Two'], 'input type': 'radio' },
+    { label: 'Document', field: 'document', datatype: 'file' },
+    { label: 'Documents', field: 'documents', datatype: 'files' },
+  ] };
+  const modern = preview.buildDocument(block, { widgetStyle: 'native' });
+  assert.ok(modern.includes('class="btn btn-primary text-start dalabelauty">Agree?</label>'));
+  assert.ok(modern.includes('class="btn btn-primary text-start dalabelauty">Red</label>'));
+  assert.ok(modern.includes('class="btn btn-primary text-start dalabelauty">One</label>'));
+  assert.ok(modern.includes('type="file" class="form-control"'));
+  assert.ok(modern.includes('type="file" class="form-control" name="dapv_field_4" id="dapv_field_4" multiple'));
+  assert.ok(!modern.includes('data-labelauty='));
+  assert.ok(!modern.includes('/static/labelauty/'));
+  assert.ok(!modern.includes('.labelauty('));
+
+  const legacy = preview.buildDocument(block, { widgetStyle: 'labelauty' });
+  assert.ok(legacy.includes('type="file" class="dafile"'));
+  assert.ok(legacy.includes('data-labelauty="Agree?|Agree?"'));
+  assert.ok(!legacy.includes('class="btn btn-primary text-start dalabelauty">Agree?</label>'));
+  assert.ok(legacy.includes('/static/labelauty/source/jquery-labelauty.min.js'));
 }
 
 {

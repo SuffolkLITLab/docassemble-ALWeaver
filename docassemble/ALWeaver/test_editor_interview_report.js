@@ -345,6 +345,23 @@ const blockMap = report.buildBlockMap(blocks);
   assert.ok(!/href="\/static/.test(html), 'no stylesheet is left root-relative');
   assert.ok(!/src="\/static/.test(html), 'no script is left root-relative');
 
+  const modern = report.buildReport(steps, blocks, {
+    origin: 'https://da.example.org', widgetStyle: 'native',
+  });
+  assert.ok(modern.includes('for="s1_dapv_field_0" class="btn btn-primary text-start dalabelauty">I understand</label>'));
+  assert.ok(!modern.includes('/static/labelauty/'));
+  assert.ok(!modern.includes('.labelauty('));
+
+  const mappedReport = report.buildReport(
+    [{ kind: 'screen', invoke: 'role' }],
+    [{ id: 'role', type: 'question', variable: 'role', title: 'Role', data: {
+      question: 'Role?', fields: [{ label: 'Role', field: 'role', 'input type': 'radio',
+        choices: [{ key: 'plaintiff', label: 'Person who started the case' }] }],
+    } }],
+    { origin: 'https://da.example.org', widgetStyle: 'native' }
+  );
+  assert.ok(mappedReport.includes('for="s1_dapv_field_0_0" class="btn btn-primary text-start dalabelauty">Person who started the case</label>'));
+
   // Field ids are per screen, so a label on one screen cannot answer another.
   assert.ok(html.includes('id="s1_dapv_field_0"') && html.includes('id="s2_dapv_field_0"'),
     'each screen numbers its fields under its own prefix');

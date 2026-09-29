@@ -87,6 +87,15 @@ if (process.argv.includes('--serialize')) {
     {Proceed: {code: 'agreed = True'}}, {code: 'get_buttons()'},
     {label: 'Agree', value: false, color: 'success', 'show if': 'eligible'}]);
   assert.deepStrictEqual(serializers.readScreenControls(action, harness().document), action);
+  const explicitKey = { choices: [{ key: 'plaintiff', label: 'Person who started the case' }] };
+  assert.deepStrictEqual(serializers.screenChoice(explicitKey.choices[0]), {
+    label: 'Person who started the case', value: 'plaintiff', expanded: true, valueKey: 'key',
+  });
+  assert.deepStrictEqual(serializers.readScreenControls(explicitKey, harness({
+    'screen-choice-label-0': {value: 'Person who filed'},
+    'screen-choice-value-0': {value: 'claimant'},
+    'screen-choice-type-0': {value: 'string'},
+  }).document).choices, [{ key: 'claimant', label: 'Person who filed' }]);
   assert.ok(harness().render(action).includes('edit in YAML'));
   // Labels used as mapping keys must never replace metadata or become code.
   const reservedLabels = ['color', 'url', 'code', 'image', 'help', 'default',

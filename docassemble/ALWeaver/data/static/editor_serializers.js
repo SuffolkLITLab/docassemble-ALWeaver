@@ -43,8 +43,10 @@
   function screenChoice(item) {
     if (item === null || typeof item !== 'object') return { label: String(item), value: item, scalar: true };
     if (Object.prototype.hasOwnProperty.call(item, 'code')) return { computed: true };
-    if (Object.prototype.hasOwnProperty.call(item, 'label') && Object.prototype.hasOwnProperty.call(item, 'value')) {
-      return { label: String(item.label), value: item.value, expanded: true };
+    if (Object.prototype.hasOwnProperty.call(item, 'label') &&
+        (Object.prototype.hasOwnProperty.call(item, 'key') || Object.prototype.hasOwnProperty.call(item, 'value'))) {
+      var valueKey = Object.prototype.hasOwnProperty.call(item, 'key') ? 'key' : 'value';
+      return { label: String(item.label), value: item[valueKey], expanded: true, valueKey: valueKey };
     }
     var key = Object.keys(item).find(function (name) {
       return SCREEN_CHOICE_METADATA_KEYS.indexOf(name) === -1;
@@ -109,7 +111,7 @@
         }
         if (desc.scalar) return { [label.value]: nextValue };
         var next = Object.assign({}, item);
-        if (desc.expanded) { next.label = label.value; next.value = nextValue; }
+        if (desc.expanded) { next.label = label.value; next[desc.valueKey] = nextValue; }
         else { delete next[desc.key]; next[label.value] = nextValue; }
         return next;
       });
