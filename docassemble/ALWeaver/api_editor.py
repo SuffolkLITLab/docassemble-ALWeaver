@@ -2255,12 +2255,24 @@ def editor_api_github_status() -> Response:
         sync = find_project_github_sync(user_id=uid, project_name=project)
         sync_data = None
         if sync:
-            sync_data = {
-                "package": sync["package"],
-                "repository_url": sync["repository_url"],
-                "branch": sync["branch"],
-                "has_merge_base": bool(sync.get("commit")),
-            }
+            try:
+                repository = normalize_github_repository_url(sync["repository_url"])
+            except ValueError:
+                pass
+            else:
+                commit = str(sync.get("commit") or "").strip()
+                published = bool(re.fullmatch(r"[0-9a-fA-F]{40}", commit))
+                sync_data = {
+                    "package": sync["package"],
+                    "owner": repository["owner"],
+                    "repository_url": repository["url"],
+                    "branch": sync["branch"],
+                    "has_merge_base": bool(commit),
+                    "published": published,
+                    "commit_url": (
+                        f"{repository['url']}/commit/{commit}" if published else None
+                    ),
+                }
         if parse_bool(request.args.get("sync_only"), default=False):
             return jsonify(
                 {

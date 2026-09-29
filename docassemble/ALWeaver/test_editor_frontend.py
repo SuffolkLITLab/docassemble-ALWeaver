@@ -10,6 +10,7 @@ import unittest
 
 NODE_TESTS = (
     "test_editor_controls.js",
+    "test_editor_github_publish.js",
     "test_editor_expressions.js",
     "test_editor_attachments.js",
     "test_editor_order_lookup.js",

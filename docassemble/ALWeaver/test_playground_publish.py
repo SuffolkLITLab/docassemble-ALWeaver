@@ -1,5 +1,6 @@
 # do not pre-load
 
+import os
 import subprocess
 import unittest
 import tempfile
@@ -11,6 +12,7 @@ import yaml
 from . import playground_publish
 from .playground_publish import (
     _source_path_and_filename,
+    find_project_github_sync,
     load_project_github_manifest,
     next_available_project_name,
     normalize_github_package_name,
@@ -235,6 +237,42 @@ class test_playground_publish(unittest.TestCase):
             self.assertFalse(
                 (project_dir / ".docassemble-docassemble-HousingForms").exists()
             )
+
+    def test_find_github_sync_prefers_the_last_published_package(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_dir = Path(temp_dir) / "Housing"
+            project_dir.mkdir()
+            for package, stamp, commit in (
+                ("Alpha", 100, "a" * 40),
+                ("Zeta", 200, "b" * 40),
+                ("Draft", 300, ""),
+            ):
+                manifest = project_dir / f"docassemble.{package}"
+                manifest.write_text(
+                    f"github_url: https://github.com/LegalAid/docassemble-{package}\n"
+                    "github_branch: feature/housing\n"
+                    f"github_commit: {commit}\n",
+                    encoding="utf-8",
+                )
+                os.utime(manifest, (stamp, stamp))
+                if commit:
+                    commit_file = project_dir / f".docassemble-{package}"
+                    commit_file.write_text(commit + "\n", encoding="utf-8")
+                    os.utime(commit_file, (stamp, stamp))
+
+            class FakeArea:
+                directory = temp_dir
+
+            with patch.object(
+                playground_publish,
+                "create_saved_file",
+                return_value=FakeArea(),
+            ):
+                sync = find_project_github_sync(user_id=7, project_name="Housing")
+
+            self.assertIsNotNone(sync)
+            self.assertEqual(sync["package"], "Zeta")
+            self.assertEqual(sync["branch"], "feature/housing")
 
     def test_snapshot_project_files_rejects_nested_data_files(self):
         with self.assertRaisesRegex(ValueError, "nested files"):

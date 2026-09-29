@@ -236,11 +236,12 @@ def load_project_github_manifest(
 def find_project_github_sync(
     *, user_id: int, project_name: str
 ) -> Optional[Dict[str, Any]]:
-    """Return the first GitHub-backed package manifest for a project."""
+    """Return the most recently synchronized GitHub package for a project."""
     packages_area = create_saved_file(user_id, fix=True, section="playgroundpackages")
     directory = _directory_for(packages_area, project_name)
     if not os.path.isdir(directory):
         return None
+    candidates: List[Tuple[bool, float, str, Dict[str, Any]]] = []
     for filename in sorted(os.listdir(directory)):
         if not filename.startswith("docassemble."):
             continue
@@ -260,7 +261,7 @@ def find_project_github_sync(
         if not commit and os.path.isfile(commit_file):
             with open(commit_file, "r", encoding="utf-8") as stream:
                 commit = stream.read().strip()
-        return {
+        sync = {
             "package": package,
             "repository_url": str(manifest["github_url"]).rstrip("/"),
             "branch": str(manifest.get("github_branch") or "main"),
@@ -268,7 +269,16 @@ def find_project_github_sync(
             "manifest": manifest,
             "manifest_path": path,
         }
-    return None
+        try:
+            modified = os.path.getmtime(
+                commit_file if commit and os.path.isfile(commit_file) else path
+            )
+        except OSError:
+            continue
+        candidates.append((bool(commit), modified, filename, sync))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda candidate: candidate[:3])[3]
 
 
 def record_project_github_sync(

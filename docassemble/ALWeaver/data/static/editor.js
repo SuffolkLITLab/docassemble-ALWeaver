@@ -3207,6 +3207,35 @@
     status.textContent = message;
   }
 
+  function showGithubPublishedTarget(sync) {
+    var existing = document.getElementById('github-publish-existing');
+    var repositoryLink = document.getElementById('github-repository-link');
+    var commitLink = document.getElementById('github-commit-link');
+    var published = Boolean(sync && sync.published && sync.commit_url);
+    if (existing) {
+      existing.classList.toggle('d-none', !published);
+      existing.textContent = published
+        ? 'Last published to ' +
+          sync.owner +
+          '/docassemble-' +
+          sync.package +
+          ' on ' +
+          sync.branch +
+          '.'
+        : '';
+    }
+    [
+      [repositoryLink, sync && sync.repository_url],
+      [commitLink, sync && sync.commit_url],
+    ].forEach(function (entry) {
+      var link = entry[0];
+      if (!link) return;
+      if (published) link.href = entry[1];
+      else link.removeAttribute('href');
+      link.classList.toggle('d-none', !published);
+    });
+  }
+
   var githubPublishPreviewToken = null;
 
   function clearGithubPublishPreview(message) {
@@ -3416,7 +3445,10 @@
     );
     var configure = document.getElementById('github-configure-link');
     var packageInput = document.getElementById('github-package-name');
+    var branchInput = document.getElementById('github-branch-name');
     var ownerSelect = document.getElementById('github-owner');
+    var sync = data && data.sync;
+    showGithubPublishedTarget(sync);
     githubWorkflowAccessByOwner = {};
     showGithubWorkflowAccess();
     if (ownerSelect && !(data && data.enabled && data.connected)) {
@@ -3426,9 +3458,9 @@
       unavailable.textContent = 'Connect GitHub to choose an account';
       ownerSelect.appendChild(unavailable);
     }
-    if (packageInput && data && data.default_package) {
-      packageInput.value = data.default_package;
-    }
+    if (packageInput && data)
+      packageInput.value = (sync && sync.package) || data.default_package || '';
+    if (branchInput) branchInput.value = (sync && sync.branch) || 'main';
     if (configure) {
       configure.classList.toggle('d-none', !(data && data.configure_url));
       if (data && data.configure_url) configure.href = data.configure_url;
@@ -3470,6 +3502,21 @@
         option.disabled = owner.available === false;
         ownerSelect.appendChild(option);
       });
+      if (sync && sync.owner) {
+        var savedOwner = (data.owners || []).find(function (owner) {
+          return owner.login.toLowerCase() === sync.owner.toLowerCase();
+        });
+        if (savedOwner && savedOwner.available !== false) {
+          ownerSelect.value = savedOwner.login;
+        } else {
+          var unavailableOwner = document.createElement('option');
+          unavailableOwner.value = '';
+          unavailableOwner.textContent = sync.owner + ' (unavailable)';
+          unavailableOwner.disabled = true;
+          ownerSelect.prepend(unavailableOwner);
+          ownerSelect.value = '';
+        }
+      }
       ownerSelect.disabled = !(data.owners && data.owners.length);
     }
     showGithubWorkflowAccess();
@@ -3502,6 +3549,12 @@
       'Connected. Choose the target and preview the files before publishing.',
       'success',
     );
+    if (sync && sync.owner && (!ownerSelect || !ownerSelect.value)) {
+      setGithubPublishStatus(
+        'The saved GitHub owner is unavailable. Choose an account before publishing.',
+        'warning',
+      );
+    }
   }
 
   function refreshGithubSyncAction() {
@@ -3613,8 +3666,6 @@
         var modal = getOrCreateBootstrapModal('github-publish-modal');
         var submit = document.getElementById('github-publish-submit');
         var configure = document.getElementById('github-configure-link');
-        var repositoryLink = document.getElementById('github-repository-link');
-        var commitLink = document.getElementById('github-commit-link');
         var previewButton = document.getElementById(
           'github-publish-preview-button',
         );
@@ -3625,8 +3676,7 @@
         if (configure) configure.classList.add('d-none');
         githubWorkflowAccessByOwner = {};
         showGithubWorkflowAccess();
-        if (repositoryLink) repositoryLink.classList.add('d-none');
-        if (commitLink) commitLink.classList.add('d-none');
+        showGithubPublishedTarget(null);
         if (ownerSelect) {
           ownerSelect.disabled = true;
           ownerSelect.replaceChildren();
@@ -3749,8 +3799,6 @@
       var branchInput = document.getElementById('github-branch-name');
       var messageInput = document.getElementById('github-commit-message');
       var submit = document.getElementById('github-publish-submit');
-      var repositoryLink = document.getElementById('github-repository-link');
-      var commitLink = document.getElementById('github-commit-link');
       if (!form.reportValidity()) return;
       if (!githubPublishPreviewToken) {
         setGithubPublishStatus(
@@ -3789,14 +3837,7 @@
           setGithubPublishStatus('Queued for publishing to GitHub…', 'info');
           return _pollGithubPublishJob(res.data.job_url).then(
             function (result) {
-              if (repositoryLink && result.repository_url) {
-                repositoryLink.href = result.repository_url;
-                repositoryLink.classList.remove('d-none');
-              }
-              if (commitLink && result.commit_url) {
-                commitLink.href = result.commit_url;
-                commitLink.classList.remove('d-none');
-              }
+              showGithubPublishedTarget({ published: true, ...result });
               var fileCount = result.files_committed;
               var published =
                 typeof fileCount === 'number'
