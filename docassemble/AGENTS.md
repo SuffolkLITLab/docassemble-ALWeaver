@@ -19,3 +19,4 @@
 - **Computed vs Literal**: Values computed by Python expressions are read-only in UI; never wrap expressions in `repr()`.
 - **One name, one home**: Update existing author blocks in place instead of duplicating into Weaver blocks.
 - **Front End**: Vanilla JS and Bootstrap (no jQuery). Run `npm run check` and update `test_editor_frontend.py` when modifying UI controls.
+- **Form guidance**: Never use placeholder text in inputs or textareas. Omit redundant instructions, put short guidance beneath the control, or use an accessible `?` popover when the explanation is extensive.

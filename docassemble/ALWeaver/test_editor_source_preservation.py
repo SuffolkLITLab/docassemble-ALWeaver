@@ -43,6 +43,30 @@ SOURCE = (
 
 
 class TestEditorSourcePreservation(unittest.TestCase):
+    def test_graphical_template_edit_preserves_custom_keys_and_comments(self):
+        source = (
+            "template: shared_help\n"
+            "subject: | # keep subject style\n"
+            "  Learn more\n"
+            "content: |\n"
+            "  Original text.\n"
+            "language: es # custom key\n"
+        )
+        block_id = parse_interview_yaml(source)["blocks"][0]["id"]
+        edited = (
+            "template: shared_help\n"
+            "subject: |\n"
+            "  Learn more\n"
+            "content: |\n"
+            "  Edited **Markdown** with ${ user.name }.\n"
+        )
+        updated = update_block_in_yaml(
+            source, block_id, edited, preserve_unchanged_annotations=True
+        )
+        self.assertIn("subject: | # keep subject style\n", updated)
+        self.assertIn("language: es # custom key\n", updated)
+        self.assertIn("Edited **Markdown** with ${ user.name }.", updated)
+
     def test_expression_edit_in_anonymous_question_keeps_sibling_comment(self):
         source = (
             "question: Income\nfields:\n"
@@ -415,6 +439,7 @@ class TestNewBlockTemplates(unittest.TestCase):
         "code",
         "objects",
         "attachment",
+        "template",
         "comment",
         "other",
     )

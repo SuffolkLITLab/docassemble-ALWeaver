@@ -114,12 +114,14 @@
   var VALIDATION_DOCKS = ['bottom', 'tall', 'side', 'full'];
   var MAX_RECENT_PROJECTS = 8;
   var _symbolInsertContext = null;
+  var _templateInsertContext = null;
   var _alFieldMethodContext = null;
   var _pendingOrderInsert = null;
   var _lastInsertedOrderStepId = null;
   var _lastInsertedOrderStepTimer = null;
   var _orderBuilderLoadSeq = 0;
   var _questionEventFieldOpen = {};
+  var _templateSubjectOpen = {};
   var DOCASSEMBLE_MARKUP_DOCS_URL = 'https://docassemble.org/docs/markup.html';
   var MAKO_DOCS_URL = 'https://docs.makotemplates.org/en/latest/syntax.html';
   var DOCASSEMBLE_FIELDS_DOCS_URL = 'https://docassemble.org/docs/fields.html';
@@ -4371,6 +4373,12 @@
       '<li><button type="button" class="dropdown-item" data-md-insert="mako-python" data-target-id="' +
       esc(targetId) +
       '"><i class="fa-solid fa-terminal me-2" aria-hidden="true"></i>Mako Python block</button></li>';
+    if (targetId === 'q-subquestion' || targetId === 'template-content') {
+      html +=
+        '<li><button type="button" class="dropdown-item" data-insert-help-template data-target-id="' +
+        esc(targetId) +
+        '"><i class="fa-solid fa-circle-info me-2" aria-hidden="true"></i>Insert collapsible help</button></li>';
+    }
     html += '<li><hr class="dropdown-divider"></li>';
     html +=
       '<li><button type="button" class="dropdown-item" data-md-insert="image" data-target-id="' +
@@ -4416,6 +4424,236 @@
     html += '</ul></div>';
     html += '</div>';
     return html;
+  }
+
+  function availableHelpTemplates() {
+    return state.blocks.filter(function (block) {
+      return Boolean(
+        block &&
+        block.id !== state.selectedBlockId &&
+        block.type === 'template' &&
+        block.data &&
+        typeof block.data.template === 'string' &&
+        window.ALWeaverSerializers.isPythonIdentifier(block.data.template) &&
+        String(block.data.subject || '').trim(),
+      );
+    });
+  }
+
+  function setTemplateInsertError(message) {
+    var box = document.getElementById('template-insert-error');
+    if (!box) return;
+    box.textContent = message || '';
+    box.classList.toggle('d-none', !message);
+  }
+
+  function openTemplateInsertModal(targetEl) {
+    if (!targetEl) return;
+    _templateInsertContext = {
+      blockId: state.selectedBlockId,
+      targetId: targetEl.id,
+      selectionStart:
+        typeof targetEl.selectionStart === 'number'
+          ? targetEl.selectionStart
+          : String(targetEl.value || '').length,
+      selectionEnd:
+        typeof targetEl.selectionEnd === 'number'
+          ? targetEl.selectionEnd
+          : String(targetEl.value || '').length,
+    };
+    var select = document.getElementById('template-insert-existing');
+    if (select) {
+      var choices = availableHelpTemplates();
+      select.innerHTML = choices.length
+        ? choices
+            .map(function (block) {
+              return (
+                '<option value="' +
+                esc(String(block.data.template)) +
+                '">' +
+                esc(String(block.data.template)) +
+                ' — ' +
+                esc(String(block.data.subject).split('\n')[0]) +
+                '</option>'
+              );
+            })
+            .join('')
+        : '<option value="">No insertable templates yet</option>';
+    }
+    [
+      'template-insert-name',
+      'template-insert-subject',
+      'template-insert-content',
+    ].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    setTemplateInsertError('');
+    var modal = getOrCreateBootstrapModal('template-insert-modal');
+    if (modal) modal.show();
+  }
+
+  function hasCollapseTemplateDependency() {
+    return state.blocks.some(function (block) {
+      var data = block && block.data;
+      if (!data) return false;
+      var includes = data.include || data.includes;
+      if (includes) {
+        if (!Array.isArray(includes)) includes = [includes];
+        if (
+          includes.some(function (value) {
+            return /(?:AssemblyLine|ALToolbox.*collapse_template)/.test(
+              String(value || ''),
+            );
+          })
+        )
+          return true;
+      }
+      var modules = data.modules;
+      if (!Array.isArray(modules)) modules = modules ? [modules] : [];
+      return modules.some(function (value) {
+        return String(value || '').indexOf('docassemble.ALToolbox') !== -1;
+      });
+    });
+  }
+
+  function ensureCollapseTemplateDependency() {
+    if (hasCollapseTemplateDependency()) return Promise.resolve(true);
+    return apiPost('/api/insert-block', {
+      project: state.project,
+      filename: state.filename,
+      insert_after_id:
+        state.blocks.length && state.blocks[0] ? state.blocks[0].id : '',
+      block_yaml: 'include:\n  - docassemble.ALToolbox:collapse_template.yml\n',
+    }).then(function (res) {
+      if (!res.success || !res.data)
+        throw new Error(
+          (res.error && res.error.message) ||
+            'Unable to add the collapsible-help dependency.',
+        );
+      refreshFromFileResponse(res.data);
+      return true;
+    });
+  }
+
+  function restoreTemplateInsertTarget() {
+    if (!_templateInsertContext) return null;
+    state.selectedBlockId = _templateInsertContext.blockId;
+    renderOutline();
+    renderCanvas();
+    return document.getElementById(_templateInsertContext.targetId);
+  }
+
+  function insertTemplateReference(name) {
+    var context = _templateInsertContext;
+    if (!context || !name) return;
+    var targetEl = document.getElementById(context.targetId);
+    if (!targetEl || state.selectedBlockId !== context.blockId) {
+      targetEl = restoreTemplateInsertTarget();
+    }
+    if (!targetEl) return;
+    var value = String(targetEl.value || '');
+    var start = Math.max(0, Math.min(context.selectionStart, value.length));
+    var end = Math.max(start, Math.min(context.selectionEnd, value.length));
+    var expression = '${ collapse_template(' + name + ') }';
+    var prefix = '';
+    var suffix = '';
+    if (start === end && start === value.length && value.trim()) {
+      prefix = value.endsWith('\n\n')
+        ? ''
+        : value.endsWith('\n')
+          ? '\n'
+          : '\n\n';
+    }
+    if (start === end && start === value.length && !value.endsWith('\n'))
+      suffix = '\n';
+    replaceInputRange(targetEl, start, end, prefix + expression + suffix);
+  }
+
+  function applyExistingTemplateReference() {
+    var select = document.getElementById('template-insert-existing');
+    var name = select ? String(select.value || '').trim() : '';
+    if (!name) {
+      setTemplateInsertError(
+        'Choose an existing template, or create a new one below.',
+      );
+      return;
+    }
+    saveCurrentBlockIfDirty()
+      .then(function (saved) {
+        if (!saved)
+          throw new Error(
+            'Save the current block before inserting collapsible help.',
+          );
+        _templateInsertContext.blockId = state.selectedBlockId;
+        return ensureCollapseTemplateDependency();
+      })
+      .then(function () {
+        insertTemplateReference(name);
+        closeBootstrapModal('template-insert-modal');
+      })
+      .catch(function (error) {
+        setTemplateInsertError(String(error.message || error));
+      });
+  }
+
+  function createAndInsertHelpTemplate() {
+    var nameEl = document.getElementById('template-insert-name');
+    var subjectEl = document.getElementById('template-insert-subject');
+    var contentEl = document.getElementById('template-insert-content');
+    var name = String((nameEl && nameEl.value) || '').trim();
+    var subject = String((subjectEl && subjectEl.value) || '');
+    var content = String((contentEl && contentEl.value) || '');
+    var yaml;
+    try {
+      yaml = window.ALWeaverSerializers.serializeTemplateToYaml(
+        name,
+        subject,
+        content,
+      );
+      if (!subject.trim())
+        throw new Error('A disclosure label is required for collapsible help.');
+      if (
+        state.blocks.some(function (block) {
+          return (
+            block.type === 'template' &&
+            block.data &&
+            String(block.data.template || '') === name
+          );
+        })
+      )
+        throw new Error('A template named “' + name + '” already exists.');
+    } catch (error) {
+      setTemplateInsertError(String(error.message || error));
+      return;
+    }
+    saveCurrentBlockIfDirty()
+      .then(function (saved) {
+        if (!saved)
+          throw new Error('Save the current block before creating help text.');
+        _templateInsertContext.blockId = state.selectedBlockId;
+        return apiPost('/api/insert-block', {
+          project: state.project,
+          filename: state.filename,
+          insert_after_id: _templateInsertContext.blockId,
+          block_yaml: yaml,
+        });
+      })
+      .then(function (res) {
+        if (!res.success || !res.data)
+          throw new Error(
+            (res.error && res.error.message) || 'Unable to create help text.',
+          );
+        refreshFromFileResponse(res.data);
+        return ensureCollapseTemplateDependency();
+      })
+      .then(function () {
+        insertTemplateReference(name);
+        closeBootstrapModal('template-insert-modal');
+      })
+      .catch(function (error) {
+        setTemplateInsertError(String(error.message || error));
+      });
   }
 
   function _buildDocassembleImageToken(fileRef, width, altText) {
@@ -8360,6 +8598,31 @@
     );
   }
 
+  function isTemplateEditorBlock(block) {
+    return Boolean(
+      block &&
+      block.type === 'template' &&
+      block.data &&
+      typeof block.data.template === 'string' &&
+      /^[A-Za-z_][A-Za-z0-9_]*$/.test(block.data.template) &&
+      typeof block.data.content === 'string' &&
+      (block.data.subject === undefined ||
+        typeof block.data.subject === 'string') &&
+      block.data['content file'] === undefined,
+    );
+  }
+
+  function serializeTemplateBlockToYaml(block) {
+    var nameEl = document.getElementById('template-name');
+    var subjectEl = document.getElementById('template-subject');
+    var contentEl = document.getElementById('template-content');
+    return window.ALWeaverSerializers.serializeTemplateToYaml(
+      nameEl ? nameEl.value : block.data.template,
+      subjectEl ? subjectEl.value : block.data.subject,
+      contentEl ? contentEl.value : block.data.content,
+    );
+  }
+
   function getBlockYamlForSave(block) {
     if (!block) return '';
     if (state.questionEditMode === 'preview' && isQuestionEditorBlock(block)) {
@@ -8375,6 +8638,14 @@
     }
     if (state.questionEditMode === 'preview' && block.type === 'review') {
       return serializeReviewToYaml(block);
+    }
+    if (state.questionEditMode === 'preview' && isTemplateEditorBlock(block)) {
+      try {
+        return serializeTemplateBlockToYaml(block);
+      } catch (error) {
+        window.alert(String(error.message || error));
+        return '';
+      }
     }
     var yamlVal = getSourceEditorValue('block-source-editor');
     if (!yamlVal && block.yaml) yamlVal = block.yaml;
@@ -9782,6 +10053,18 @@
     } else if (block.type === 'objects') {
       renderObjectsBlock(block);
     } else if (
+      block.type === 'template' &&
+      block.data &&
+      typeof block.data.template === 'string' &&
+      /^[A-Za-z_][A-Za-z0-9_]*$/.test(block.data.template) &&
+      typeof block.data.content === 'string' &&
+      (block.data.subject === undefined ||
+        typeof block.data.subject === 'string') &&
+      block.data['content file'] === undefined &&
+      state.questionEditMode === 'preview'
+    ) {
+      renderTemplateBlock(block);
+    } else if (
       block.type === 'attachment' &&
       state.questionEditMode === 'preview'
     ) {
@@ -9792,6 +10075,59 @@
     } else {
       renderGenericBlock(block);
     }
+  }
+
+  function renderTemplateBlock(block) {
+    var data = block.data || {};
+    var hasSubject = Boolean(String(data.subject || '').trim());
+    var subjectOpen = hasSubject || Boolean(_templateSubjectOpen[block.id]);
+    var html = '<div class="editor-center-bar"><div>';
+    html += '<span class="editor-pill editor-pill-muted">Text template</span>';
+    html +=
+      '<div style="font-weight:600;font-size:16px;margin-top:6px">' +
+      esc(String(data.template || 'Template')) +
+      '</div></div>';
+    html +=
+      '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode"><i class="fa-solid fa-code me-1" aria-hidden="true"></i>YAML</button></div>';
+    html +=
+      '<div class="editor-shell"><div class="editor-card"><div class="editor-card-body">';
+    html += '<div class="editor-form-group">';
+    html +=
+      '<label class="editor-tiny" for="template-name">Variable name</label>';
+    html +=
+      '<input class="form-control editor-form-control font-monospace" id="template-name" autocomplete="off" value="' +
+      esc(String(data.template || '')) +
+      '">';
+    html +=
+      '<div class="form-text">Use a Python-style name (letters, numbers, and underscores). References must use this exact name.</div></div>';
+    if (subjectOpen) {
+      html += '<div class="editor-form-group">';
+      html +=
+        '<label class="editor-tiny" for="template-subject">Subject (disclosure label)</label>';
+      html += renderMarkdownToolbar('template-subject', false);
+      html +=
+        '<textarea class="form-control editor-form-control" id="template-subject" rows="2">' +
+        esc(String(data.subject || '')) +
+        '</textarea>';
+      html +=
+        '<div class="form-text">Required only when this template is inserted as collapsible help.</div></div>';
+    } else {
+      html +=
+        '<div class="editor-form-group"><button type="button" class="btn btn-sm btn-outline-secondary" id="add-template-subject"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Add subject</button></div>';
+    }
+    html += '<div class="editor-form-group">';
+    html += '<label class="editor-tiny" for="template-content">Content</label>';
+    html += renderMarkdownToolbar('template-content', false);
+    html +=
+      '<textarea class="form-control editor-form-control" id="template-content" rows="12" required>' +
+      esc(String(data.content || '')) +
+      '</textarea>';
+    html +=
+      '<div class="form-text">Markdown and Mako expressions are preserved. You can also insert another text template here.</div>';
+    html += '</div></div></div></div>';
+    canvasContent.innerHTML = html;
+    _initAutoResize(document.getElementById('template-subject'), 64);
+    _initAutoResize(document.getElementById('template-content'), 220);
   }
 
   // -------------------------------------------------------------------------
@@ -16687,6 +17023,7 @@
     var outlineInsertBtn = target.closest('.editor-outline-insert-btn');
     var insertChoiceBtn = target.closest('[data-insert]');
     var mdInsertBtn = target.closest('[data-md-insert]');
+    var helpTemplateBtn = target.closest('[data-insert-help-template]');
     var symbolItemBtn = target.closest('[data-symbol-name]');
     var typeaheadItemBtn = target.closest('[data-typeahead-name]');
     var labelQuickBtn = target.closest('[data-label-insert]');
@@ -17247,6 +17584,7 @@
       }).then(function (res) {
         if (res.success && res.data) {
           closeBootstrapModal('insert-modal');
+          if (insertKind === 'template') state.questionEditMode = 'preview';
           refreshFromFileResponse(res.data);
           if (isAiScreen) {
             var newBlock = getSelectedBlock();
@@ -17297,6 +17635,24 @@
           (res.error && res.error.message) || 'Unable to insert block.',
         );
       });
+      return;
+    }
+
+    if (helpTemplateBtn) {
+      var helpTargetId = helpTemplateBtn.getAttribute('data-target-id');
+      openTemplateInsertModal(
+        helpTargetId ? document.getElementById(helpTargetId) : null,
+      );
+      return;
+    }
+
+    if (target.id === 'template-insert-apply') {
+      applyExistingTemplateReference();
+      return;
+    }
+
+    if (target.id === 'template-insert-create') {
+      createAndInsertHelpTemplate();
       return;
     }
 
@@ -19435,6 +19791,9 @@
       target.matches('.editor-obj-input') ||
       target.id === 'q-title' ||
       target.id === 'q-subquestion' ||
+      target.id === 'template-name' ||
+      target.id === 'template-subject' ||
+      target.id === 'template-content' ||
       target.id === 'adv-id' ||
       target.id === 'adv-if' ||
       target.id === 'adv-continue-field' ||

@@ -2763,6 +2763,63 @@ class TestEditorBlockPayloadValidation(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.accepts(payload)
 
+    def test_text_templates_require_a_safe_name_and_nonblank_content(self):
+        self.accepts(
+            "template: mailing_help\nsubject: |\n  Learn more\ncontent: |\n  Hi ${ user }\n"
+        )
+        for payload in (
+            "template: 2_bad\ncontent: Text\n",
+            "template: class\ncontent: Text\n",
+            "template: blank_help\ncontent: '   '\n",
+        ):
+            with self.subTest(payload=payload):
+                with self.assertRaises(ValueError):
+                    self.accepts(payload)
+
+    def test_a_duplicate_template_name_is_refused_in_the_active_file(self):
+        blocks = [
+            {
+                "id": "block-0-old",
+                "type": "template",
+                "data": {"template": "shared_help", "content": "Existing"},
+            }
+        ]
+        with patch.object(
+            api_editor, "parse_interview_yaml", return_value={"blocks": blocks}
+        ):
+            with self.assertRaisesRegex(ValueError, "already defined"):
+                api_editor._validate_template_against_file(
+                    "existing source", "template: shared_help\ncontent: New\n"
+                )
+
+    def test_template_references_report_the_question_and_line(self):
+        blocks = [
+            {
+                "id": "address",
+                "title": "What is your address?",
+                "line_start": 14,
+                "yaml": "subquestion: ${ collapse_template(shared_help) }\n",
+                "data": {},
+            },
+            {
+                "id": "other",
+                "title": "Other",
+                "line_start": 30,
+                "yaml": "subquestion: No help here.\n",
+                "data": {},
+            },
+        ]
+        with patch.object(
+            api_editor, "parse_interview_yaml", return_value={"blocks": blocks}
+        ):
+            self.assertEqual(
+                api_editor._template_references("source", "shared_help"),
+                ["What is your address? (line 14)"],
+            )
+
+    def test_advanced_template_names_remain_source_editable(self):
+        self.accepts("template: person[i].help\ncontent: Advanced text\n")
+
 
 class TestOrderBlockLookup(unittest.TestCase):
     """`order_blocks` holds document indices, not positions in `blocks`."""

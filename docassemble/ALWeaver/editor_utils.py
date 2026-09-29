@@ -1260,6 +1260,31 @@ def update_block_in_yaml(
                     edited_body += "\n" + original_body[
                         key.start_mark.index : property_end
                     ].rstrip("\r\n")
+        # The text-template form owns only these three properties. Keep any
+        # custom Docassemble keys (and their exact comments/style) in place
+        # instead of making a graphical subject/content edit erase them.
+        if (
+            "template" in original_data
+            and isinstance(edited_data, dict)
+            and "template" in edited_data
+        ):
+            original_node = yaml.compose(original_body)
+            if isinstance(original_node, yaml.MappingNode):
+                for index, (key, _value) in enumerate(original_node.value):
+                    if key.value in edited_data or key.value in {
+                        "template",
+                        "subject",
+                        "content",
+                    }:
+                        continue
+                    property_end = (
+                        original_node.value[index + 1][0].start_mark.index
+                        if index + 1 < len(original_node.value)
+                        else len(original_body)
+                    )
+                    edited_body += "\n" + original_body[
+                        key.start_mark.index : property_end
+                    ].rstrip("\r\n")
         replacement = _merge_changed_mapping_values(original_body, edited_body)
     if replacement is None:
         leading_len = len(original_body) - len(original_body.lstrip("\r\n"))
