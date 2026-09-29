@@ -5430,23 +5430,23 @@
     html +=
       '<button type="button" class="editor-md-btn" data-md-insert="bold" data-target-id="' +
       esc(targetId) +
-      '" title="Bold"><i class="fa-solid fa-bold" aria-hidden="true"></i></button>';
+      '" title="Bold" aria-label="Bold"><i class="fa-solid fa-bold" aria-hidden="true"></i><span class="editor-md-fallback">Bold</span></button>';
     html +=
       '<button type="button" class="editor-md-btn" data-md-insert="italic" data-target-id="' +
       esc(targetId) +
-      '" title="Italic"><i class="fa-solid fa-italic" aria-hidden="true"></i></button>';
+      '" title="Italic" aria-label="Italic"><i class="fa-solid fa-italic" aria-hidden="true"></i><span class="editor-md-fallback">Italic</span></button>';
     html +=
       '<button type="button" class="editor-md-btn" data-md-insert="link" data-target-id="' +
       esc(targetId) +
-      '" title="Link"><i class="fa-solid fa-link" aria-hidden="true"></i></button>';
+      '" title="Link" aria-label="Link"><i class="fa-solid fa-link" aria-hidden="true"></i><span class="editor-md-fallback">Link</span></button>';
     html +=
       '<button type="button" class="editor-md-btn" data-md-insert="mako" data-target-id="' +
       esc(targetId) +
-      '" title="Insert Mako variable"><i class="fa-solid fa-code" aria-hidden="true"></i></button>';
+      '" title="Insert Mako variable" aria-label="Insert Mako variable"><i class="fa-solid fa-code" aria-hidden="true"></i><span class="editor-md-fallback">Variable</span></button>';
     // Heading dropdown
     html += '<div class="dropdown d-inline-block">';
     html +=
-      '<button type="button" class="editor-md-btn dropdown-toggle editor-md-dropdown-toggle" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="Heading"><i class="fa-solid fa-heading" aria-hidden="true"></i></button>';
+      '<button type="button" class="editor-md-btn dropdown-toggle editor-md-dropdown-toggle" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="Heading" aria-label="Heading"><i class="fa-solid fa-heading" aria-hidden="true"></i><span class="editor-md-fallback">Heading</span></button>';
     html += '<ul class="dropdown-menu editor-md-overflow-menu">';
     html +=
       '<li><button type="button" class="dropdown-item" data-md-insert="heading1" data-target-id="' +
@@ -5468,7 +5468,7 @@
     // List dropdown
     html += '<div class="dropdown d-inline-block">';
     html +=
-      '<button type="button" class="editor-md-btn dropdown-toggle editor-md-dropdown-toggle" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="List"><i class="fa-solid fa-list" aria-hidden="true"></i></button>';
+      '<button type="button" class="editor-md-btn dropdown-toggle editor-md-dropdown-toggle" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="List" aria-label="List"><i class="fa-solid fa-list" aria-hidden="true"></i><span class="editor-md-fallback">List</span></button>';
     html += '<ul class="dropdown-menu editor-md-overflow-menu">';
     html +=
       '<li><button type="button" class="dropdown-item" data-md-insert="list-bullet" data-target-id="' +
@@ -5482,7 +5482,7 @@
     // Kebab overflow menu — mako items first, then media/layout
     html += '<div class="dropdown d-inline-block">';
     html +=
-      '<button type="button" class="editor-md-btn dropdown-toggle editor-md-kebab" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="More formatting"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>';
+      '<button type="button" class="editor-md-btn dropdown-toggle editor-md-kebab" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="More formatting" aria-label="More formatting"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i><span class="editor-md-fallback">More</span></button>';
     html += '<ul class="dropdown-menu editor-md-overflow-menu">';
     html +=
       '<li><button type="button" class="dropdown-item" data-md-insert="symbol-raw" data-target-id="' +
