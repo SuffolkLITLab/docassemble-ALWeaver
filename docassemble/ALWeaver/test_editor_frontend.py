@@ -148,6 +148,25 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn(">Yes</option>", logic)
         self.assertIn(">No</option>", logic)
 
+    def test_field_settings_tabs_have_accessible_roles_and_contrast(self):
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+        css = (self.package_dir / "data/static/editor.css").read_text()
+        panel = editor.split("  function _renderFieldModsPanel(", 1)[1].split(
+            "  // --- Advanced panel", 1
+        )[0]
+        for attribute in (
+            'role="tablist" aria-label="Field settings"',
+            'role="tab" id="field-settings-tab-',
+            'aria-controls="field-settings-pane-',
+            'aria-selected="',
+            'role="tabpanel" id="field-settings-pane-',
+            'aria-labelledby="field-settings-tab-',
+        ):
+            self.assertIn(attribute, panel)
+        self.assertIn(".editor-field-settings-tabs .nav-link {", css)
+        self.assertIn("color: var(--editor-primary);", css)
+        self.assertIn(".editor-field-settings-tabpane[hidden]", css)
+
     def test_github_partial_publish_shows_warning_and_setup_guidance(self):
         source = (Path(__file__).parent / "data/static/editor.js").read_text()
         self.assertIn("warnings.length ? 'warning' : 'success'", source)

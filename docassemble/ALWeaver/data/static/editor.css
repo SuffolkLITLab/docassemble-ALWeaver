@@ -1323,6 +1323,7 @@ body {
 .editor-field-settings-tabs .nav-link {
   font-size: 12px;
   padding: 4px 10px;
+  color: var(--editor-primary);
 }
 
 .editor-field-settings-tabcontent {
@@ -1334,6 +1335,10 @@ body {
   padding-top: 8px;
   display: grid;
   gap: 8px;
+}
+
+.editor-field-settings-tabpane[hidden] {
+  display: none;
 }
 
 .editor-field-row-special {

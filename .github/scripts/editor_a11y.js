@@ -302,6 +302,13 @@ async function main() {
       await audit(page, "question options editor")
     );
     await page.locator("#toggle-edit-mode-tab").click();
+    const unsavedChanges = page.locator("#unsaved-changes-modal");
+    await unsavedChanges.waitFor({ state: "visible", timeout: 10_000 });
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "unsaved changes dialog")
+    );
+    await unsavedChanges.locator('[data-unsaved-choice="discard"]').click();
+    await unsavedChanges.waitFor({ state: "hidden", timeout: 10_000 });
     await page.locator("#block-source-editor").waitFor({ state: "visible" });
     blockingViolations = blockingViolations.concat(
       await audit(page, "question YAML editor")
