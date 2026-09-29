@@ -299,6 +299,11 @@ body {
 
 .editor-account-nav {
   flex-direction: row;
+  flex-shrink: 0;
+}
+
+#editor-account-menu {
+  white-space: nowrap;
 }
 
 @media (min-width: 1200px) {
@@ -3556,18 +3561,6 @@ body {
   background: #0d6efd;
 }
 
-.js-check-errors-btn.editor-validation-has-issues {
-  border-color: #ffd5d9;
-  background: #9f2137;
-  color: #fff;
-}
-
-.js-check-errors-btn.editor-validation-has-info {
-  border-color: #bfdbfe;
-  background: #1b4f8f;
-  color: #fff;
-}
-
 .editor-validation-list {
   list-style: none;
   margin: 0;
@@ -3867,12 +3860,6 @@ body {
   background: #fbbf24;
   margin-left: 4px;
   vertical-align: middle;
-}
-
-/* ===== Errors button icon spacing ===== */
-
-.js-check-errors-btn .js-check-errors-icon {
-  margin-right: 4px;
 }
 
 /* ===== Editing assistant drawer ===== */

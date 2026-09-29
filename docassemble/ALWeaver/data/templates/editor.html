@@ -60,7 +60,7 @@
         </ul>
       </div>
       <div class="editor-compact-actions" role="group" aria-label="Interview actions">
-        <button type="button" class="btn btn-sm btn-outline-light" data-action="preview-interview" aria-label="Open interview" title="Open interview"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i><span class="editor-compact-action-label">Open interview</span></button>
+        <button type="button" class="btn btn-sm btn-outline-light" data-action="preview-interview" aria-label="Run" title="Run"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i><span class="editor-compact-action-label">Run</span></button>
         <button type="button" class="btn btn-sm btn-outline-light" data-action="open-runtime-inspector" aria-label="Debug interview" title="Debug interview"><i class="fa-solid fa-bug" aria-hidden="true"></i><span class="editor-compact-action-label">Debug</span></button>
         <button type="button" class="btn btn-sm btn-light js-save-file-btn" data-action="save-file" title="Save your changes (Ctrl+S)" aria-label="Save your changes" disabled><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i><span class="editor-compact-action-label">Save</span><span class="editor-save-badge js-save-badge d-none"></span></button>
         <button type="button" class="btn btn-sm btn-outline-light d-none js-assistant-toggle" data-action="toggle-assistant" aria-controls="editor-assistant" aria-expanded="false" aria-label="Toggle the editing assistant" title="Toggle the editing assistant"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i><span class="editor-compact-action-label">Assistant</span></button>
@@ -102,8 +102,8 @@
           <li class="nav-item"><button type="button" class="nav-link editor-top-tab" data-view="data">Sources</button></li>
         </ul>
         <div class="editor-top-actions">
-          <button type="button" class="btn btn-sm btn-outline-light js-check-errors-btn" data-action="check-errors" title="Check for errors"><i class="fa-solid fa-triangle-exclamation js-check-errors-icon d-none" aria-hidden="true"></i><span class="js-check-errors-label">Errors</span><span class="editor-validation-badge js-validation-badge d-none" data-validation-badge></span></button>
-          <button type="button" class="btn btn-sm btn-outline-light" data-action="preview-interview"><i class="fa-solid fa-arrow-up-right-from-square me-1" aria-hidden="true"></i>Open interview</button>
+          <span id="editor-error-count" class="editor-validation-badge d-none" role="status" aria-live="polite" aria-atomic="true"></span>
+          <button type="button" class="btn btn-sm btn-outline-light" data-action="preview-interview"><i class="fa-solid fa-arrow-up-right-from-square me-1" aria-hidden="true"></i>Run</button>
           <button type="button" class="btn btn-sm btn-outline-light" id="btn-debug-interview" data-action="open-runtime-inspector"><i class="fa-solid fa-bug me-1" aria-hidden="true"></i>Debug</button>
           <button type="button" class="btn btn-sm btn-light js-save-file-btn" id="btn-save-file" data-action="save-file" title="Save your changes (Ctrl+S)" aria-label="Save your changes" disabled><i class="fa-solid fa-floppy-disk me-1" aria-hidden="true"></i>Save<span class="editor-save-badge js-save-badge d-none"></span></button>
           <button type="button" class="btn btn-sm btn-outline-light d-none js-assistant-toggle" id="btn-toggle-assistant" data-action="toggle-assistant" aria-controls="editor-assistant" aria-expanded="false" aria-label="Toggle the editing assistant"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>Assistant</button>

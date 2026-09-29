@@ -319,6 +319,13 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("function setSectionSubmenu(openId)", editor)
         self.assertIn("@media (max-width: 1199.98px)", css)
 
+    def test_toolbar_uses_run_and_a_noninteractive_error_count(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        self.assertNotIn("Open interview", template)
+        self.assertNotIn('data-action="check-errors"', template)
+        self.assertIn('<span id="editor-error-count"', template)
+        self.assertIn('aria-label="Run"', template)
+
     def test_compact_navigation_has_only_one_visible_home(self):
         css = (self.package_dir / "data/static/editor.css").read_text()
         tablet_rules = css.split("@media (min-width: 576px) and (max-width: 1199.98px)")

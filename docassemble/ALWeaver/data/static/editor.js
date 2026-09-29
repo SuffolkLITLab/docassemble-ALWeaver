@@ -10503,24 +10503,15 @@
       },
     );
 
-    Array.prototype.forEach.call(
-      document.querySelectorAll('.js-check-errors-btn'),
-      function (btn) {
-        btn.classList.toggle('editor-validation-has-issues', hasProblems);
-        btn.classList.toggle(
-          'editor-validation-has-info',
-          !hasProblems && summary.info > 0,
-        );
-      },
-    );
-
-    // Show/hide the alert icon — only visible when there are actual errors
-    Array.prototype.forEach.call(
-      document.querySelectorAll('.js-check-errors-icon'),
-      function (icon) {
-        icon.classList.toggle('d-none', isStyleMode || count === 0);
-      },
-    );
+    var errorBadge = document.getElementById('editor-error-count');
+    if (errorBadge) {
+      var errorCount = isStyleMode ? 0 : summary.error;
+      var errorLabel = errorCount + (errorCount === 1 ? ' error' : ' errors');
+      errorBadge.textContent = errorCount > 0 ? String(errorCount) : '';
+      errorBadge.classList.toggle('d-none', errorCount === 0);
+      errorBadge.setAttribute('aria-label', errorLabel);
+      errorBadge.setAttribute('title', errorLabel);
+    }
 
     applyValidationDock();
     drawer.setAttribute('aria-busy', state.validationBusy ? 'true' : 'false');
@@ -18936,11 +18927,6 @@
       }
       renderCanvas();
       renderOutline();
-      return;
-    }
-    if (uiAction === 'check-errors') {
-      state.validationOpen = true;
-      runValidation();
       return;
     }
     if (
