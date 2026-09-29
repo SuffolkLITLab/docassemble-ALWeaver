@@ -59,6 +59,9 @@ class TestEditorFrontend(unittest.TestCase):
             "railToggle.setAttribute('aria-expanded', String(!collapsed))", editor
         )
         self.assertIn('id="q-subquestion" rows="2"', editor)
+        self.assertIn('class="editor-form-label-row"', editor)
+        self.assertIn('class="editor-content-label" for="q-title"', editor)
+        self.assertIn('<dl class="editor-question-button-summary">', editor)
         self.assertNotRegex(css, r"font-size:\s*[\d.]+px")
         self.assertNotRegex(css, r"font-size:\s*0\.[0-7]\d*rem")
         renderer = editor.split("  function renderQuestionBlock(block) {", 1)[1]

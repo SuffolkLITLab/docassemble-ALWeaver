@@ -12862,8 +12862,11 @@
 
         // Question
         html += '<div class="editor-form-group mt-2">';
-        html += '<label class="editor-tiny" for="q-title">Question</label>';
+        html += '<div class="editor-form-label-row">';
+        html +=
+          '<label class="editor-content-label" for="q-title">Question</label>';
         html += renderMarkdownToolbar('q-title', false);
+        html += '</div>';
         html +=
           '<textarea class="form-control editor-form-control" id="q-title" rows="1" data-block-id="' +
           esc(block.id) +
@@ -12885,9 +12888,11 @@
 
         // Subquestion — always shown
         html += '<div class="editor-form-group">';
+        html += '<div class="editor-form-label-row">';
         html +=
-          '<label class="editor-tiny" for="q-subquestion">Subquestion</label>';
+          '<label class="editor-content-label" for="q-subquestion">Subquestion</label>';
         html += renderMarkdownToolbar('q-subquestion', false);
+        html += '</div>';
         html +=
           '<textarea class="form-control editor-form-control" id="q-subquestion" rows="2">' +
           esc(String(data.subquestion || '')) +
@@ -12895,20 +12900,20 @@
         html += '</div>';
 
         if (data['continue button field'] || data['continue button label']) {
-          html += '<div class="editor-info-box mt-2">';
+          html += '<dl class="editor-question-button-summary">';
           if (data['continue button field']) {
             html +=
-              '<div><strong>Continue button field:</strong> ' +
+              '<div><dt>Continue button field</dt><dd><code>' +
               esc(String(data['continue button field'])) +
-              '</div>';
+              '</code></dd></div>';
           }
           if (data['continue button label']) {
             html +=
-              '<div><strong>Continue button label:</strong> ' +
+              '<div><dt>Continue button label</dt><dd>' +
               esc(String(data['continue button label'])) +
-              '</div>';
+              '</dd></div>';
           }
-          html += '</div>';
+          html += '</dl>';
         }
 
         // A standalone screen has its own answer controls.
@@ -13483,11 +13488,11 @@
     }
 
     html +=
-      '<div class="editor-form-group mt-3"><label class="editor-tiny" for="review-question">Question</label><input class="form-control editor-form-control" id="review-question" value="' +
+      '<div class="editor-form-group mt-3"><label class="editor-content-label" for="review-question">Question</label><input class="form-control editor-form-control" id="review-question" value="' +
       esc(String(data.question || 'Review your answers')) +
       '"></div>';
     html +=
-      '<div class="editor-form-group"><label class="editor-tiny" for="review-subquestion">Subquestion</label><textarea class="form-control editor-form-control" id="review-subquestion" rows="2">' +
+      '<div class="editor-form-group"><label class="editor-content-label" for="review-subquestion">Subquestion</label><textarea class="form-control editor-form-control" id="review-subquestion" rows="2">' +
       esc(String(data.subquestion || '')) +
       '</textarea></div>';
     html += '</div></div>';
