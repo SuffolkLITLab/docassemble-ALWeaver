@@ -35,7 +35,11 @@ the interview collection alias with the selected interview URL, and the blocks
 collection alias with the selected block URL. A trailing slash is accepted on
 each alias.
 
-Each path component is URL-encoded. Refresh restores the saved resource and
+Each path component is URL-encoded. Block IDs containing slashes or backslashes,
+dot-only IDs (`.` or `..`), and IDs starting with `~` use a `~` prefix followed
+by double URL encoding. This keeps IDs opaque through server URL decoding and
+browser path normalization without restricting Docassemble's ID syntax.
+Refresh restores the saved resource and
 view; it does not save unsaved edits. Outline filters and transient dialogs,
 drawers, previews, and editing subtabs remain local UI state. Opening a block
 link widens the outline filter if necessary to reveal that block.

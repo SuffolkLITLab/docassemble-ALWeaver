@@ -123,11 +123,54 @@ for (const [path, expected] of cases) {
   );
 }
 
+// Opaque IDs must survive browser normalization and one server URL decode
+// without creating another path segment or colliding with the escape marker.
+for (const blockId of [
+  'intake/person',
+  '/',
+  '\\',
+  'intake\\person',
+  '.',
+  '..',
+  '~',
+  '~intake%2Fperson',
+  'person/名字 #?%25',
+  'literal%2Fvalue',
+]) {
+  const expected = route({
+    project: 'P',
+    filename: 'F',
+    mode: 'question',
+    blockId,
+  });
+  const url = routeForState(expected);
+  const browserPath = new URL(url, 'http://localhost').pathname;
+  assert.equal(browserPath, url);
+  const segment = url.split('/').at(-1);
+  assert(!decodeURIComponent(segment).includes('/'));
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(parseRoute(browserPath))),
+    expected,
+  );
+}
+for (const segment of ['~', '~%ZZ', '~%25ZZ']) {
+  assert.equal(
+    parseRoute('/al/editor/projects/P/interviews/F/blocks/' + segment),
+    null,
+  );
+}
+
 const aliases = [
   ['/al/editor/projects', route({})],
   ['/al/editor/projects/', route({})],
-  ['/al/editor/projects/P/interviews', route({ project: 'P', mode: 'question' })],
-  ['/al/editor/projects/P/interviews/', route({ project: 'P', mode: 'question' })],
+  [
+    '/al/editor/projects/P/interviews',
+    route({ project: 'P', mode: 'question' }),
+  ],
+  [
+    '/al/editor/projects/P/interviews/',
+    route({ project: 'P', mode: 'question' }),
+  ],
   [
     '/al/editor/projects/P/interviews/F/blocks',
     route({ project: 'P', filename: 'F', mode: 'question' }),
@@ -138,7 +181,11 @@ const aliases = [
   ],
 ];
 for (const [path, expected] of aliases) {
-  assert.deepEqual(JSON.parse(JSON.stringify(parseRoute(path))), expected, path);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(parseRoute(path))),
+    expected,
+    path,
+  );
   assert.notEqual(routeForState(expected), path.replace(/\/$/, ''), path);
 }
 

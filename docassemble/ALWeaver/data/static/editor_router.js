@@ -47,6 +47,25 @@
     };
   }
 
+  // Block IDs are opaque Docassemble values, not filenames. Protect separators
+  // from the server's URL decoding and dot segments from browser normalization.
+  // Escape literal leading tildes too, so the marker cannot collide with an ID.
+  function encodeBlockId(value) {
+    if (typeof value !== 'string' || !value) return null;
+    if (/[/\\]/.test(value) || /^\.{1,2}$/.test(value) || value[0] === '~')
+      return '~' + encodeURIComponent(encodeURIComponent(value));
+    return encodeURIComponent(value);
+  }
+
+  function decodeBlockId(part) {
+    if (part[0] !== '~') return decodePart(part);
+    try {
+      return decodeURIComponent(decodeURIComponent(part.slice(1))) || null;
+    } catch {
+      return null;
+    }
+  }
+
   function parseRoute(pathname) {
     if (
       typeof pathname !== 'string' ||
@@ -64,7 +83,13 @@
     var parts = suffix.split('/');
     var decoded = [];
     for (var i = 0; i < parts.length; i += 1) {
-      var value = decodePart(parts[i]);
+      var isBlockId =
+        i === 5 &&
+        parts.length === 6 &&
+        decoded[0] === 'projects' &&
+        decoded[2] === 'interviews' &&
+        decoded[4] === 'blocks';
+      var value = isBlockId ? decodeBlockId(parts[i]) : decodePart(parts[i]);
       if (value === null) return null;
       decoded.push(value);
     }
@@ -172,7 +197,7 @@
     }
     var project = value.project == null ? null : encodePart(value.project);
     var filename = value.filename == null ? null : encodePart(value.filename);
-    var blockId = value.blockId == null ? null : encodePart(value.blockId);
+    var blockId = value.blockId == null ? null : encodeBlockId(value.blockId);
     var sectionFilename =
       value.sectionFilename == null ? null : encodePart(value.sectionFilename);
     if (
