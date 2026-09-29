@@ -51,6 +51,7 @@ async function audit(page, label) {
         help: violation.help,
         helpUrl: violation.helpUrl,
         targets: violation.nodes.map((node) => node.target),
+        details: violation.nodes.map((node) => node.failureSummary),
       })
     );
   }
@@ -279,23 +280,40 @@ async function main() {
     blockingViolations = blockingViolations.concat(
       await audit(page, "graphical question editor")
     );
-    const fieldSettingsButton = page.locator(".editor-field-kebab-btn").first();
-    if (await fieldSettingsButton.count()) {
-      await fieldSettingsButton.click();
-      await page.waitForTimeout(250);
-      blockingViolations = blockingViolations.concat(
-        await audit(page, "field settings editor")
-      );
-      await fieldSettingsButton.click();
-    } else {
-      console.log("field settings editor: fixture field has no settings control");
-    }
+    // Add a field so this audit exercises the field authoring controls even
+    // when the loaded screen has no editable field rows.
+    await page.locator("#add-field-btn").click();
+    const newField = page.locator(".editor-field-row").last();
+    await newField.waitFor({ state: "visible", timeout: 30_000 });
+    const fieldSettingsButton = newField.locator(".editor-field-kebab-btn");
+    await fieldSettingsButton.waitFor({ state: "visible", timeout: 30_000 });
+    await fieldSettingsButton.click();
+    const fieldIndex = await newField.getAttribute("data-field-idx");
+    await page.locator(`.editor-field-mods-panel[data-field-idx="${fieldIndex}"]`).waitFor({
+      state: "visible",
+      timeout: 30_000,
+    });
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "field settings editor")
+    );
+    await fieldSettingsButton.click();
     await page.locator('[data-question-tab="options"]').click();
     await page.waitForTimeout(250);
     blockingViolations = blockingViolations.concat(
       await audit(page, "question options editor")
     );
     await page.locator("#toggle-edit-mode-tab").click();
+    const unsavedChanges = page.locator("#unsaved-changes-modal");
+    await page.locator("#unsaved-changes-modal.show").waitFor({
+      state: "visible",
+      timeout: 10_000,
+    });
+    await page.waitForTimeout(350);
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "unsaved changes dialog")
+    );
+    await unsavedChanges.locator('[data-unsaved-choice="discard"]').click();
+    await unsavedChanges.waitFor({ state: "hidden", timeout: 10_000 });
     await page.locator("#block-source-editor").waitFor({ state: "visible" });
     blockingViolations = blockingViolations.concat(
       await audit(page, "question YAML editor")
@@ -335,6 +353,7 @@ async function main() {
     await page.locator("#editor-interview-submenu").waitFor({
       state: "visible",
     });
+    await page.waitForTimeout(350);
     blockingViolations = blockingViolations.concat(
       await audit(page, "compact Interview menu")
     );

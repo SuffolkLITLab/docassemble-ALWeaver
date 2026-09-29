@@ -14439,11 +14439,21 @@
       (isOpen ? '' : ' hidden') +
       '>';
     html +=
-      '<ul class="nav nav-tabs nav-tabs-sm editor-field-settings-tabs" role="tablist">';
+      '<ul class="nav nav-tabs nav-tabs-sm editor-field-settings-tabs" role="tablist" aria-label="Field settings">';
     availableTabs.forEach(function (tabKey) {
       html +=
         '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' +
         (activeTab === tabKey ? 'active' : '') +
+        '" role="tab" id="field-settings-tab-' +
+        fi +
+        '-' +
+        tabKey +
+        '" aria-controls="field-settings-pane-' +
+        fi +
+        '-' +
+        tabKey +
+        '" aria-selected="' +
+        (activeTab === tabKey ? 'true' : 'false') +
         '" data-field-settings-tab="' +
         tabKey +
         '" data-field-idx="' +
@@ -14457,7 +14467,15 @@
 
     function pane(tabKey, bodyHtml) {
       return (
-        '<div class="editor-field-settings-tabpane" data-field-settings-pane="' +
+        '<div class="editor-field-settings-tabpane" role="tabpanel" id="field-settings-pane-' +
+        fi +
+        '-' +
+        tabKey +
+        '" aria-labelledby="field-settings-tab-' +
+        fi +
+        '-' +
+        tabKey +
+        '" data-field-settings-pane="' +
         tabKey +
         '"' +
         (activeTab === tabKey ? '' : ' hidden') +
