@@ -10,6 +10,7 @@ import unittest
 
 NODE_TESTS = (
     "test_editor_controls.js",
+    "test_editor_project_navigation.js",
     "test_editor_github_publish.js",
     "test_editor_expressions.js",
     "test_editor_attachments.js",
@@ -384,7 +385,7 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("state.canvasMode !== 'question'", editor)
         self.assertIn("target.closest('.editor-top-tab, .editor-view-switch')", editor)
         self.assertIn("function setSectionSubmenu(openId)", editor)
-        self.assertIn("@media (max-width: 1199.98px)", css)
+        self.assertIn("@media (min-width: 576px)", css)
 
     def test_toolbar_uses_run_and_a_noninteractive_error_count(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
@@ -402,11 +403,27 @@ class TestEditorFrontend(unittest.TestCase):
 
     def test_compact_navigation_has_only_one_visible_home(self):
         css = (self.package_dir / "data/static/editor.css").read_text()
-        tablet_rules = css.split("@media (min-width: 576px) and (max-width: 1199.98px)")
-        self.assertIn(".editor-section-switcher {", tablet_rules[1])
-        self.assertIn("#view-tabs,", tablet_rules[2])
-        self.assertIn(".editor-top-actions .js-assistant-toggle,", tablet_rules[2])
-        self.assertIn("display: none !important;", tablet_rules[2])
+        wide_rules = css.split("@media (min-width: 576px)", 1)[1]
+        self.assertIn(".editor-section-switcher {", wide_rules)
+        self.assertIn("#editor-navbar-collapse,", wide_rules)
+        self.assertIn(".editor-navbar .navbar-toggler {", wide_rules)
+        self.assertIn("display: none !important;", wide_rules)
+        desktop_rules = css.split("@container (min-width: 75rem)", 1)[1]
+        self.assertIn("#editor-navbar-collapse {", desktop_rules)
+        self.assertIn("display: flex !important;", desktop_rules)
+        self.assertIn("#view-tabs {", desktop_rules)
+        self.assertIn("flex-wrap: nowrap;", desktop_rules)
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        sidebar = template.split('id="left-rail"', 1)[1].split("</aside>", 1)[0]
+        self.assertNotIn("Project outline", template)
+        self.assertNotIn('id="project-select"', sidebar)
+        self.assertIn('id="btn-project-search"', sidebar)
+        self.assertIn('aria-label="Files and blocks"', template)
+        self.assertIn('id="editor-project-menu"', template)
+        self.assertGreater(
+            template.index('id="editor-account-nav"'),
+            template.index('id="editor-navbar-collapse"'),
+        )
 
     def test_screen_preview_sandbox_does_not_share_editor_origin(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()

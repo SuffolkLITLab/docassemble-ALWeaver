@@ -67,8 +67,24 @@ jobs:
           mkdir -p /tmp/alweaver-a11y
           cd /tmp/alweaver-a11y
           npm init -y
-          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install playwright @axe-core/playwright
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install playwright @playwright/test @axe-core/playwright
           npx playwright install --with-deps chromium
+      - name: Check editor navigation and capture screenshots
+        env:
+          SERVER_URL: "${{ steps.github_server.outputs.SERVER_URL }}"
+          EDITOR_EMAIL: "${{ steps.github_server.outputs.DA_ADMIN_EMAIL }}"
+          EDITOR_PASSWORD: "${{ steps.github_server.outputs.DA_ADMIN_PASSWORD }}"
+          ADMIN_API_KEY: "${{ steps.github_server.outputs.DOCASSEMBLE_DEVELOPER_API_KEY }}"
+          NODE_PATH: /tmp/alweaver-a11y/node_modules
+          SCREENSHOT_DIR: /tmp/alweaver-navigation-screenshots
+        run: node scripts/editor_navigation_smoketest.js
+      - name: Upload navigation screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: editor-navigation-screenshots
+          path: /tmp/alweaver-navigation-screenshots
+          if-no-files-found: ignore
       - name: Check /al/editor accessibility
         env:
           SERVER_URL: "${{ steps.github_server.outputs.SERVER_URL }}"

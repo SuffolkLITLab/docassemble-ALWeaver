@@ -15,10 +15,19 @@
   <!-- ===== TOP BAR ===== -->
   <nav class="navbar navbar-expand-xl editor-navbar" id="topbar" data-bs-theme="dark" aria-label="Editor">
     <div class="container-fluid">
-      <button type="button" class="navbar-brand editor-brand" data-action="open-project-selector" title="Choose a different project">
-        <img class="editor-brand-logo" src="/packagestatic/docassemble.ALWeaver/logo.svg?v=2.1.0" alt="ALWeaver">
-        <span class="editor-brand-project" id="topbar-project-name">No project selected</span>
-      </button>
+      <div class="dropdown editor-project-switcher">
+        <button type="button" class="navbar-brand editor-brand dropdown-toggle" id="editor-project-menu" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Switch project" title="Switch project">
+          <img class="editor-brand-logo" src="/packagestatic/docassemble.ALWeaver/logo.svg?v=2.1.0" alt="ALWeaver">
+          <span class="editor-brand-project" id="topbar-project-name">No project selected</span>
+        </button>
+        <div class="dropdown-menu editor-project-menu" data-bs-theme="light" aria-labelledby="editor-project-menu">
+          <div class="px-3 py-2">
+            <label class="editor-tiny" for="project-select">Project</label>
+            <select class="form-select form-select-sm mt-1" id="project-select"></select>
+          </div>
+          <button type="button" class="dropdown-item" data-action="open-project-selector"><i class="fa-solid fa-folder-open fa-fw me-2" aria-hidden="true"></i>Browse projects</button>
+        </div>
+      </div>
       <div class="dropdown editor-section-switcher">
         <button type="button" class="btn btn-sm btn-outline-light dropdown-toggle" id="editor-section-menu" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false"><span id="editor-section-label">Interview</span></button>
         <ul class="dropdown-menu editor-section-menu-list" data-bs-theme="light" aria-labelledby="editor-section-menu">
@@ -60,6 +69,7 @@
         </ul>
       </div>
       <div class="editor-compact-actions" role="group" aria-label="Interview actions">
+        <span id="editor-error-count" class="editor-validation-badge d-none" aria-hidden="true"></span>
         <button type="button" class="btn btn-sm btn-outline-light" data-action="preview-interview" aria-label="Run" title="Run"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i><span class="editor-compact-action-label">Run</span></button>
         <button type="button" class="btn btn-sm btn-outline-light" data-action="open-runtime-inspector" aria-label="Debug interview" title="Debug interview"><i class="fa-solid fa-bug" aria-hidden="true"></i><span class="editor-compact-action-label">Debug</span></button>
         <button type="button" class="btn btn-sm btn-light js-save-file-btn" data-action="save-file" title="Save your changes (Ctrl+S)" aria-label="Save your changes" disabled><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i><span class="editor-compact-action-label">Save</span><span class="editor-save-badge js-save-badge d-none"></span></button>
@@ -102,14 +112,13 @@
           <li class="nav-item"><button type="button" class="nav-link editor-top-tab" data-view="data">Sources</button></li>
         </ul>
         <div class="editor-top-actions">
-          <span id="editor-error-count" class="editor-validation-badge d-none" aria-hidden="true"></span>
           <button type="button" class="btn btn-sm btn-outline-light" data-action="preview-interview"><i class="fa-solid fa-arrow-up-right-from-square me-1" aria-hidden="true"></i>Run</button>
           <button type="button" class="btn btn-sm btn-outline-light" id="btn-debug-interview" data-action="open-runtime-inspector"><i class="fa-solid fa-bug me-1" aria-hidden="true"></i>Debug</button>
           <button type="button" class="btn btn-sm btn-light js-save-file-btn" id="btn-save-file" data-action="save-file" title="Save your changes (Ctrl+S)" aria-label="Save your changes" disabled><i class="fa-solid fa-floppy-disk me-1" aria-hidden="true"></i>Save<span class="editor-save-badge js-save-badge d-none"></span></button>
           <button type="button" class="btn btn-sm btn-outline-light d-none js-assistant-toggle" id="btn-toggle-assistant" data-action="toggle-assistant" aria-controls="editor-assistant" aria-expanded="false" aria-label="Toggle the editing assistant"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>Assistant</button>
         </div>
-        <ul class="navbar-nav editor-account-nav" id="editor-account-nav"></ul>
       </div>
+      <ul class="navbar-nav editor-account-nav" id="editor-account-nav"></ul>
     </div>
   </nav>
   <span id="editor-error-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true">0 errors</span>
@@ -136,24 +145,13 @@
   <div class="editor-layout" id="editor-layout">
 
     <!-- LEFT RAIL -->
-    <aside class="editor-left" id="left-rail" aria-label="Project outline">
-      <div class="editor-rail-heading">
-        <strong>Project outline</strong>
-        <button type="button" class="btn btn-sm btn-outline-secondary editor-rail-toggle" data-action="toggle-rail" aria-controls="left-rail" aria-expanded="true" aria-label="Collapse outline" title="Collapse outline"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i></button>
-      </div>
-      <div class="editor-section">
-        <label class="editor-tiny" for="project-select">Project</label>
-        <div class="d-flex gap-2 align-items-center mt-1">
-          <select class="form-select form-select-sm" id="project-select"></select>
-          <button type="button" class="editor-sidebar-action-btn" id="btn-project-search"
-                  title="Find or replace across project" aria-label="Find or replace across project">
-            <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
-          </button>
-        </div>
-        <div class="mt-2" id="editor-file-section">
+    <aside class="editor-left" id="left-rail" aria-label="Files and blocks">
+      <div class="editor-section editor-rail-heading">
+        <div id="editor-file-section">
           <label class="editor-tiny" for="file-select">File</label>
-          <div class="d-flex gap-2 align-items-center mt-1">
+          <div class="d-flex gap-1 align-items-center mt-1">
             <select class="form-select form-select-sm" id="file-select"></select>
+            <button type="button" class="editor-sidebar-action-btn" id="btn-project-search" title="Find or replace across project" aria-label="Find or replace across project"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i></button>
             <div class="dropdown">
               <button type="button" class="editor-file-actions-kebab" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="File actions" aria-label="File actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>
               <ul class="dropdown-menu dropdown-menu-end">
@@ -169,6 +167,7 @@
             </div>
           </div>
         </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary editor-rail-toggle" data-action="toggle-rail" aria-controls="left-rail" aria-expanded="true" aria-label="Collapse sidebar" title="Collapse sidebar"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i></button>
       </div>
       <div class="editor-section editor-section-search" id="editor-quick-jump-section">
         <div class="mb-2" id="jump-targets">

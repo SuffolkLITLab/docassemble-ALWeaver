@@ -485,7 +485,10 @@
     var fileSection = document.getElementById('editor-file-section');
     var jumpTargets = document.getElementById('jump-targets');
     if (fileSection)
-      fileSection.classList.toggle('editor-section-hidden', !isInterviewView());
+      fileSection.classList.toggle(
+        'editor-secondary-files',
+        !isInterviewView(),
+      );
     if (jumpTargets) jumpTargets.classList.toggle('d-none', !isInterviewView());
     updateOutlineHeader();
   }
@@ -9948,6 +9951,9 @@
   }
 
   function getProjectCardMenuHtml(projectName) {
+    // Docassemble reserves this project; its API rejects rename and delete.
+    if (projectName === 'default' && !state.projectSyncs[projectName])
+      return '';
     var projectId = esc(projectName);
     var html = '';
     html += '<div class="dropdown editor-project-card-actions">';
@@ -9962,14 +9968,16 @@
         '"><i class="fa-solid fa-code-pull-request me-2" aria-hidden="true"></i>Pull changes from GitHub</button></li>';
       html += '<li><hr class="dropdown-divider"></li>';
     }
-    html +=
-      '<li><button type="button" class="dropdown-item" data-project-action="rename" data-project-name="' +
-      projectId +
-      '"><i class="fa-solid fa-pen me-2" aria-hidden="true"></i>Rename project</button></li>';
-    html +=
-      '<li><button type="button" class="dropdown-item text-danger" data-project-action="delete" data-project-name="' +
-      projectId +
-      '"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Delete project</button></li>';
+    if (projectName !== 'default') {
+      html +=
+        '<li><button type="button" class="dropdown-item" data-project-action="rename" data-project-name="' +
+        projectId +
+        '"><i class="fa-solid fa-pen me-2" aria-hidden="true"></i>Rename project</button></li>';
+      html +=
+        '<li><button type="button" class="dropdown-item text-danger" data-project-action="delete" data-project-name="' +
+        projectId +
+        '"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Delete project</button></li>';
+    }
     html += '</ul></div>';
     return html;
   }
@@ -12092,9 +12100,10 @@
         : [{ label: 'Sign Out', url: authState.logoutUrl || '/user/sign-out' }];
     var html = '<li class="nav-item dropdown">';
     html +=
-      '<a href="#" class="nav-link dropdown-toggle" id="editor-account-menu" role="button" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false">' +
+      '<a href="#" class="nav-link dropdown-toggle" id="editor-account-menu" aria-label="Account menu" title="Account menu" role="button" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false">' +
+      '<i class="fa-solid fa-user-circle" aria-hidden="true"></i><span class="editor-account-name">' +
       esc(designator) +
-      '</a>';
+      '</span></a>';
     // The navbar is dark, but its menus should read like every other menu in
     // the editor (and like docassemble's own), so pin them to the light theme.
     html +=
@@ -12135,10 +12144,15 @@
         item.classList.add('d-none');
       });
     var query = state.projectSearchQuery.toLowerCase().trim();
-    var recent = getRecentProjectsInWorkspace();
+    // A small workspace needs one list. In larger workspaces, each project
+    // still appears only once, and search always covers the whole workspace.
+    var recent =
+      !query && state.projects.length > MAX_RECENT_PROJECTS
+        ? getRecentProjectsInWorkspace()
+        : [];
     var filteredProjects = state.projects.filter(function (name) {
-      if (!query) return true;
-      return name.toLowerCase().indexOf(query) !== -1;
+      if (recent.indexOf(name) !== -1) return false;
+      return !query || name.toLowerCase().indexOf(query) !== -1;
     });
 
     var html = '';
@@ -12198,7 +12212,10 @@
     }
 
     html += '<div class="editor-project-section">';
-    html += '<div class="editor-project-section-title">All projects</div>';
+    html +=
+      '<div class="editor-project-section-title">' +
+      (recent.length ? 'Other projects' : 'All projects') +
+      '</div>';
     if (filteredProjects.length === 0) {
       html +=
         '<div class="editor-card"><div class="editor-card-body text-muted">No projects matched your search.</div></div>';
@@ -19605,9 +19622,9 @@
       railToggle.setAttribute('aria-expanded', String(!collapsed));
       railToggle.setAttribute(
         'aria-label',
-        collapsed ? 'Expand outline' : 'Collapse outline',
+        collapsed ? 'Expand sidebar' : 'Collapse sidebar',
       );
-      railToggle.title = collapsed ? 'Expand outline' : 'Collapse outline';
+      railToggle.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
       return;
     }
     // Clicking a button whose visible content is a Font Awesome <i> (or a badge
@@ -23130,6 +23147,10 @@
     var nextProject = projectSelect.value;
     function changeProject() {
       projectSelect.value = nextProject;
+      var projectMenu = document.getElementById('editor-project-menu');
+      if (projectMenu && window.bootstrap && window.bootstrap.Dropdown) {
+        window.bootstrap.Dropdown.getOrCreateInstance(projectMenu).hide();
+      }
       if (stashCurrentEditorState() === false) return;
       cancelRouteHydration();
       if (nextProject !== state.project) resetProjectNavigation();

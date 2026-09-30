@@ -66,7 +66,12 @@ async function auditAfter(page, label, locator, action) {
 }
 
 async function auditSecondaryView(page, view, filename, blockingViolations) {
-  await page.locator(`.editor-top-tab[data-view="${view}"]`).click();
+  const tab = page.locator(`.editor-top-tab[data-view="${view}"]`);
+  if (await tab.isVisible()) await tab.click();
+  else {
+    await page.locator("#editor-section-menu").click();
+    await page.locator(`.editor-view-switch[data-view="${view}"]`).click();
+  }
   await page
     .locator(".editor-full-yaml-header h2")
     .filter({ hasText: filename })
@@ -119,22 +124,27 @@ async function settledFindings(page) {
 }
 
 async function openInterviewMenu(page) {
+  const compact = await page.locator("#editor-section-menu").isVisible();
+  if (compact) {
+    await page.locator("#editor-section-menu").click();
+    const toggle = page.locator('[data-section-submenu="editor-interview-submenu"]');
+    if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+    const menu = page.locator("#editor-interview-submenu");
+    await menu.waitFor({ state: "visible", timeout: 10_000 });
+    return menu;
+  }
   const button = page.locator("#interview-menu");
   const menu = page.locator('ul[aria-labelledby="interview-menu"]');
-  if ((await button.getAttribute("aria-expanded")) !== "true") {
-    await button.click();
-  }
-  await page.waitForFunction(
-    () => document.querySelector("#interview-menu")?.getAttribute("aria-expanded") === "true",
-    undefined,
-    { timeout: 10_000 }
-  );
+  if ((await button.getAttribute("aria-expanded")) !== "true") await button.click();
   await menu.waitFor({ state: "visible", timeout: 10_000 });
   return menu;
 }
 
 async function main() {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({
+    headless: true,
+    ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}),
+  });
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1200 },
   });
@@ -151,6 +161,7 @@ async function main() {
       state: "attached",
       timeout: 30_000,
     });
+    await page.locator("#editor-project-menu").click();
     await selectOption(page, "#project-select", "default", "project");
     await page.locator('#file-select option[value="editor_accessibility.yml"]').waitFor({
       state: "attached",
@@ -188,7 +199,10 @@ async function main() {
         page,
         "project selector",
         page.locator("#project-search-input"),
-        () => page.locator('[data-action="open-project-selector"]').first().click()
+        async () => {
+          await page.locator("#editor-project-menu").click();
+          await page.locator('.editor-project-menu [data-action="open-project-selector"]').click();
+        }
       )
     );
     blockingViolations = blockingViolations.concat(
@@ -228,7 +242,7 @@ async function main() {
     );
     // The style check lives in the Interview menu, and the deterministic run
     // is the one that needs no model configured on the test server.
-    const interviewMenu = await openInterviewMenu(page);
+    let interviewMenu = await openInterviewMenu(page);
     await interviewMenu.locator('[data-action="run-style-check"]').click();
     await settledFindings(page);
     blockingViolations = blockingViolations.concat(
@@ -236,7 +250,7 @@ async function main() {
     );
 
     // Full YAML, metadata, and interview-order source editors.
-    await openInterviewMenu(page);
+    interviewMenu = await openInterviewMenu(page);
     await interviewMenu.locator('[data-action="open-full-yaml"]').click();
     await page.locator("#full-source-editor").waitFor({ state: "visible" });
     blockingViolations = blockingViolations.concat(
@@ -253,7 +267,7 @@ async function main() {
     await page.locator("#outline-list .editor-outline-item").first().waitFor();
 
     // AssemblyLine settings, including its explanatory popover.
-    await openInterviewMenu(page);
+    interviewMenu = await openInterviewMenu(page);
     await interviewMenu
       .locator('[data-action="open-assemblyline-settings"]')
       .click();
@@ -343,7 +357,7 @@ async function main() {
     );
     await closeModal(page, "#insert-modal");
 
-    // The compact section switcher replaces the desktop tabs below 1200px.
+    // The section switcher keeps the top rail compact on laptops and tablets.
     // Audit its expanded Interview actions as part of the full page, too.
     await page.setViewportSize({ width: 1024, height: 1200 });
     await page.locator("#editor-section-menu").click();
