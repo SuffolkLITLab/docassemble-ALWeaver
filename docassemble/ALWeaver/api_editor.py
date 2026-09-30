@@ -1940,7 +1940,7 @@ def _preview_widget_style() -> str:
     except importlib.metadata.PackageNotFoundError:
         return "labelauty"
     match = re.match(r"^(\d+)\.(\d+)\.(\d+)", version)
-    if match and tuple(map(int, match.groups())) >= (1, 10, 10):
+    if match and tuple(map(int, match.groups())) >= (1, 10, 8):
         return "native"
     return "labelauty"
 

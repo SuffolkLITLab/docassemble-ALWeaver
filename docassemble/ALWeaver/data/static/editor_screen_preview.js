@@ -6,8 +6,8 @@
  * Docassemble's own choice styling. Everything here is deliberately
  * framework-free so it can be unit-tested under Node.
  *
- * Docassemble 1.10.10 added explicit choice labels and native file inputs.
- * The widgetStyle option keeps the older 1.9.x markup available.
+ * Docassemble 1.10.8 added explicit choice labels and native file inputs.
+ * The widgetStyle option keeps markup for earlier versions available.
  */
 (function (root, factory) {
   'use strict';

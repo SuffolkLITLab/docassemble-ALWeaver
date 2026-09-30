@@ -221,12 +221,17 @@ class TestEditorSecurity(unittest.TestCase):
     def test_preview_widget_style_follows_docassemble_formatter_version(self):
         for version, expected in (
             ("1.9.13", "labelauty"),
-            ("1.10.9", "labelauty"),
+            ("1.10.7", "labelauty"),
+            ("1.10.8", "native"),
+            ("1.10.9", "native"),
             ("1.10.10", "native"),
             ("1.10.12", "native"),
         ):
-            with patch.object(
-                api_editor.importlib.metadata, "version", return_value=version
+            with (
+                self.subTest(version=version),
+                patch.object(
+                    api_editor.importlib.metadata, "version", return_value=version
+                ),
             ):
                 self.assertEqual(api_editor._preview_widget_style(), expected)
 
