@@ -2,7 +2,7 @@ from .custom_values import get_matching_deps, get_output_mako_package_and_path
 from .generator_constants import generator_constants
 from .question_library import baseline_question_specs
 from .review_screen import build_review_entries, table_edit_attributes
-from .project_filenames import safe_project_filename
+from .project_filenames import safe_project_filename, unique_project_filenames
 from .validate_template_files import matching_reserved_names, has_fields
 from collections import defaultdict
 from dataclasses import field
@@ -113,6 +113,8 @@ class WeaverGenerationResult:
     #: names, so a caller that keeps the templates has to keep *these* files,
     #: not the originals it handed in.
     normalized_template_paths: Dict[str, str] = field(default_factory=dict)
+    #: Author-facing warnings found while combining the uploaded templates.
+    warnings: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -875,6 +877,7 @@ class DAField(DAObject):
     """
 
     def init(self, **kwargs):
+        self.source_template_types = []
         return super().init(**kwargs)
 
     @property
@@ -1151,9 +1154,13 @@ class DAField(DAObject):
         else:
             field_title = self.final_display_var
 
-        field_questions.append({"note": f"""
+        field_questions.append(
+            {
+                "note": f"""
                                 <h2 class="h5 prompt-heading">{self.final_display_var}</h2>
-                                """})
+                                """
+            }
+        )
         field_questions.append(
             {
                 "label": f"Prompt",
@@ -1655,11 +1662,37 @@ class DAFieldList(DAList):
                 field_map[field.final_display_var].mark_with_duplicate(
                     field.raw_field_names
                 )
+                field_map[field.final_display_var].source_template_types.extend(
+                    getattr(field, "source_template_types", [])
+                )
                 mark_to_remove.append(idx)
             else:
                 field_map[field.final_display_var] = field
         self.delitem(*mark_to_remove)
         self.there_are_any = len(self.elements) > 0
+
+    def cross_template_type_warnings(self) -> List[str]:
+        """Warn when same-named fields from different templates infer unlike types."""
+        warnings = []
+        for field in self.elements:
+            sources = getattr(field, "source_template_types", [])
+            by_type: Dict[str, Set[str]] = defaultdict(set)
+            for filename, guessed_type, raw_name in sources:
+                by_type[str(guessed_type)].add(str(filename))
+            if len(by_type) < 2:
+                continue
+            source_details = "; ".join(
+                f"{', '.join(sorted(filenames))} ({guessed_type})"
+                for guessed_type, filenames in sorted(by_type.items())
+            )
+            warnings.append(
+                f"The field `{field.final_display_var}` appears in multiple templates "
+                f"with different inferred types: {source_details}. The generated "
+                "interview uses one question for this shared variable; review the "
+                "field type and rename one field in its source template if they need "
+                "different answers."
+            )
+        return warnings
 
     def merged_fields(self) -> List[DAField]:
         """Fields that more than one differently-named PDF field collapsed into.
@@ -1841,6 +1874,13 @@ class DAFieldList(DAList):
                 ):
                     new_field.pdf_field_type = "/Ch"
                     new_field.mark_type_not_handled()
+                new_field.source_template_types = [
+                    (
+                        str(document.filename),
+                        str(new_field.field_type_guess),
+                        str(pdf_field_name),
+                    )
+                ]
                 if new_field.group == DAFieldGroup.BUILT_IN:
                     new_field.label = new_field.variable_name_guess
         else:
@@ -1861,6 +1901,13 @@ class DAFieldList(DAList):
                     used_as_condition=field in boolean_fields,
                     type_hint=type_hints.get(field),
                 )
+                new_field.source_template_types = [
+                    (
+                        str(document.filename),
+                        str(new_field.field_type_guess),
+                        str(field),
+                    )
+                ]
                 if new_field.group in [DAFieldGroup.BUILT_IN, DAFieldGroup.RESERVED]:
                     new_field.label = new_field.variable_name_guess
 
@@ -3029,6 +3076,13 @@ Predicted form_type: {{FORM_TYPE}}
 Predicted role: {{ROLE}}
 """.strip(),
             )
+            if not getattr(self, "include_download_screen", True):
+                prompt_template += (
+                    "\n\nThis is a data-only survey with no downloadable form. "
+                    "Do not say that the user can download a completed form. "
+                    "Explain that the user can review and submit answers, which "
+                    "will be saved."
+                )
             prompt = (
                 prompt_template.replace("{{TITLE}}", str(self.title))
                 .replace("{{FORM_TYPE}}", str(form_type))
@@ -3886,13 +3940,18 @@ Rules:
             if getattr(self, "court_related", True)
             else "your request"
         )
+        completion_text = (
+            "When you are finished, you can review your answers and download your completed form."
+            if getattr(self, "include_download_screen", True)
+            else "When you are finished, you can review and submit your answers. A copy of your answers will be saved."
+        )
         return (
             f"This interview will help you {action}.\n\n"
             "Before you get started, gather any information you have about:\n\n"
             f"1. The people or organizations named in the {title_text}.\n"
             f"1. Important dates, addresses, and contact information for {role_text}.\n"
             "1. Any papers, notices, or records that you may need to refer to.\n\n"
-            "When you are finished, you can review your answers and download your completed form."
+            + completion_text
         )
 
     def _guess_role(self, title: str):
@@ -7208,21 +7267,16 @@ def _resolve_template_inputs(
             raise FileNotFoundError(f"Template file not found: {candidate.path}")
         candidates.append(candidate)
 
-    resolved: List[TemplateInput] = []
-    used_names: Set[str] = set()
-    for candidate in candidates:
-        name = safe_project_filename(
-            str(candidate.exact_name or os.path.basename(candidate.path)),
-            default_stem="template",
-        )
-        stem, extension = os.path.splitext(name)
-        counter = 1
-        while name in used_names:
-            counter += 1
-            name = f"{stem}_{counter}{extension}"
-        used_names.add(name)
-        resolved.append(TemplateInput(path=candidate.path, exact_name=name))
-    return resolved
+    names = unique_project_filenames(
+        [
+            str(candidate.exact_name or os.path.basename(candidate.path))
+            for candidate in candidates
+        ]
+    )
+    return [
+        TemplateInput(path=candidate.path, exact_name=name)
+        for candidate, name in zip(candidates, names)
+    ]
 
 
 def generate_interview_from_path(
@@ -7325,6 +7379,9 @@ def generate_interview_from_path(
         dependency_jurisdiction = dependency_jurisdiction.rsplit("+", 1)[-1]
 
     interview = DAInterview()
+    # The default getting-started copy and optional LLM metadata are generated
+    # during auto assignment, so expose the output mode before that work starts.
+    interview.include_download_screen = bool(include_download_screen)
     interview.auto_assign_attributes(
         input_file=da_file,
         title=title,
@@ -7493,6 +7550,14 @@ def generate_interview_from_path(
         shutil.copyfile(interview.instructions.path(), next_steps_output_path)
         generated_template_paths.append(next_steps_output_path)
 
+    generation_warnings = interview.all_fields.cross_template_type_warnings()
+    if interview.has_all_unlabeled_pdfs():
+        generation_warnings.append(
+            "No fillable PDF fields were detected. Weaver created a general "
+            "interview scaffold without PDF field mappings; review it and add "
+            "the questions and mappings needed to complete this document."
+        )
+
     return WeaverGenerationResult(
         yaml_text=artifacts.yaml_text,
         yaml_path=yaml_path,
@@ -7502,6 +7567,7 @@ def generate_interview_from_path(
         renames_applied=renames_applied,
         suggested_renames_by_template=suggested_renames_by_template,
         normalized_template_paths=normalized_template_paths,
+        warnings=generation_warnings,
         template_names=[
             str(template_input.exact_name) for template_input in template_inputs
         ],

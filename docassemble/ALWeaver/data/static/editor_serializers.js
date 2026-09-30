@@ -2,94 +2,244 @@
 (function (root, factory) {
   'use strict';
   var serializers = factory();
-  if (typeof module === 'object' && module.exports)
-    module.exports = serializers;
+  if (typeof module === 'object' && module.exports) module.exports = serializers;
   root.ALWeaverSerializers = serializers;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
   function escapeYamlStr(str) {
     if (str === undefined || str === null) return str;
-    str = String(str);
-    if (str.indexOf('\n') !== -1) {
-      return '|\n  ' + str.replace(/\n/g, '\n  ');
-    }
-    if (
-      /[:\#\{\}\[\],&*!>|'"%@`]/.test(str) ||
-      str.trim() !== str ||
-      str === ''
-    ) {
-      return '"' + str.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+    if (typeof str !== 'string') return JSON.stringify(str);
+    // JSON strings are valid YAML scalars at every nesting depth. Quote text
+    // that YAML 1.1 could resolve as a boolean, null, number, date or key.
+    if (/[:\#\{\}\[\],&*!>|'"%@`\\\n\r\t]/.test(str) || str.trim() !== str || str === '' ||
+        /^(?:[-?:](?:\s|$)|~$|(?:y|n|yes|no|true|false|on|off|null)$|[-+.]?\d|[-+]?\.(?:inf|nan)$)/i.test(str)) {
+      return JSON.stringify(str);
     }
     return str;
   }
 
+  // Use a literal scalar for prose/code, preserving indentation and trailing
+  // newlines. Unlike trim-based serialization this keeps Markdown hard breaks.
+  function appendYamlText(yaml, key, value) {
+    var text = String(value);
+    if (text.indexOf('\n') === -1) return yaml + key + ': ' + JSON.stringify(text) + '\n';
+    var chomping = (text.endsWith('\n') && (!text.trim() || text.endsWith('\n\n'))) ? '+' : text.endsWith('\n') ? '' : '-';
+    var body = text.endsWith('\n') ? text.slice(0, -1) : text;
+    return yaml + key + ': |2' + chomping + '\n' +
+      body.split('\n').map(function (line) { return '  ' + line; }).join('\n') + '\n';
+  }
+
+  var SCREEN_TYPES = ['signature', 'yesno', 'noyes', 'yesnomaybe', 'noyesmaybe', 'buttons', 'choices', 'dropdown', 'combobox'];
+
+  function questionScreenType(data) {
+    return SCREEN_TYPES.find(function (key) { return Object.prototype.hasOwnProperty.call(data || {}, key); }) ||
+      (data && !Object.prototype.hasOwnProperty.call(data, 'fields') && Object.prototype.hasOwnProperty.call(data, 'field') ? 'field' : 'fields');
+  }
+
+  var SCREEN_CHOICE_METADATA_KEYS = ['image', 'help', 'default', 'css class', 'color', 'show if', 'url'];
+  var SCREEN_CHOICE_RESERVED_KEYS = SCREEN_CHOICE_METADATA_KEYS.concat(['code', 'label', 'value', '__proto__']);
+
+  function screenChoice(item) {
+    if (item === null || typeof item !== 'object') return { label: String(item), value: item, scalar: true };
+    if (Object.prototype.hasOwnProperty.call(item, 'code')) return { computed: true };
+    if (Object.prototype.hasOwnProperty.call(item, 'label') &&
+        (Object.prototype.hasOwnProperty.call(item, 'key') || Object.prototype.hasOwnProperty.call(item, 'value'))) {
+      var valueKey = Object.prototype.hasOwnProperty.call(item, 'key') ? 'key' : 'value';
+      return { label: String(item.label), value: item[valueKey], expanded: true, valueKey: valueKey };
+    }
+    var key = Object.keys(item).find(function (name) {
+      return SCREEN_CHOICE_METADATA_KEYS.indexOf(name) === -1;
+    });
+    return key === undefined ? { computed: true } : { label: key, value: item[key], key: key };
+  }
+
+  function normalizeQuestionData(original) {
+    var data = Object.assign({}, original);
+    if (Object.prototype.hasOwnProperty.call(data, 'fields') && Object.prototype.hasOwnProperty.call(data, 'field')) {
+      if (!Object.prototype.hasOwnProperty.call(data, 'continue button field')) data['continue button field'] = data.field;
+      delete data.field;
+    }
+    return data;
+  }
+
+  // Read only controls present on the current tab. In particular, an expression
+  // used for required stays an expression when the author edits the caption.
+  function readScreenControls(original, document) {
+    var data = normalizeQuestionData(original);
+    ['signature', 'under', 'pen color', 'field', 'yesno', 'noyes', 'yesnomaybe', 'noyesmaybe'].forEach(function (key) {
+      var el = document.getElementById('screen-' + key.replace(/ /g, '-'));
+      if (!el || el.readOnly) return;
+      if (['signature', 'yesno', 'noyes', 'yesnomaybe', 'noyesmaybe'].indexOf(key) !== -1 && !el.value.trim()) {
+        throw new Error(key === 'signature' ? 'Enter a variable to store the signature.' : 'Enter an answer variable for the ' + key + ' screen.');
+      }
+      if (el.value || ['signature', 'yesno', 'noyes', 'yesnomaybe', 'noyesmaybe'].indexOf(key) !== -1) data[key] = el.value;
+      else delete data[key];
+    });
+    var required = document.getElementById('screen-required');
+    if (required && !required.disabled) {
+      if (required.value === '') delete data.required;
+      else data.required = required.value === 'true';
+    }
+    var kind = questionScreenType(data);
+    if (Array.isArray(data[kind])) {
+      data[kind] = data[kind].map(function (item, index) {
+        var label = document.getElementById('screen-choice-label-' + index);
+        var value = document.getElementById('screen-choice-value-' + index);
+        var type = document.getElementById('screen-choice-type-' + index);
+        if (!label) return item;
+        var desc = screenChoice(item);
+        var nextValue = desc.value;
+        if (value && !value.readOnly) {
+          if (type.value === 'boolean') {
+            if (!/^(true|false)$/i.test(value.value.trim())) throw new Error('A boolean choice must be true or false.');
+            nextValue = value.value.trim().toLowerCase() === 'true';
+          } else if (type.value === 'number') {
+            if (!value.value.trim() || !Number.isFinite(Number(value.value))) throw new Error('Enter a valid number for the choice.');
+            nextValue = Number(value.value);
+          }
+          else if (type.value === 'null') nextValue = null;
+          else nextValue = value.value;
+        }
+        if (label.value === desc.label && nextValue === desc.value) return item;
+        if (desc.scalar && label.value === String(nextValue)) return nextValue;
+        // Shorthand labels become mapping keys. Reject collisions before
+        // writing anything, including scalar choices becoming mappings.
+        if (!desc.expanded && (SCREEN_CHOICE_RESERVED_KEYS.indexOf(label.value) !== -1 ||
+            (!desc.scalar && label.value !== desc.key && Object.prototype.hasOwnProperty.call(item, label.value)))) {
+          throw new Error('The choice label "' + label.value + '" is reserved or conflicts with choice metadata. Choose another label, or use explicit label/value syntax in YAML.');
+        }
+        if (desc.scalar) return { [label.value]: nextValue };
+        var next = Object.assign({}, item);
+        if (desc.expanded) { next.label = label.value; next[desc.valueKey] = nextValue; }
+        else { delete next[desc.key]; next[label.value] = nextValue; }
+        return next;
+      });
+    }
+    return data;
+  }
+
+  function fieldChoicesText(choices) {
+    if (!Array.isArray(choices)) return '';
+    // Typed/mapped choices use an explicit structured form, never a lossy
+    // label: value projection. Plain text remains convenient for simple lists.
+    if (!choices.length || choices.some(function (choice) { return typeof choice !== 'string' || !choice || choice.trim() !== choice || /[\r\n]/.test(choice); }) ||
+        (choices.length && choices[0].trim().startsWith('['))) return JSON.stringify(choices, null, 2);
+    return choices.join('\n');
+  }
+
+  function readFieldChoices(text) {
+    if (text.trim().startsWith('[')) {
+      var choices;
+      try { choices = JSON.parse(text); } catch (_) { throw new Error('Options beginning with [ must be a valid JSON array.'); }
+      if (!Array.isArray(choices)) throw new Error('Options must be an array.');
+      return choices;
+    }
+    return text.split('\n').map(function (choice) { return choice.trim(); }).filter(Boolean);
+  }
+
+  function appendFieldChoices(yaml, text) {
+    var choices = readFieldChoices(text);
+    if (!choices.length) return yaml + '    choices: []\n';
+    yaml += '    choices:\n';
+    choices.forEach(function (choice) {
+      yaml += '      - ' + (typeof choice === 'string' ? escapeYamlStr(choice) : JSON.stringify(choice)) + '\n';
+    });
+    return yaml;
+  }
+
+  function appendFieldChoicesExpression(yaml, expression) {
+    var value = String(expression === undefined || expression === null ? '' : expression).trim();
+    if (!value) return yaml;
+    return yaml + '    choices: ' + JSON.stringify(value) + '\n';
+  }
+
+  function appendUnmodeledFieldProperties(yaml, field, handledKeys) {
+    if (!field || typeof field !== 'object' || Array.isArray(field)) return yaml;
+    var handled = new Set([
+      'label', 'question', 'field', 'variable', 'datatype', 'type',
+      'choices', 'code', 'required',
+    ]);
+    (handledKeys || []).forEach(function (key) { handled.add(key); });
+    var variableName = field.field || field.variable;
+    Object.keys(field).forEach(function (key) {
+      if (handled.has(key) || field[key] === undefined) return;
+      // Compact field syntax (`- Age: age`) reaches the editor with both
+      // the original label key and the normalized field binding. The key is
+      // syntax, not an extra modifier, and must not be appended beside a new
+      // `label:` after an author renames it.
+      if (
+        typeof variableName === 'string' &&
+        typeof field[key] === 'string' &&
+        field[key] === variableName
+      ) return;
+      yaml += '    ' + escapeYamlStr(key) + ': ' + JSON.stringify(field[key]) + '\n';
+    });
+    return yaml;
+  }
+
+  // These controls express typed YAML settings, not choice labels or prose.
+  function fieldModifierYamlValue(key, value) {
+    if (typeof value !== 'string') return JSON.stringify(value);
+    var text = value.trim();
+    if (['shuffle', 'disable others', 'uncheck others', 'check others', 'none of the above', 'all of the above'].indexOf(key) !== -1 && /^(true|false)$/i.test(text)) {
+      return text.toLowerCase();
+    }
+    if (['min', 'max', 'minlength', 'maxlength', 'step'].indexOf(key) !== -1 && /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(text)) {
+      return JSON.stringify(Number(text));
+    }
+    // These modifiers accept lists of variable names as well as booleans.
+    if (['disable others', 'uncheck others', 'check others'].indexOf(key) !== -1 && text.startsWith('[')) {
+      var names;
+      try { names = JSON.parse(text); } catch (_) { throw new Error(key + ' must be True, False, or a JSON array of variable names.'); }
+      if (!Array.isArray(names) || names.some(function (name) { return typeof name !== 'string'; })) {
+        throw new Error(key + ' must be True, False, or a JSON array of variable names.');
+      }
+      return JSON.stringify(names);
+    }
+    return escapeYamlStr(value);
+  }
+
   function serializeQuestionToYaml(block, options) {
     var document = options.document;
+    var screenData = readScreenControls((block && block.data) || {}, document);
+    block = Object.assign({}, block, { data: screenData });
     function modifierYaml(key, value, input, rowIdx) {
       // These Docassemble modifiers distinguish literal/client-side values
       // from Python through a nested code mapping. Preserve both forms.
-      var originalField =
-        block && block.data && block.data.fields && block.data.fields[rowIdx];
-      var wasMapping =
-        originalField &&
-        originalField[key] &&
-        typeof originalField[key] === 'object';
-      var appliedMapping =
-        input && input.dataset && input.dataset.expressionMapping === 'true';
-      var appliedExpression =
-        input && input.dataset && input.dataset.expressionApplied === 'true';
+      var originalField = block && block.data && block.data.fields && block.data.fields[rowIdx];
+      var wasMapping = originalField && originalField[key] && typeof originalField[key] === 'object';
+      var appliedMapping = input && input.dataset && input.dataset.expressionMapping === 'true';
+      var appliedExpression = input && input.dataset && input.dataset.expressionApplied === 'true';
       if (
-        (wasMapping || appliedMapping) &&
-        ['show if', 'hide if', 'enable if', 'disable if', 'default'].indexOf(
-          key,
-        ) !== -1
+        ['shuffle', 'disable others', 'uncheck others', 'check others'].indexOf(key) !== -1 &&
+        /^(true|false)$/i.test(String(value).trim())
       ) {
+        return '    ' + key + ': ' + String(value).trim().toLowerCase() + '\n';
+      }
+      if ((wasMapping || appliedMapping) && ['show if', 'hide if', 'enable if', 'disable if', 'default'].indexOf(key) !== -1) {
         try {
           var structured = JSON.parse(value);
-          if (
-            structured &&
-            typeof structured === 'object' &&
-            (key === 'default' || !Array.isArray(structured))
-          ) {
+          if (structured && typeof structured === 'object' && (key === 'default' || !Array.isArray(structured))) {
             return '    ' + key + ': ' + JSON.stringify(structured) + '\n';
           }
-        } catch (_) {
-          /* Plain scalar. */
-        }
+        } catch (_) { /* Plain scalar. */ }
       }
-      if (
-        key === 'default' &&
-        appliedExpression &&
-        input.dataset.expressionWrapper === ''
-      )
-        return '    default: ' + JSON.stringify(value) + '\n';
-      if (
-        [
-          'validate',
-          'disabled',
-          'exclude',
-          'accept',
-          'rows',
-          'maximum image size',
-          'persistent',
-          'private',
-          'object labeler',
-          'address autocomplete',
-          'label above field',
-          'floating label',
-        ].indexOf(key) !== -1 &&
-        (appliedExpression ||
-          (originalField && typeof originalField[key] === 'string'))
-      ) {
+      if (key === 'default' && appliedExpression && input.dataset.expressionWrapper === '') return '    default: ' + JSON.stringify(value) + '\n';
+      if (['validate', 'disabled', 'exclude', 'accept', 'rows', 'maximum image size', 'persistent', 'private', 'object labeler', 'address autocomplete', 'label above field', 'floating label'].indexOf(key) !== -1 && (appliedExpression || (originalField && typeof originalField[key] === 'string'))) {
         return '    ' + key + ': ' + JSON.stringify(value) + '\n';
       }
-      return '    ' + key + ': ' + escapeYamlStr(value) + '\n';
+      if (originalField && originalField[key] !== undefined && typeof originalField[key] !== 'string' && String(originalField[key]) === value) {
+        return '    ' + key + ': ' + JSON.stringify(originalField[key]) + '\n';
+      }
+      if (originalField && typeof originalField[key] === 'string' && originalField[key] === value) {
+        return '    ' + key + ': ' + escapeYamlStr(value) + '\n';
+      }
+      return '    ' + key + ': ' + fieldModifierYamlValue(key, value) + '\n';
     }
     var appendYamlValue = options.appendYamlValue;
     var appendYamlBlockValue = options.appendYamlBlockValue;
-    var fieldTypeSupportsStandaloneContent =
-      options.fieldTypeSupportsStandaloneContent;
+    var fieldTypeSupportsStandaloneContent = options.fieldTypeSupportsStandaloneContent;
     var fieldMethodTypes = options.fieldMethodTypes || [];
     var choiceTypes = options.choiceTypes;
     var state = options.state;
@@ -97,43 +247,33 @@
     var appendQuestionAdvancedYaml = options.appendQuestionAdvancedYaml;
     var yaml = '';
 
+    var qTitle = document.getElementById('q-title');
+    var questionText = qTitle ? qTitle.value : (block && block.data && block.data.question ? String(block.data.question) : '');
+
     var idInput = document.getElementById('adv-id');
-    var blockId =
-      idInput && idInput.value
-        ? idInput.value
-        : block && block.id
-          ? block.id
-          : 'question_block';
+    // Never fall back to `block.id`: for a block written without an `id:` it
+    // is the parser's invented handle (`block-3-1a2b3c4d`). A question the
+    // author left without an id gets a readable one from its text instead;
+    // an id the author wrote is always kept as written.
+    var explicitId = block && block.data && block.data.id != null ? String(block.data.id) : '';
+    var blockId = String(idInput ? idInput.value : explicitId).trim();
+    if (!blockId && typeof options.generateId === 'function') blockId = options.generateId(questionText);
     yaml = appendYamlValue(yaml, 'id', blockId);
 
-    var qTitle = document.getElementById('q-title');
-    var questionText =
-      qTitle && qTitle.value
-        ? qTitle.value
-        : block && block.data && block.data.question
-          ? String(block.data.question)
-          : '';
-    if (questionText) yaml = appendYamlValue(yaml, 'question', questionText);
+    // Keep the key even when cleared, so the API can reject an empty question.
+    if (String(questionText).trim()) yaml = appendYamlText(yaml, 'question', questionText);
+    else yaml += 'question: ""\n';
 
     var qSub = document.getElementById('q-subquestion');
-    var subquestionText =
-      qSub && qSub.value
-        ? qSub.value
-        : block && block.data && block.data.subquestion
-          ? String(block.data.subquestion)
-          : '';
-    if (subquestionText)
-      yaml = appendYamlValue(yaml, 'subquestion', subquestionText);
+    var subquestionText = qSub ? qSub.value : (block && block.data && block.data.subquestion ? String(block.data.subquestion) : '');
+    if (subquestionText || Object.prototype.hasOwnProperty.call(screenData, 'subquestion')) yaml = appendYamlText(yaml, 'subquestion', subquestionText);
 
     var rows = document.querySelectorAll('.editor-field-row');
     if (rows.length > 0) {
       yaml += 'fields:\n';
       for (var i = 0; i < rows.length; i++) {
         var row = rows[i];
-        var rowIdx =
-          row.getAttribute('data-field-idx') !== null
-            ? row.getAttribute('data-field-idx')
-            : String(i);
+        var rowIdx = row.getAttribute('data-field-idx') !== null ? row.getAttribute('data-field-idx') : String(i);
         var type = row.querySelector('[data-field-prop="type"]').value;
         var isStandaloneType = fieldTypeSupportsStandaloneContent(type);
         var isFieldMethodType = fieldMethodTypes.indexOf(type) !== -1;
@@ -144,24 +284,12 @@
         var choicesEl = document.getElementById('field-choices-' + rowIdx);
         var codeEl = document.getElementById('field-code-' + rowIdx);
         var showIfEl = document.getElementById('field-showif-' + rowIdx);
-        var showIfKeyEl = document.querySelector(
-          '.editor-field-showif-key[data-field-idx="' + rowIdx + '"]',
-        );
-        var requiredSwitch = document.querySelector(
-          '.editor-field-required-switch[data-field-idx="' + rowIdx + '"]',
-        );
-        var requiredExpression = document.getElementById(
-          'field-required-expression-' + rowIdx,
-        );
-        var requiredCode = requiredExpression
-          ? requiredExpression.value.trim()
-          : '';
-        var fieldModsPanel = document.querySelector(
-          '.editor-field-mods-panel[data-field-idx="' + rowIdx + '"]',
-        );
-        var fmodInputs = fieldModsPanel
-          ? fieldModsPanel.querySelectorAll('[data-fmod]')
-          : [];
+        var showIfKeyEl = document.querySelector('.editor-field-showif-key[data-field-idx="' + rowIdx + '"]');
+        var requiredSwitch = document.querySelector('.editor-field-required-switch[data-field-idx="' + rowIdx + '"]');
+        var requiredExpression = document.getElementById('field-required-expression-' + rowIdx);
+        var requiredCode = requiredExpression ? requiredExpression.value.trim() : '';
+        var fieldModsPanel = document.querySelector('.editor-field-mods-panel[data-field-idx="' + rowIdx + '"]');
+        var fmodInputs = fieldModsPanel ? fieldModsPanel.querySelectorAll('[data-fmod]') : [];
         var sfmods = {};
         var sfmodInputs = {};
         fmodInputs.forEach(function (el) {
@@ -171,25 +299,20 @@
           sfmodInputs[key] = el;
         });
         var hasCodeExpr = codeEl && codeEl.value.trim();
-        var hasChoices =
-          choicesEl &&
-          choicesEl.value.trim() &&
-          choiceTypes.indexOf(type) !== -1;
+        var originalField = block && block.data && block.data.fields && block.data.fields[Number(rowIdx)];
+        var choiceExpression = Boolean(
+          choicesEl && choicesEl.dataset &&
+          (choicesEl.dataset.choiceExpression === 'true' || choicesEl.dataset.expressionApplied === 'true')
+        ) || Boolean(originalField && typeof originalField.choices === 'string');
+        var hasChoices = choicesEl && choicesEl.value.trim() && choiceTypes.indexOf(type) !== -1;
         var showIfVal = showIfEl ? showIfEl.value.trim() : '';
         var showIfKey = showIfKeyEl ? showIfKeyEl.value : 'show if';
         var isRequired = requiredSwitch ? requiredSwitch.checked : true;
-        var hasMods =
-          hasCodeExpr ||
-          showIfVal ||
-          !isRequired ||
-          requiredCode ||
-          Object.keys(sfmods).length > 0;
+        var hasMods = hasCodeExpr || showIfVal || !isRequired || requiredCode || Object.keys(sfmods).length > 0;
         var isMultiLineLabel = label.indexOf('\n') !== -1;
         if (isFieldMethodType) {
           var methodArgsEl = row.querySelector('[data-field-method-args]');
-          var methodArgs = methodArgsEl
-            ? String(methodArgsEl.value || '').trim()
-            : '';
+          var methodArgs = methodArgsEl ? String(methodArgsEl.value || '').trim() : '';
           if (variable) {
             yaml += '  - code: |\n';
             yaml += '      ' + variable + '.' + type + '(' + methodArgs + ')\n';
@@ -199,27 +322,24 @@
         if (isStandaloneType) {
           yaml = appendYamlBlockValue(yaml, '  - ' + type, label);
           if (hasChoices) {
-            yaml += '    choices:\n';
-            choicesEl.value.split('\n').forEach(function (choice) {
-              if (choice.trim())
-                yaml += '      - ' + escapeYamlStr(choice.trim()) + '\n';
-            });
+            yaml = choiceExpression
+              ? appendFieldChoicesExpression(yaml, choicesEl.value)
+              : appendFieldChoices(yaml, choicesEl.value);
           }
           if (hasCodeExpr) {
             var standaloneCode = codeEl.value.trim();
             yaml += '    code: |\n';
-            standaloneCode.split('\n').forEach(function (line) {
-              yaml += '      ' + line + '\n';
-            });
+            standaloneCode.split('\n').forEach(function (line) { yaml += '      ' + line + '\n'; });
           }
-          if (requiredCode)
-            yaml += '    required: ' + JSON.stringify(requiredCode) + '\n';
+          if (requiredCode) yaml += '    required: ' + JSON.stringify(requiredCode) + '\n';
           else if (!isRequired) yaml += '    required: False\n';
-          if (showIfVal)
-            yaml += modifierYaml(showIfKey, showIfVal, showIfEl, rowIdx);
-          Object.keys(sfmods).forEach(function (key) {
-            yaml += modifierYaml(key, sfmods[key], sfmodInputs[key], rowIdx);
-          });
+          if (showIfVal) yaml += modifierYaml(showIfKey, showIfVal, showIfEl, rowIdx);
+          Object.keys(sfmods).forEach(function (key) { yaml += modifierYaml(key, sfmods[key], sfmodInputs[key], rowIdx); });
+          yaml = appendUnmodeledFieldProperties(
+            yaml,
+            originalField,
+            Object.keys(sfmodInputs).concat([showIfKey, type]),
+          );
           continue;
         }
         if (isMultiLineLabel || hasMods) {
@@ -231,46 +351,46 @@
         }
         if (type && type !== 'text') yaml += '    datatype: ' + type + '\n';
         if (hasChoices) {
-          yaml += '    choices:\n';
-          choicesEl.value.split('\n').forEach(function (choice) {
-            if (choice.trim())
-              yaml += '      - ' + escapeYamlStr(choice.trim()) + '\n';
-          });
+          yaml = choiceExpression
+            ? appendFieldChoicesExpression(yaml, choicesEl.value)
+            : appendFieldChoices(yaml, choicesEl.value);
         }
         if (hasCodeExpr) {
           var codeText = codeEl.value.trim();
           if (codeText.indexOf('\n') !== -1) {
             yaml += '    code: |\n';
-            codeText.split('\n').forEach(function (line) {
-              yaml += '      ' + line + '\n';
-            });
+            codeText.split('\n').forEach(function (line) { yaml += '      ' + line + '\n'; });
           } else {
             yaml += '    code: ' + JSON.stringify(codeText) + '\n';
           }
         }
-        if (requiredCode)
-          yaml += '    required: ' + JSON.stringify(requiredCode) + '\n';
+        if (requiredCode) yaml += '    required: ' + JSON.stringify(requiredCode) + '\n';
         else if (!isRequired) yaml += '    required: False\n';
-        if (showIfVal)
-          yaml += modifierYaml(showIfKey, showIfVal, showIfEl, rowIdx);
-        Object.keys(sfmods).forEach(function (key) {
-          yaml += modifierYaml(key, sfmods[key], sfmodInputs[key], rowIdx);
-        });
+        if (showIfVal) yaml += modifierYaml(showIfKey, showIfVal, showIfEl, rowIdx);
+        Object.keys(sfmods).forEach(function (key) { yaml += modifierYaml(key, sfmods[key], sfmodInputs[key], rowIdx); });
+        yaml = appendUnmodeledFieldProperties(
+          yaml,
+          originalField,
+          Object.keys(sfmodInputs).concat([showIfKey]),
+        );
       }
-    } else if (
-      state.questionBlockTab !== 'screen' &&
-      block &&
-      block.data &&
-      Array.isArray(block.data.fields) &&
-      block.data.fields.length > 0
-    ) {
+    } else if (state.questionBlockTab !== 'screen' && block && block.data && Array.isArray(block.data.fields) && block.data.fields.length > 0) {
       yaml += 'fields:\n';
       block.data.fields.forEach(function (field) {
         yaml += serializeQuestionFieldFromData(field);
       });
     }
 
-    return appendQuestionAdvancedYaml(yaml, block);
+    yaml = appendQuestionAdvancedYaml(yaml, block);
+    // The server patches changed source ranges. JSON is used only as a lossless
+    // YAML value transport here; unchanged directives keep their original text.
+    var managed = ['id', 'question', 'subquestion', 'fields'].concat(options.questionModifierKeys || []);
+    Object.keys(screenData).forEach(function (key) {
+      if (key.indexOf('_') === 0 || managed.indexOf(key) !== -1) return;
+      if (typeof screenData[key] === 'string') yaml = appendYamlText(yaml, JSON.stringify(key), screenData[key]);
+      else yaml += JSON.stringify(key) + ': ' + JSON.stringify(screenData[key]) + '\n';
+    });
+    return yaml;
   }
 
   function isPythonIdentifier(value) {
@@ -319,16 +439,6 @@
     );
   }
 
-  function appendLiteral(yaml, key, value) {
-    var text = String(value === undefined || value === null ? '' : value);
-    if (!text.trim()) return yaml;
-    yaml += key + ': |\n';
-    text.split('\n').forEach(function (line) {
-      yaml += '  ' + line + '\n';
-    });
-    return yaml;
-  }
-
   function serializeTemplateToYaml(name, subject, content) {
     var cleanName = String(
       name === undefined || name === null ? '' : name,
@@ -344,8 +454,10 @@
       throw new Error('Template content cannot be empty.');
     }
     var yaml = 'template: ' + cleanName + '\n';
-    yaml = appendLiteral(yaml, 'subject', subject);
-    return appendLiteral(yaml, 'content', content);
+    if (subject !== undefined && subject !== null && String(subject).trim()) {
+      yaml = appendYamlText(yaml, 'subject', subject);
+    }
+    return appendYamlText(yaml, 'content', content);
   }
 
   // -------------------------------------------------------------------------
@@ -361,11 +473,7 @@
   // caller leaves the author's own text alone.
   // -------------------------------------------------------------------------
 
-  var PEOPLE_LIST_QUANTITY_KEYS = [
-    'there_are_any',
-    'ask_number',
-    'target_number',
-  ];
+  var PEOPLE_LIST_QUANTITY_KEYS = ['there_are_any', 'ask_number', 'target_number'];
 
   var PEOPLE_LIST_QUANTITY_MODES = [
     {
@@ -402,9 +510,7 @@
      Returns null when brackets or quotes are unbalanced, because a partial
      split would silently drop an argument. */
   function splitUsingArgs(argText) {
-    var text = String(
-      argText === undefined || argText === null ? '' : argText,
-    ).trim();
+    var text = String(argText === undefined || argText === null ? '' : argText).trim();
     if (!text) return [];
     var parts = [];
     var current = '';
@@ -442,12 +548,8 @@
     if (depth !== 0 || quote) return null;
     parts.push(current);
     return parts
-      .map(function (part) {
-        return part.trim();
-      })
-      .filter(function (part) {
-        return part !== '';
-      });
+      .map(function (part) { return part.trim(); })
+      .filter(function (part) { return part !== ''; });
   }
 
   /* Pull the quantity parameters out of a `.using()` argument list.
@@ -460,9 +562,7 @@
       editable: false,
       mode: 'ask',
       number: 1,
-      otherArgs: String(
-        argText === undefined || argText === null ? '' : argText,
-      ).trim(),
+      otherArgs: String(argText === undefined || argText === null ? '' : argText).trim(),
     };
 
     var parts = splitUsingArgs(argText);
@@ -490,36 +590,20 @@
       quantity[key] = value;
     }
 
-    var hasAny = Object.prototype.hasOwnProperty.call(
-      quantity,
-      'there_are_any',
-    );
+    var hasAny = Object.prototype.hasOwnProperty.call(quantity, 'there_are_any');
     var hasAsk = Object.prototype.hasOwnProperty.call(quantity, 'ask_number');
-    var hasTarget = Object.prototype.hasOwnProperty.call(
-      quantity,
-      'target_number',
-    );
+    var hasTarget = Object.prototype.hasOwnProperty.call(quantity, 'target_number');
     var otherArgs = others.join(', ');
 
     if (!hasAny && !hasAsk && !hasTarget) {
       return { editable: true, mode: 'ask', number: 1, otherArgs: otherArgs };
     }
     if (hasAny && !hasAsk && !hasTarget && quantity.there_are_any === 'True') {
-      return {
-        editable: true,
-        mode: 'at_least_one',
-        number: 1,
-        otherArgs: otherArgs,
-      };
+      return { editable: true, mode: 'at_least_one', number: 1, otherArgs: otherArgs };
     }
     if (hasAsk && !hasAny && quantity.ask_number === 'True') {
       if (!hasTarget) {
-        return {
-          editable: true,
-          mode: 'ask_count',
-          number: 1,
-          otherArgs: otherArgs,
-        };
+        return { editable: true, mode: 'ask_count', number: 1, otherArgs: otherArgs };
       }
       if (/^\d+$/.test(quantity.target_number)) {
         return {
@@ -549,9 +633,7 @@
     }
     var rest = splitUsingArgs(otherArgs);
     if (rest === null) {
-      var raw = String(
-        otherArgs === undefined || otherArgs === null ? '' : otherArgs,
-      ).trim();
+      var raw = String(otherArgs === undefined || otherArgs === null ? '' : otherArgs).trim();
       rest = raw ? [raw] : [];
     }
     return quantityArgs.concat(rest).join(', ');
@@ -563,25 +645,16 @@
     for (var i = 0; i < part.length; i++) {
       var ch = part.charAt(i);
       if (quote) {
-        if (ch === '\\') {
-          i++;
-          continue;
-        }
+        if (ch === '\\') { i++; continue; }
         if (ch === quote) quote = null;
         continue;
       }
-      if (ch === '"' || ch === "'") {
-        quote = ch;
-        continue;
-      }
+      if (ch === '"' || ch === "'") { quote = ch; continue; }
       if (ch === '(' || ch === '[' || ch === '{') depth++;
       if (ch === ')' || ch === ']' || ch === '}') depth--;
       if (ch !== '=' || depth !== 0) continue;
       // Skip ==, <=, >=, != so a comparison is never read as a keyword.
-      if (part.charAt(i + 1) === '=') {
-        i++;
-        continue;
-      }
+      if (part.charAt(i + 1) === '=') { i++; continue; }
       if ('=!<>'.indexOf(part.charAt(i - 1)) !== -1) continue;
       return i;
     }
@@ -599,10 +672,8 @@
 
   /* The condition an `else` branch consists entirely of, or null. */
   function getSoleElseCondition(step) {
-    if (!step || !step.has_else) return null;
-    var elseChildren = Array.isArray(step.else_children)
-      ? step.else_children
-      : [];
+    if (!step || !step.has_else || step._order_else_comment) return null;
+    var elseChildren = Array.isArray(step.else_children) ? step.else_children : [];
     if (elseChildren.length !== 1) return null;
     var only = elseChildren[0];
     return only && only.kind === 'condition' ? only : null;
@@ -612,11 +683,7 @@
   function getConditionChain(step) {
     var chain = [];
     var current = step;
-    while (
-      current &&
-      current.kind === 'condition' &&
-      chain.indexOf(current) === -1
-    ) {
+    while (current && current.kind === 'condition' && chain.indexOf(current) === -1) {
       chain.push(current);
       current = getSoleElseCondition(current);
     }
@@ -647,9 +714,9 @@
     var tail = getChainTail(step);
     if (tail.has_else) {
       newLink.has_else = true;
-      newLink.else_children = Array.isArray(tail.else_children)
-        ? tail.else_children
-        : [];
+      newLink.else_children = Array.isArray(tail.else_children) ? tail.else_children : [];
+      if (tail._order_else_comment) newLink._order_else_comment = tail._order_else_comment;
+      delete tail._order_else_comment;
     }
     tail.has_else = true;
     tail.else_children = [newLink];
@@ -661,9 +728,9 @@
   function removeChainLink(parentStep, link) {
     if (!isChainLink(link, parentStep)) return false;
     parentStep.has_else = Boolean(link.has_else);
-    parentStep.else_children = Array.isArray(link.else_children)
-      ? link.else_children
-      : [];
+    if (link._order_else_comment) parentStep._order_else_comment = link._order_else_comment;
+    else delete parentStep._order_else_comment;
+    parentStep.else_children = Array.isArray(link.else_children) ? link.else_children : [];
     return true;
   }
 
@@ -679,55 +746,55 @@
     stamp = stamp || Date.now();
     if (kind === 'question' || kind === 'ai-screen') {
       return (
-        'id: question_' +
-        stamp +
-        '\n' +
-        'question: New question\n' +
+        'id: question_' + stamp + '\n' +
+        'question: ""\n' +
         'subquestion: |\n' +
         '  \n' +
         'fields:\n' +
-        '  - New field: new_field_' +
-        stamp +
-        '\n'
+        '  - New field: new_field_' + stamp + '\n'
       );
+    }
+    if (kind === 'signature') {
+      return 'id: signature_' + stamp + '\nquestion: Sign your name\nsignature: users[0].signature\nunder: |\n  ${ users[0] }\n';
+    }
+    if (['yesno', 'noyes', 'yesnomaybe', 'noyesmaybe'].indexOf(kind) !== -1) {
+      return 'id: ' + kind + '_' + stamp + '\nquestion: Is this correct?\n' + kind + ': answer_' + stamp + '\n';
+    }
+    if (['buttons', 'choices', 'dropdown', 'combobox'].indexOf(kind) !== -1) {
+      return 'id: ' + kind + '_' + stamp + '\nquestion: Choose an option\nfield: answer_' + stamp + '\n' + kind + ':\n  - First option: first\n  - Second option: second\n';
+    }
+    if (kind === 'field') {
+      return 'id: continue_' + stamp + '\nquestion: Continue when you are ready\nfield: acknowledged_' + stamp + '\n';
     }
     if (kind === 'code') {
       return (
-        'id: code_' +
-        stamp +
-        '\n' +
+        'id: code_' + stamp + '\n' +
         'code: |\n' +
-        '  # Write Python here\n' +
-        '  pass\n'
+        '  # Define variables with the expression editor or write Python here.\n'
       );
     }
     if (kind === 'objects') {
       return (
-        'id: objects_' + stamp + '\n' + 'objects:\n' + '  - user: Individual\n'
+        'id: objects_' + stamp + '\n' +
+        'objects:\n' +
+        '  - user: Individual\n'
       );
     }
     if (kind === 'template') {
-      return (
-        'template: help_text_' +
-        stamp +
-        '\n' +
-        'subject: |\n' +
-        '  More information\n' +
-        'content: |\n' +
-        '  Add the help text here.\n'
-      );
+      return serializeTemplateToYaml('help_text_' + stamp, 'More information', 'Add the help text here.');
     }
     if (kind === 'comment') {
       // No id: a comment block is prose about the interview, docassemble has
       // nothing to reach it by, and an id with no type key beside it is an
       // error ("couldn't identify a block type").
-      return 'comment: |\n' + '  Explain what the blocks below do, and why.\n';
+      return (
+        'comment: |\n' +
+        '  Explain what the blocks below do, and why.\n'
+      );
     }
     if (kind === 'attachment') {
       return (
-        'id: attachment_' +
-        stamp +
-        '\n' +
+        'id: attachment_' + stamp + '\n' +
         'question: Download your document\n' +
         'subquestion: |\n' +
         '  Your document is ready.\n' +
@@ -739,19 +806,13 @@
     }
     if (kind === 'review') {
       return (
-        'id: review_screen_' +
-        stamp +
-        '\n' +
+        'id: review_screen_' + stamp + '\n' +
         'event: review_form\n' +
         'question: Review your answers\n' +
         'review:\n' +
-        '  - Edit: new_field_' +
-        stamp +
-        '\n' +
+        '  - Edit: new_field_' + stamp + '\n' +
         '    button: |\n' +
-        '      New answer: ${ showifdef("new_field_' +
-        stamp +
-        '") }\n'
+        '      New answer: ${ showifdef("new_field_' + stamp + '") }\n'
       );
     }
     // The raw block is the "none of the above" choice, so it must not arrive
@@ -770,11 +831,21 @@
 
   return {
     enabledExpressionValue: enabledExpressionValue,
+    fieldModifierYamlValue: fieldModifierYamlValue,
+    fieldChoicesText: fieldChoicesText,
+    readFieldChoices: readFieldChoices,
+    appendFieldChoicesExpression: appendFieldChoicesExpression,
+    appendUnmodeledFieldProperties: appendUnmodeledFieldProperties,
     escapeYamlStr: escapeYamlStr,
+    appendYamlText: appendYamlText,
     serializeQuestionToYaml: serializeQuestionToYaml,
     serializeTemplateToYaml: serializeTemplateToYaml,
     isPythonIdentifier: isPythonIdentifier,
     makeNewBlockYaml: makeNewBlockYaml,
+    questionScreenType: questionScreenType,
+    screenChoice: screenChoice,
+    readScreenControls: readScreenControls,
+    normalizeQuestionData: normalizeQuestionData,
     splitUsingArgs: splitUsingArgs,
     readPeopleListQuantity: readPeopleListQuantity,
     composePeopleListUsingArgs: composePeopleListUsingArgs,

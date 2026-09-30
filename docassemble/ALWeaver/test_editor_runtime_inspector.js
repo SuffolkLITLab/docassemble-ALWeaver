@@ -75,8 +75,28 @@ steps = runtime.updateStepHistory(
 assert.strictEqual(steps.length, 2, 'a new screen adds a recorder step');
 assert.deepStrictEqual(
   steps[0].answers,
-  [{ name: 'user_name', value: 'Pat' }],
+  [{ name: 'user_name', value: 'Pat', provenance: 'observed_runtime' }],
   'changed variables are attributed to the screen that collected them',
+);
+const seededSteps = runtime.updateStepHistory(
+  [
+    {
+      identity: 'name',
+      label: 'Your name',
+      questionName: 'name',
+      questionType: 'fields',
+      answers: [],
+    },
+  ],
+  { questionName: 'name', questionText: 'Your name' },
+  { person_name: 'Fixture name' },
+  ['person_name'],
+  ['person_name'],
+);
+assert.strictEqual(
+  seededSteps[0].answers[0].provenance,
+  'scenario_seeded',
+  'scenario values are never mislabeled as observed user answers',
 );
 steps = runtime.updateStepHistory(
   steps,

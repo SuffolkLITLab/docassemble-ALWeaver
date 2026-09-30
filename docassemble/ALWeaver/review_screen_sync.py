@@ -20,8 +20,8 @@ What this module adds on top of the Dashboard's generator:
 * the interview's own identity: the drafted block keeps the `id`, `event` and
   `question` the interview already uses, so the download screen's "Edit answers"
   button and the navigation still point at it;
-* a real sync: the old review block, revisit screens and tables are replaced in
-  place instead of a second review screen being appended.
+* a source-preserving sync: the review is replaced in place, while authored
+  tables and revisit workflows keep their expressions and custom actions.
 """
 
 import re
@@ -37,6 +37,7 @@ __all__ = [
     "interview_scope",
     "project_include_chain",
     "review_screen_identity",
+    "review_scope_warnings",
     "sync_review_screen",
 ]
 
@@ -218,6 +219,45 @@ def collect_interview_yaml_texts(
     return kept, texts
 
 
+def review_scope_warnings(filenames: Sequence[str], texts: Sequence[str]) -> List[str]:
+    """Explain incomplete local includes and cycles in a review draft's scope."""
+    graph = {name: _include_targets(text) for name, text in zip(filenames, texts)}
+    warnings = []
+    missing = sorted(
+        {
+            target
+            for targets in graph.values()
+            for target in targets
+            if target not in graph
+        }
+    )
+    if missing:
+        warnings.append(
+            "Some included project files could not be read or exceeded the file limit: "
+            + ", ".join(missing)
+            + ". Their questions are not included in this draft."
+        )
+    visited: Set[str] = set()
+    active: Set[str] = set()
+
+    def has_cycle(name: str) -> bool:
+        if name in active:
+            return True
+        if name in visited or name not in graph:
+            return False
+        visited.add(name)
+        active.add(name)
+        cycle = any(has_cycle(target) for target in graph[name])
+        active.remove(name)
+        return cycle
+
+    if any(has_cycle(name) for name in graph):
+        warnings.append(
+            "The project include graph contains a cycle. Each readable file was included only once."
+        )
+    return warnings
+
+
 # ---------------------------------------------------------------------------
 # Reading and splicing documents
 # ---------------------------------------------------------------------------
@@ -354,6 +394,7 @@ def _reviewed_list_names(source_yaml: str) -> List[str]:
             for entry in review:
                 if isinstance(entry, dict):
                     remember(_list_name(entry.get("Edit"), ".revisit"))
+                    remember(_list_name(entry.get("action"), ".revisit"))
     return names
 
 
@@ -405,9 +446,8 @@ def carry_over_unmatched_entries(review_yaml: str, source_yaml: str) -> Tuple[st
     which is worse than carrying a stale entry the author can see in the diff
     and delete.
 
-    Entries are matched by their "Edit" target. A `note:` separator is not
-    carried over: the draft regenerates the entries it labelled, so it would
-    arrive as a heading with nothing under it.
+    Entries are matched by their "Edit" target. Author notes are retained too;
+    a draft cannot distinguish explanatory text from a disposable heading.
 
     Returns the new draft and how many entries were kept.
     """
@@ -429,7 +469,7 @@ def carry_over_unmatched_entries(review_yaml: str, source_yaml: str) -> Tuple[st
         return review_yaml, 0
 
     drafted_targets = {
-        str(entry.get("Edit"))
+        str(entry.get("action") or entry.get("Edit"))
         for entry in draft_review
         if isinstance(entry, dict) and entry.get("Edit") is not None
     }
@@ -443,7 +483,12 @@ def carry_over_unmatched_entries(review_yaml: str, source_yaml: str) -> Tuple[st
         for entry in document["review"]:
             if not isinstance(entry, dict):
                 continue
-            target = entry.get("Edit")
+            target = entry.get("action") or entry.get("Edit")
+            if target is None and "note" in entry:
+                if entry not in draft_review:
+                    draft_review.append(entry)
+                    kept += 1
+                continue
             if target is None or str(target) in drafted_targets:
                 continue
             draft_review.append(entry)
@@ -469,6 +514,27 @@ confirm: True
 """
 
 
+def _retain_existing_list_blocks(
+    review_yaml: str, existing_texts: Sequence[str]
+) -> str:
+    """Omit replacements for authored tables and their custom revisit screens."""
+    names: Set[str] = set()
+    revisits: Set[str] = set()
+    for source in existing_texts:
+        names |= _generated_tables(source)
+        revisits |= _generated_revisits(source)
+    parts = []
+    for document in _documents(review_yaml):
+        parsed = _parsed(document["text"]) or {}
+        if (
+            _list_name(parsed.get("table"), ".table") not in names
+            and _list_name(parsed.get("continue button field"), ".revisit")
+            not in revisits
+        ):
+            parts.append(review_yaml[document["sep_start"] : document["end"]])
+    return "".join(parts)
+
+
 def ensure_revisit_tables(
     review_yaml: str, existing_yaml: Union[str, Sequence[str]] = ""
 ) -> str:
@@ -484,6 +550,7 @@ def ensure_revisit_tables(
     else:
         existing_texts = list(existing_yaml)
     revisits = _generated_revisits(review_yaml)
+    review_yaml = _retain_existing_list_blocks(review_yaml, existing_texts)
     have = _generated_tables(review_yaml)
     # Every file in scope counts: in a project that keeps its review screen in
     # its own file, the table it displays is very often defined in another one,
@@ -501,15 +568,58 @@ def ensure_revisit_tables(
 def sync_review_screen(source_yaml: str, review_yaml: str) -> Tuple[str, bool]:
     """Put ``review_yaml`` where the file's current review screen is.
 
-    The review block is replaced in place, along with the revisit screens and
-    tables the new draft actually regenerates -- leaving those behind would
-    define the same block twice. Anything the draft does not regenerate is left
-    alone: the author wrote it, not the Weaver, and a table the draft has no
-    replacement for is still the one its revisit screen displays.
+    The review block is replaced in place. Existing tables and revisit screens
+    keep their exact source: filters, totals and custom actions cannot safely
+    be reconstructed from the interview's question fields.
 
     Returns the new source and whether an existing review screen was replaced;
     when there was none, the draft is appended.
     """
+    # Regeneration replaces entries, not unrelated author settings such as
+    # subquestion, help, skip undefined, or their comments and quote styles.
+    for original in _documents(source_yaml):
+        original_data = _parsed(original["text"])
+        if original_data is None or "review" not in original_data:
+            continue
+        for drafted in _documents(review_yaml):
+            drafted_data = _parsed(drafted["text"])
+            if drafted_data is None or "review" not in drafted_data:
+                continue
+            from .editor_utils import _merge_changed_mapping_values
+            from ruamel.yaml.compat import StringIO
+
+            yaml = _round_trip_yaml()
+            merged = yaml.load(original["text"])
+            merged.update(
+                {
+                    key: value
+                    for key, value in yaml.load(drafted["text"]).items()
+                    if key != "review"
+                }
+            )
+            candidate = StringIO()
+            yaml.dump(merged, candidate)
+            replacement = _merge_changed_mapping_values(
+                original["text"], candidate.getvalue()
+            )
+            if replacement is None:
+                raise ValueError(
+                    "This review screen cannot be regenerated safely. Use YAML mode."
+                )
+            # Replace the entire review property so a flow-style empty list
+            # can become block entries without disturbing neighboring keys.
+            start, end = _review_property_range(replacement)
+            new_start, new_end = _review_property_range(drafted["text"])
+            entries = drafted["text"][new_start:new_end].rstrip("\r\n") + "\n"
+            replacement = replacement[:start] + entries + replacement[end:]
+            review_yaml = (
+                review_yaml[: drafted["start"]]
+                + replacement
+                + review_yaml[drafted["end"] :]
+            )
+            break
+        break
+    review_yaml = _retain_existing_list_blocks(review_yaml, [source_yaml])
     # Tracked apart on purpose. A draft can regenerate a list's revisit screen
     # without regenerating its table, and dropping the table anyway leaves the
     # new screen pointing at a `${ <list>.table }` that no longer exists.
@@ -549,6 +659,28 @@ def sync_review_screen(source_yaml: str, review_yaml: str) -> Tuple[str, bool]:
             continue
         parts.append(source_yaml[document["sep_start"] : document["end"]])
     return "".join(parts).lstrip("\n"), True
+
+
+def _review_property_range(source: str) -> Tuple[int, int]:
+    import yaml
+
+    def true_end(node: Any) -> int:
+        if isinstance(node, yaml.MappingNode) and node.value:
+            return true_end(node.value[-1][1])
+        if isinstance(node, yaml.SequenceNode) and node.value:
+            return true_end(node.value[-1])
+        return node.end_mark.index
+
+    root = yaml.compose(source)
+    if isinstance(root, yaml.MappingNode):
+        for key, value in root.value:
+            if key.value == "review":
+                end = true_end(value)
+                if end and source[end - 1] not in "\r\n":
+                    newline = source.find("\n", end)
+                    end = len(source) if newline < 0 else newline + 1
+                return key.start_mark.index, end
+    raise ValueError("The review screen has no editable review entries.")
 
 
 # ---------------------------------------------------------------------------
@@ -651,7 +783,120 @@ def generate_review_screen_yaml(
                 question_text if "review_question" not in supported else None
             ),
         )
-    return review_yaml
+    return _correct_generated_review_targets(review_yaml, texts)
+
+
+def _correct_generated_review_targets(review_yaml: str, sources: Sequence[str]) -> str:
+    """Correct unsafe targets emitted by older Dashboard generators."""
+    signatures: Set[str] = set()
+    nested_attributes: Dict[str, Dict[str, Set[str]]] = {}
+    for source in sources:
+        for document in _documents(source):
+            parsed = _parsed(document["text"]) or {}
+            if isinstance(parsed.get("signature"), str):
+                signatures.add(parsed["signature"])
+            for field in parsed.get("fields", []) or []:
+                if not isinstance(field, dict):
+                    continue
+                for value in field.values():
+                    if not isinstance(value, str):
+                        continue
+                    match = re.fullmatch(
+                        r"([A-Za-z_]\w*)\[[^\]]+\]\.([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+)",
+                        value,
+                    )
+                    if match:
+                        root, attribute = match.groups()
+                        nested_attributes.setdefault(root, {}).setdefault(
+                            attribute.rsplit(".", 1)[-1], set()
+                        ).add(attribute)
+
+    def is_signature(target: Any) -> bool:
+        return isinstance(target, str) and (
+            target in signatures
+            or target.rsplit(".", 1)[-1] in {"signature", "signature_date"}
+        )
+
+    yaml = _round_trip_yaml()
+    documents = list(yaml.load_all(review_yaml))
+    changed = False
+    for document in documents:
+        if not isinstance(document, dict):
+            continue
+        entries = document.get("review")
+        if isinstance(entries, list):
+            for index in range(len(entries) - 1, -1, -1):
+                entry = entries[index]
+                if not isinstance(entry, dict):
+                    continue
+                target = entry.get("Edit")
+                if (
+                    isinstance(target, str)
+                    and target.endswith(".revisit")
+                    and "action" not in entry
+                ):
+                    # The revisit flag is undefined until that screen has been
+                    # visited. Test the list itself and route the click to its
+                    # revisit screen so populated lists are visible immediately.
+                    entry["Edit"] = target[: -len(".revisit")]
+                    entry["action"] = target
+                    changed = True
+                if is_signature(target):
+                    del entries[index]
+                    changed = True
+                elif isinstance(target, list):
+                    retained = [item for item in target if not is_signature(item)]
+                    if retained != target:
+                        if retained:
+                            entry["Edit"] = retained
+                        else:
+                            del entries[index]
+                        changed = True
+        edits = document.get("edit")
+        if "table" in document and isinstance(edits, list):
+            retained = [item for item in edits if not is_signature(item)]
+            if retained != edits:
+                document["edit"] = retained or False
+                changed = True
+        if "table" in document:
+            paths = nested_attributes.get(str(document.get("rows")), {})
+            for leaf, candidates in paths.items():
+                if len(candidates) != 1:
+                    continue
+                attribute = next(iter(candidates))
+                edits = document.get("edit")
+                if isinstance(edits, list) and leaf in edits:
+                    document["edit"] = [
+                        attribute if item == leaf else item for item in edits
+                    ]
+                    changed = True
+                old_expression = (
+                    f"row_item.{leaf} if hasattr(row_item, '{leaf}') else ''"
+                )
+                receiver = "row_item"
+                guards = []
+                for part in attribute.split("."):
+                    guards.append(f"hasattr({receiver}, {part!r})")
+                    receiver += "." + part
+                for column in document.get("columns", []) or []:
+                    if not isinstance(column, dict):
+                        continue
+                    for label, expression in column.items():
+                        if (
+                            isinstance(expression, str)
+                            and expression.strip() == old_expression
+                        ):
+                            column[label] = (
+                                f"{receiver} if {' and '.join(guards)} else ''"
+                            )
+                            changed = True
+    if not changed:
+        return review_yaml
+    from ruamel.yaml.compat import StringIO
+
+    stream = StringIO()
+    yaml.dump_all(documents, stream)
+    return stream.getvalue()
 
 
 def _supported_dashboard_kwargs(dashboard_generate) -> Set[str]:

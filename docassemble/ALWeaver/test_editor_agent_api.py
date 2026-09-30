@@ -306,6 +306,40 @@ class TestAssistantAvailability(unittest.TestCase):
         self.assertTrue(features["agent_editor"])
         self.assertFalse(features["assistant_status"]["available"])
         self.assertIn("openai api key", features["assistant_status"]["message"])
+        self.assertEqual(
+            features["assistant_privacy"],
+            {"provider_name": "", "model_name": "", "provider_retention": ""},
+        )
+
+    def test_the_bootstrap_carries_configured_provider_terms(self):
+        with (
+            patch.object(
+                api_editor,
+                "_daconfig",
+                return_value={
+                    "weaver": {
+                        "assistant provider name": "OpenAI API",
+                        "assistant model": "gpt-5.4-mini",
+                        "assistant provider retention": "Up to 30 days under standard controls.",
+                    }
+                },
+            ),
+            patch.object(
+                api_editor,
+                "_assistant_status",
+                return_value={"available": True, "code": "ready", "message": ""},
+            ),
+        ):
+            features = api_editor._editor_feature_bootstrap()
+        self.assertEqual(
+            features["assistant_privacy"],
+            {
+                "provider_name": "OpenAI API",
+                "model_name": "gpt-5.4-mini",
+                "provider_retention": "Up to 30 days under standard controls.",
+            },
+        )
+        self.assertEqual(features["assistantPrivacy"], features["assistant_privacy"])
 
     def test_an_unconfigured_server_answers_503_not_404(self):
         with (
@@ -652,7 +686,9 @@ class TestSessionOwnership(AgentApiTestCase):
 
 
 class TestTurn(AgentApiTestCase):
-    def _run_turn(self, responses, message="Reword the intro", user_id=7):
+    def _run_turn(
+        self, responses, message="Reword the intro", user_id=7, read_only=False
+    ):
         """Start a turn and run it to completion.
 
         The endpoint queues the work to Celery, so the test captures what would
@@ -672,7 +708,7 @@ class TestTurn(AgentApiTestCase):
             response = self._request(
                 api_editor.editor_api_agent_turn,
                 "/api/agent/sessions/agent-1/turn",
-                json_body={"message": message},
+                json_body={"message": message, "read_only": read_only},
                 args=("agent-1",),
                 user_id=user_id,
             )
@@ -716,6 +752,40 @@ class TestTurn(AgentApiTestCase):
         self.assertEqual(len(stored.command_history), 1)
         self.assertEqual(stored.command_history[0]["tool"], "replace_question")
         self.assertEqual(stored.command_history[0]["status"], "accepted")
+
+    def test_read_only_turn_cannot_change_the_candidate(self):
+        self._stored_session()
+        response = self._run_turn(
+            [
+                {
+                    "action": "tool",
+                    "tool": "replace_question",
+                    "arguments": {
+                        "block_id": "intro",
+                        "question": {"question": "Changed"},
+                    },
+                },
+                {
+                    "action": "final",
+                    "answer": "You can reword the intro without editing it here.",
+                },
+            ],
+            message="How should I word the intro?",
+            read_only=True,
+        )
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(self.last_progress["result"]["status"], "answered")
+        stored = load_agent_session(self.redis, "agent-1", 7)
+        self.assertEqual(stored.candidate_source, INTERVIEW)
+        self.assertEqual(stored.command_history, [])
+        events = self.last_progress["result"]["turn"]["events"]
+        self.assertTrue(
+            any(
+                event.get("tool") == "replace_question"
+                and event.get("status") == "rejected"
+                for event in events
+            )
+        )
 
     def test_a_model_cannot_retarget_the_session_to_another_file(self):
         self._stored_session()

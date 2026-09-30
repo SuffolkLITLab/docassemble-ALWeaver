@@ -1,9 +1,12 @@
 import base64
 import binascii
+import io
 import json
 import os
 import shutil
 import tempfile
+import zipfile
+from xml.etree import ElementTree
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from .interview_generator import generate_interview_from_path, TemplateInput
@@ -212,6 +215,55 @@ def validate_upload_metadata(
     return safe_filename, extension
 
 
+def validate_document_content(filename: str, content_bytes: bytes) -> None:
+    """Reject unreadable or password-protected uploads before queuing work."""
+    extension = os.path.splitext(os.path.basename(filename))[1].lower()
+    if extension == ".pdf":
+        try:
+            from pypdf import PdfReader
+
+            reader = PdfReader(io.BytesIO(content_bytes), strict=False)
+            if reader.is_encrypted:
+                # Many official forms set only an owner password, leaving the
+                # document readable without a user password. Accept those by
+                # attempting the empty password before rejecting the upload.
+                try:
+                    can_read = bool(reader.decrypt(""))
+                except Exception:
+                    can_read = False
+                if not can_read:
+                    raise WeaverAPIValidationError(
+                        "This PDF is password-protected. Remove the password and upload it again."
+                    )
+            # Force the parser to inspect the page tree. A header-only/truncated
+            # file should not become an asynchronous job that can only fail.
+            len(reader.pages)
+        except WeaverAPIValidationError:
+            raise
+        except Exception:
+            raise WeaverAPIValidationError(
+                "The PDF file is unreadable or malformed. Upload a valid PDF."
+            )
+        return
+
+    if extension == ".docx":
+        try:
+            with zipfile.ZipFile(io.BytesIO(content_bytes)) as archive:
+                required_parts = {"[Content_Types].xml", "word/document.xml"}
+                if not required_parts.issubset(archive.namelist()):
+                    raise ValueError("required DOCX parts are missing")
+                document_info = archive.getinfo("word/document.xml")
+                # Avoid allocating an unbounded decompressed XML part even
+                # though the compressed upload itself passed the byte limit.
+                if document_info.file_size > DEFAULT_MAX_UPLOAD_BYTES:
+                    raise ValueError("DOCX document part is too large")
+                ElementTree.fromstring(archive.read(document_info))
+        except Exception:
+            raise WeaverAPIValidationError(
+                "The DOCX file is malformed or incomplete. Upload a valid Word document."
+            )
+
+
 def generate_interview_from_bytes(
     *,
     filename: str,
@@ -232,6 +284,7 @@ def generate_interview_from_bytes(
     safe_filename, extension = validate_upload_metadata(
         filename=filename, content_bytes=content_bytes, mimetype=mimetype
     )
+    validate_document_content(safe_filename, content_bytes)
 
     output_dir = tempfile.mkdtemp(prefix="alweaver-api-")
     input_dir = tempfile.mkdtemp(prefix="alweaver-api-input-")
@@ -250,6 +303,9 @@ def generate_interview_from_bytes(
                 filename=str(document.get("filename") or ""),
                 content_bytes=bytes(document.get("content_bytes") or b""),
                 mimetype=document.get("mimetype"),
+            )
+            validate_document_content(
+                document_name, bytes(document.get("content_bytes") or b"")
             )
             with tempfile.NamedTemporaryFile(
                 mode="wb", suffix=document_extension, dir=input_dir, delete=False
@@ -275,6 +331,8 @@ def generate_interview_from_bytes(
             payload["additional_input_filenames"] = additional_names
         # The names the generated YAML actually refers to, in bundle order.
         payload["template_filenames"] = list(result.template_names)
+        if result.warnings:
+            payload["warnings"] = list(result.warnings)
         # Report these either way: a caller that did not ask for renaming can
         # show what it would do and offer to run again with it turned on.
         if result.suggested_renames:

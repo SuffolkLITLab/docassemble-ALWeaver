@@ -47,6 +47,7 @@
   var STEP_FUNCTION  = 'function';
   var STEP_CONDITION = 'condition';
   var STEP_RAW       = 'raw';
+  var STEP_LOOP      = 'loop';
 
   // ---------------------------------------------------------------------------
   // Helpers
@@ -732,6 +733,14 @@
     return html;
   }
 
+  function renderForStep(step, ctx, depth) {
+    return '<section class="alwr-loop"><div class="alwr-loop-header">' +
+      '<span class="alwr-loop-tag">For each</span><code>' + esc(step.target) +
+      '</code> in <code>' + esc(step.iterable) + '</code></div>' +
+      '<div class="alwr-loop-body">' + renderStepList(step.children || [], ctx, depth + 1) +
+      '</div></section>';
+  }
+
   function renderProgressStep(step) {
     var pct = progressValue(step);
     if (pct === null) return '';
@@ -787,6 +796,9 @@
     switch (step.kind || STEP_RAW) {
       case STEP_SCREEN:    return renderScreenStep(step, ctx);
       case STEP_GATHER:    return renderGatherStep(step, ctx);
+      case STEP_LOOP:      return renderForStep(step, ctx, depth || 0);
+      case 'break':        return '<div class="alwr-inline-section">Exit this loop.</div>';
+      case 'continue':     return '<div class="alwr-inline-section">Continue with the next item.</div>';
       case STEP_SECTION:   return renderInlineSectionStep(step, ctx);
       case STEP_PROGRESS:  return renderProgressStep(step);
       case STEP_CONDITION: return renderConditionStep(step, ctx, depth || 0);
@@ -821,6 +833,37 @@
     });
     if (current.steps.length || current.title !== null) parts.push(current);
     return parts;
+  }
+
+  /* A child file can define a named order block whose last statement is
+   * `some_var = True`. Calling that variable from the main order runs the
+   * child's code at that point. Expand it before both the pages and chart are
+   * built, including when another child order is called inside a branch. */
+  function expandNamedOrders(steps, namedOrders) {
+    var orders = namedOrders || {};
+
+    function expand(items, active) {
+      var result = [];
+      (items || []).forEach(function (step) {
+        var name = step.kind === STEP_SCREEN ? String(step.invoke || '').trim() : '';
+        if (name && Object.prototype.hasOwnProperty.call(orders, name) &&
+            Array.isArray(orders[name]) && active.indexOf(name) === -1 && active.length < 40) {
+          result.push.apply(result, expand(orders[name], active.concat(name)));
+          return;
+        }
+        if (step.kind === STEP_CONDITION || step.kind === STEP_LOOP) {
+          var copy = Object.assign({}, step);
+          copy.children = expand(step.children, active);
+          copy.else_children = expand(step.else_children, active);
+          result.push(copy);
+        } else {
+          result.push(step);
+        }
+      });
+      return result;
+    }
+
+    return expand(steps, []);
   }
 
   function renderBody(steps, ctx) {
@@ -952,10 +995,11 @@
       pendingProgress = null;
     }
 
-    function walk(list, inEdges) {
+    function walk(list, inEdges, loopContext) {
       var open = inEdges || [];
       (list || []).forEach(function (step) {
         var kind = step.kind || STEP_RAW;
+        if (!open.length || kind === 'comment') return;
 
         if (kind === STEP_SECTION) {
           var title = sectionLabel(step.value || step.summary || '', labels);
@@ -984,6 +1028,16 @@
               listSentence(gather.attributes.map(attributeLabel)) || gather.listName,
               'subroutine', 'gather');
             break;
+          case STEP_LOOP:
+            node = addNode('For each ' + step.target, step.iterable, 'diamond', 'decision');
+            break;
+          case 'assignment':
+            node = addNode(step.target + ' = ' + step.expression, '', 'hexagon', 'code');
+            break;
+          case 'break':
+          case 'continue':
+            node = addNode(kind, '', 'hexagon', 'code');
+            break;
           case STEP_FUNCTION:
             node = addNode(step.invoke || step.summary || 'function()', '', 'hexagon', 'code');
             break;
@@ -998,11 +1052,20 @@
 
         connect(open, node.id);
 
-        if (kind === STEP_CONDITION) {
-          var yes = walk(step.children || [], [{ from: node.id, label: 'yes' }]);
+        if (kind === STEP_LOOP) {
+          var nestedLoop = { header: node.id, exits: [] };
+          var bodyTails = walk(step.children || [], [{ from: node.id, label: 'next item' }], nestedLoop);
+          connect(bodyTails, node.id);
+          open = [{ from: node.id, label: 'finished' }].concat(nestedLoop.exits);
+        } else if ((kind === 'break' || kind === 'continue') && loopContext) {
+          if (kind === 'break') loopContext.exits.push({ from: node.id, label: 'exit loop' });
+          else connect([{ from: node.id, label: 'next item' }], loopContext.header);
+          open = [];
+        } else if (kind === STEP_CONDITION) {
+          var yes = walk(step.children || [], [{ from: node.id, label: 'yes' }], loopContext);
           var no;
           if (step.has_else && (step.else_children || []).length > 0) {
-            no = walk(step.else_children, [{ from: node.id, label: 'no' }]);
+            no = walk(step.else_children, [{ from: node.id, label: 'no' }], loopContext);
           } else {
             no = [{ from: node.id, label: 'no' }];
           }
@@ -1265,12 +1328,14 @@
    * many-screen document needs: links inside a screen must not navigate away
    * from the report, and the print button waits for Mermaid to finish so the
    * chart is on the paper. */
-  var RUNTIME_SCRIPT = [
-    '(function(){"use strict";',
+  var LEGACY_WIDGET_SCRIPT = [
     'if (window.jQuery && jQuery.fn.labelauty) {',
     '  jQuery(".da-to-labelauty").labelauty({class: "labelauty da-active-invisible dafullwidth"});',
     '  jQuery(".da-to-labelauty-icon").labelauty({label: false});',
     '}',
+  ].join('\n');
+  var RUNTIME_SCRIPT = [
+    '(function(){"use strict";',
     'if (window.bootstrap && bootstrap.Popover) {',
     '  Array.prototype.forEach.call(document.querySelectorAll(\'[data-bs-toggle="popover"]\'), function (el) { new bootstrap.Popover(el, {html: true}); });',
     '}',
@@ -1344,7 +1409,7 @@
     (steps || []).forEach(function (step) {
       var kind = step.kind || STEP_RAW;
       tally[kind] = (tally[kind] || 0) + 1;
-      if (kind === STEP_CONDITION) {
+      if (kind === STEP_CONDITION || kind === STEP_LOOP) {
         countSteps(step.children || [], tally);
         countSteps(step.else_children || [], tally);
       }
@@ -1367,6 +1432,7 @@
       objects: objectDeclarations(blocks),
       sectionLabels: sectionLabels(blocks),
       previewOpts: {
+        widgetStyle:        opts.widgetStyle,
         labelLayout:         opts.labelLayout,
         backButtonLabel:     opts.backButtonLabel,
         continueButtonLabel: opts.continueLabel,
@@ -1393,6 +1459,7 @@
       count(tally[STEP_SECTION], 'section', 'sections') +
       count(tally[STEP_CONDITION], 'branch', 'branches') +
       count(tally[STEP_GATHER], 'repeating list', 'repeating lists') +
+      count(tally[STEP_LOOP], 'for loop', 'for loops') +
     '</ul>';
 
     var mermaidSrc = buildMermaidSource(steps, {
@@ -1438,13 +1505,16 @@
     head += '<style>\n' + REPORT_CSS + '\n</style>\n';
 
     var scripts = '';
-    if (assets.jquery && assets.labelauty) {
+    if (opts.widgetStyle !== 'native' && assets.jquery && assets.labelauty) {
       scripts += '<script src="' + esc(assets.jquery) + '"><\/script>\n';
       scripts += '<script src="' + esc(assets.labelauty) + '"><\/script>\n';
     }
     if (assets.bootstrapJs) scripts += '<script src="' + esc(assets.bootstrapJs) + '"><\/script>\n';
     scripts += '<script src="' + esc(mermaidCdn) + '" onerror="var f=document.querySelector(\'.alwr-flow\'); if (f) f.setAttribute(\'data-mermaid\',\'failed\');"><\/script>\n';
-    scripts += '<script>\n' + RUNTIME_SCRIPT + '\n<\/script>\n';
+    scripts += '<script>\n' + RUNTIME_SCRIPT.replace(
+      '(function(){"use strict";',
+      '(function(){"use strict";' + (opts.widgetStyle === 'native' ? '' : LEGACY_WIDGET_SCRIPT)
+    ) + '\n<\/script>\n';
     scripts += '<script>\n' + MERMAID_SCRIPT.replace('__THEME__', theme) + '\n<\/script>\n';
 
     var dateStr = (function () {
@@ -1497,6 +1567,7 @@
     objectDeclarations: objectDeclarations,
     attributesFromCode: attributesFromCode,
     splitIntoParts: splitIntoParts,
+    expandNamedOrders: expandNamedOrders,
     sectionLabels: sectionLabels,
   };
 });

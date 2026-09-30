@@ -5,11 +5,11 @@
 - **Design reference**: See `architecture.md`.
 
 ## Commands
-- **Run tests**: `uv run pytest` (from repo root; or `uv run pytest path/to/test.py`)
+- **Run tests**: `pytest` (from repo root; or `pytest path/to/test.py`)
 - **Format & Typecheck**:
-  - Python: `uv run black .` and `uv run mypy . --exclude '^build/' --explicit-package-bases`
+  - Python: `black .` and `mypy . --exclude '^build/' --explicit-package-bases`
   - JavaScript: `npm run check` (Prettier, ESLint, TypeScript `tsc`)
-- **Pre-commit**: `uv run pre-commit run --all-files`
+- **Pre-commit**: `pre-commit run --all-files`
 - **Deploy to test server**: `dainstall` (configured via `~/.docassemblecli`)
 
 ## Core Invariants & Traps

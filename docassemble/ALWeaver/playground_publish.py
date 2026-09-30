@@ -130,6 +130,8 @@ def prepare_project_github_package(
     author_name: str = "",
     author_email: str = "",
     github_url: Optional[str] = None,
+    dependencies: Optional[Sequence[str]] = None,
+    persist_manifest: bool = True,
 ) -> Dict[str, Any]:
     """Create/update the package manifest consumed by Docassemble's publisher.
 
@@ -156,7 +158,6 @@ def prepare_project_github_package(
 
     packages_area = create_saved_file(user_id, fix=True, section="playgroundpackages")
     package_directory = _directory_for(packages_area, project_name)
-    os.makedirs(package_directory, exist_ok=True)
     manifest_path = os.path.join(package_directory, f"docassemble.{package}")
     existing: Dict[str, Any] = {}
     if os.path.isfile(manifest_path):
@@ -167,7 +168,12 @@ def prepare_project_github_package(
 
     manifest: Dict[str, Any] = dict(existing)
     manifest.update(files)
-    manifest.setdefault("dependencies", [])
+    if dependencies is not None:
+        # Keeps Docassemble's own Packages page and setup.py in step with the
+        # pyproject.toml Weaver publishes.
+        manifest["dependencies"] = list(dependencies)
+    else:
+        manifest.setdefault("dependencies", [])
     manifest.setdefault("description", f"A docassemble project for {project_name}.")
     manifest.setdefault("license", "MIT License")
     manifest.setdefault(
@@ -186,14 +192,19 @@ def prepare_project_github_package(
     if github_url:
         manifest["github_url"] = github_url
 
-    with open(manifest_path, "w", encoding="utf-8") as stream:
-        yaml.safe_dump(manifest, stream, sort_keys=False, allow_unicode=True)
-    packages_area.finalize()
+    if persist_manifest:
+        os.makedirs(package_directory, exist_ok=True)
+        with open(manifest_path, "w", encoding="utf-8") as stream:
+            yaml.safe_dump(manifest, stream, sort_keys=False, allow_unicode=True)
+        packages_area.finalize()
+    else:
+        manifest_path = manifest_path if os.path.isfile(manifest_path) else ""
     return {
         "package": package,
         "repository": f"docassemble-{package}",
         "manifest_path": manifest_path,
         "files": files,
+        "manifest": manifest,
     }
 
 
@@ -225,12 +236,13 @@ def load_project_github_manifest(
 def find_project_github_sync(
     *, user_id: int, project_name: str
 ) -> Optional[Dict[str, Any]]:
-    """Return the first GitHub-backed package manifest for a project."""
+    """Return the most recently synchronized GitHub package for a project."""
     packages_area = create_saved_file(user_id, fix=True, section="playgroundpackages")
     directory = _directory_for(packages_area, project_name)
     if not os.path.isdir(directory):
         return None
-    for filename in sorted(os.listdir(directory)):
+    candidates: List[Tuple[bool, float, str, Dict[str, Any]]] = []
+    for filename in os.listdir(directory):
         if not filename.startswith("docassemble."):
             continue
         path = os.path.join(directory, filename)
@@ -245,11 +257,12 @@ def find_project_github_sync(
             continue
         package = filename[len("docassemble.") :]
         commit_file = os.path.join(directory, f".docassemble-{package}")
+        has_commit_file = os.path.isfile(commit_file)
         commit = str(manifest.get("github_commit") or "").strip()
-        if not commit and os.path.isfile(commit_file):
+        if not commit and has_commit_file:
             with open(commit_file, "r", encoding="utf-8") as stream:
                 commit = stream.read().strip()
-        return {
+        sync = {
             "package": package,
             "repository_url": str(manifest["github_url"]).rstrip("/"),
             "branch": str(manifest.get("github_branch") or "main"),
@@ -257,7 +270,16 @@ def find_project_github_sync(
             "manifest": manifest,
             "manifest_path": path,
         }
-    return None
+        try:
+            modified = os.path.getmtime(
+                commit_file if commit and has_commit_file else path
+            )
+        except OSError:
+            continue
+        candidates.append((bool(commit), modified, filename, sync))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda candidate: candidate[:3])[3]
 
 
 def record_project_github_sync(

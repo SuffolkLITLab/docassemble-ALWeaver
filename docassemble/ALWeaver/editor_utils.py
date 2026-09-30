@@ -7,10 +7,13 @@ for reading/writing interview files.
 
 from __future__ import annotations
 
+import ast
 import copy
 import hashlib
+import io
 import os
 import re
+import tokenize
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import yaml
@@ -89,6 +92,48 @@ _METADATA_DOCUMENT_TYPES = {
 _YAML_DOCUMENT_SEPARATOR_RE = re.compile(
     r"(?m)^---[ \t]*(?:#[^\r\n]*)?(?:\r\n|\n|\r|$)"
 )
+_FAST_SAFE_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+MAX_EDITOR_YAML_NESTING_DEPTH = 100
+
+
+def _yaml_value_exceeds_supported_depth(value: Any) -> bool:
+    """Check parsed YAML depth iteratively, without recursive Python calls."""
+    pending = [(value, 0)]
+    deepest_seen: Dict[int, int] = {}
+    while pending:
+        current, depth = pending.pop()
+        if depth > MAX_EDITOR_YAML_NESTING_DEPTH:
+            return True
+        if not isinstance(current, (dict, list, tuple)):
+            continue
+        identity = id(current)
+        if deepest_seen.get(identity, -1) >= depth:
+            continue
+        deepest_seen[identity] = depth
+        if isinstance(current, dict):
+            for key, item in current.items():
+                pending.append((key, depth + 1))
+                pending.append((item, depth + 1))
+        else:
+            pending.extend((item, depth + 1) for item in current)
+    return False
+
+
+def _safe_load_interview_document(raw_yaml: str) -> Any:
+    """Load one interview document with the safe C parser when available."""
+    try:
+        if _FAST_SAFE_YAML_LOADER is yaml.SafeLoader:
+            loaded = yaml.safe_load(raw_yaml)
+        else:
+            loaded = yaml.load(raw_yaml, Loader=_FAST_SAFE_YAML_LOADER)
+    except RecursionError as exc:
+        raise yaml.YAMLError(
+            "YAML nesting exceeds the supported validation depth."
+        ) from exc
+    if _yaml_value_exceeds_supported_depth(loaded):
+        raise yaml.YAMLError("YAML nesting exceeds the supported validation depth.")
+    return loaded
+
 
 _BLOCK_KEY_ORDER = [
     "metadata",
@@ -530,7 +575,9 @@ def _detect_block_type(block: Dict[str, Any]) -> str:
         return BLOCK_TYPE_SECTIONS
     if "terms" in block:
         return BLOCK_TYPE_TERMS
-    if "template" in block and ("content" in block or "subject" in block):
+    if "template" in block and (
+        "content" in block or "subject" in block or "content file" in block
+    ):
         return BLOCK_TYPE_TEMPLATE
     if "table" in block:
         return BLOCK_TYPE_TABLE
@@ -673,6 +720,9 @@ def _extract_variable(block: Dict[str, Any], block_type: str) -> Optional[str]:
     if csf:
         return str(csf) if not isinstance(csf, list) else str(csf[0]) if csf else None
     if block_type == BLOCK_TYPE_QUESTION:
+        for key in ("signature", "yesno", "noyes", "yesnomaybe", "noyesmaybe", "field"):
+            if isinstance(block.get(key), str) and block[key]:
+                return block[key]
         fields = block.get("fields")
         if isinstance(fields, list) and fields:
             first = fields[0]
@@ -717,9 +767,9 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
 
     segments: List[Dict[str, Any]] = []
     body_start = 0
+    start_line = 1
     for separator in _YAML_DOCUMENT_SEPARATOR_RE.finditer(raw_yaml):
         body = raw_yaml[body_start : separator.start()]
-        start_line = raw_yaml.count("\n", 0, body_start) + 1
         segments.append(
             {
                 "start_line": start_line,
@@ -727,9 +777,12 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
                 "text": body,
             }
         )
+        # Advance once over this segment and its separator. Counting every
+        # prefix from the beginning for each document made a large interview
+        # quadratic in its total source length.
+        start_line += raw_yaml.count("\n", body_start, separator.end())
         body_start = separator.end()
     body = raw_yaml[body_start:]
-    start_line = raw_yaml.count("\n", 0, body_start) + 1
     segments.append(
         {
             "start_line": start_line,
@@ -755,7 +808,7 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
         if is_comment_only_yaml(segment_text_raw):
             uncommented = _uncomment_yaml_block(segment_text)
             try:
-                parsed_commented = yaml.safe_load(uncommented)
+                parsed_commented = _safe_load_interview_document(uncommented)
             except yaml.YAMLError:
                 parsed_commented = None
             if not isinstance(parsed_commented, dict):
@@ -806,7 +859,7 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
             continue
 
         try:
-            doc = yaml.safe_load(segment_text_raw)
+            doc = _safe_load_interview_document(segment_text_raw)
         except yaml.YAMLError:
             blocks.append(
                 {
@@ -830,8 +883,17 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
         if not isinstance(doc, dict):
             doc = {"_raw": str(doc)}
 
-        block_type = _detect_block_type(doc)
-        block_id = _stable_block_id(i, doc)
+        try:
+            block_type = _detect_block_type(doc)
+            block_id = _stable_block_id(i, doc)
+        except RecursionError:
+            # A parser can materialize a very deeply nested mapping, but stable
+            # ID serialization and downstream editor rendering are still
+            # bounded by Python's recursion limit. Keep its raw source editable
+            # as an unparseable block instead of failing the entire file load.
+            doc = {"_unparseable": True, "_raw": segment_text}
+            block_type = BLOCK_TYPE_OTHER
+            block_id = _stable_block_id(i, doc)
         editor_objects = (
             _build_editor_objects(doc.get("objects")) if "objects" in doc else []
         )
@@ -1002,12 +1064,15 @@ def serialize_blocks_to_yaml(blocks: Sequence[Dict[str, Any]]) -> str:
 
 
 def _unique_block_document(
-    full_yaml: str, block_id: str
+    full_yaml: str,
+    block_id: str,
+    *,
+    parsed_model: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Dict[str, Any], int, int, str]:
     """Return one block and its exact document-body source range."""
     matches = [
         block
-        for block in parse_interview_yaml(full_yaml)["blocks"]
+        for block in (parsed_model or parse_interview_yaml(full_yaml))["blocks"]
         if block["id"] == block_id
     ]
     if not matches:
@@ -1050,8 +1115,8 @@ def _merge_changed_mapping_values(
     """Patch only semantically changed values in a graphical block edit.
 
     This keeps comments, anchors, quote choices and scalar styles on unchanged
-    properties.  It is deliberately limited to edits with the same top-level
-    keys; structural changes fall back to exact document-body replacement.
+    properties. Top-level additions and removals also use exact source ranges,
+    so clearing a signature caption or migrating a legacy field keeps siblings.
     """
     try:
         original = yaml.safe_load(original_body)
@@ -1067,8 +1132,6 @@ def _merge_changed_mapping_values(
             {"id": edited["id"]}, sort_keys=False, width=10**9, allow_unicode=True
         )
         return _merge_changed_mapping_values(id_line + original_body, edited_body)
-    if set(original.keys()) != set(edited.keys()):
-        return None
     original_ranges = _mapping_value_ranges(original_body)
     edited_ranges = _mapping_value_ranges(edited_body)
     if set(original_ranges) != set(original) or set(edited_ranges) != set(edited):
@@ -1155,13 +1218,61 @@ def _merge_changed_mapping_values(
             replacement += "\n"
         operations.append((start, end, replacement))
 
+    removed = set(original) - set(edited)
+    added = set(edited) - set(original)
+    if removed or added:
+        # Flow mappings, complex keys and aliases can share ranges; the final
+        # semantic check below also guards against unsafe narrow patches.
+        if original_root.flow_style or edited_root.flow_style:
+            return None
+        if not all(isinstance(key, str) for key in set(original) | set(edited)):
+            return None
+
+        def property_end(body: str, value: yaml.Node) -> int:
+            end = true_end(value)
+            if end and body[end - 1] in "\r\n":
+                return end
+            newline = body.find("\n", end)
+            return len(body) if newline < 0 else newline + 1
+
+        for key_node, value_node in original_root.value:
+            if key_node.value in removed:
+                operations.append(
+                    (
+                        key_node.start_mark.index,
+                        property_end(original_body, value_node),
+                        "",
+                    )
+                )
+        additions = []
+        for key_node, value_node in edited_root.value:
+            if key_node.value in added:
+                additions.append(
+                    edited_body[
+                        key_node.start_mark.index : property_end(
+                            edited_body, value_node
+                        )
+                    ].rstrip("\r\n")
+                )
+        if additions:
+            prefix = "" if original_body.endswith("\n") else "\n"
+            operations.append(
+                (
+                    len(original_body),
+                    len(original_body),
+                    prefix + "\n".join(additions) + "\n",
+                )
+            )
+
     for key in original:
+        if key in removed:
+            continue
         if normalized_graphical_value(
             str(key), original[key]
         ) == normalized_graphical_value(str(key), edited[key]):
             continue
         if (
-            key == "fields"
+            key in ("fields", "buttons", "choices", "dropdown", "combobox")
             and isinstance(original_nodes[key], yaml.SequenceNode)
             and isinstance(edited_nodes[key], yaml.SequenceNode)
             and len(original[key]) == len(edited[key])
@@ -1173,14 +1284,33 @@ def _merge_changed_mapping_values(
                 edited[key],
             ):
                 if normalized_graphical_value(
-                    "fields", [old_value]
-                ) != normalized_graphical_value("fields", [new_value]):
+                    key, [old_value]
+                ) != normalized_graphical_value(key, [new_value]):
                     patch_field_value(old_node, new_node, old_value, new_value)
             continue
         start, end = original_ranges[str(key)]
         edited_start, edited_end = edited_ranges[str(key)]
         replacement = edited_body[edited_start:edited_end]
         original_fragment = original_body[start:end]
+        if (
+            isinstance(edited_nodes[key], yaml.ScalarNode)
+            and edited_nodes[key].style in ("|", ">")
+            and re.match(r"^[|>][1-9]?\+", replacement)
+            and replacement.endswith(("\r", "\n"))
+            and not original_fragment.endswith(("\r", "\n"))
+        ):
+            # A plain/quoted scalar excludes its line ending from the range,
+            # while a block scalar includes it. Reuse that ending only once:
+            # an extra blank line changes the value of a keep-chomp (|+) block.
+            tail = re.match(
+                r"([ \t]*(?:#[^\r\n]*)?)(\r\n|\n|\r|$)", original_body[end:]
+            )
+            if tail:
+                end += tail.end()
+                comment = tail.group(1).strip()
+                if comment:
+                    header, separator, body = replacement.partition("\n")
+                    replacement = header.rstrip("\r") + " " + comment + separator + body
         if original_fragment.endswith("\r\n") and not replacement.endswith(
             ("\r", "\n")
         ):
@@ -1202,10 +1332,14 @@ def _merge_changed_mapping_values(
     # replacement path instead of producing invalid or semantically wrong YAML.
     try:
         updated_data = yaml.safe_load(updated)
-        if not isinstance(updated_data, dict) or any(
-            normalized_graphical_value(str(key), updated_data.get(key))
-            != normalized_graphical_value(str(key), edited[key])
-            for key in edited
+        if (
+            not isinstance(updated_data, dict)
+            or set(updated_data) != set(edited)
+            or any(
+                normalized_graphical_value(str(key), updated_data.get(key))
+                != normalized_graphical_value(str(key), edited[key])
+                for key in edited
+            )
         ):
             return None
     except yaml.YAMLError:
@@ -1225,19 +1359,52 @@ def update_block_in_yaml(
     new_block_yaml: str,
     *,
     preserve_unchanged_annotations: bool = False,
+    allow_nontext_yaml_keys: bool = False,
+    parsed_model: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Replace a single block in a full interview YAML by its id.
 
     Locates the block matching *block_id* and replaces only its exact source
     range.  Other documents and separators are never serialized again.
     """
-    _block, start, end, original_body = _unique_block_document(full_yaml, block_id)
-    edited_body = new_block_yaml.strip("\r\n")
+    _block, start, end, original_body = _unique_block_document(
+        full_yaml, block_id, parsed_model=parsed_model
+    )
+    edited_body = (
+        new_block_yaml.lstrip("\r\n")
+        if preserve_unchanged_annotations
+        else new_block_yaml.strip("\r\n")
+    )
     replacement: Optional[str] = None
     if preserve_unchanged_annotations:
         # The question controls do not serialize attachments. Retain their
         # exact source when saving a question carrying one or more documents.
         original_data = _block.get("data") or {}
+
+        visited: set[int] = set()
+
+        def has_nontext_keys(value: Any) -> bool:
+            if isinstance(value, (dict, list)):
+                if id(value) in visited:
+                    return False
+                visited.add(id(value))
+            if isinstance(value, dict):
+                return any(
+                    not isinstance(key, str) or has_nontext_keys(item)
+                    for key, item in value.items()
+                )
+            if isinstance(value, list):
+                return any(has_nontext_keys(item) for item in value)
+            return False
+
+        # JSON object keys cannot carry YAML boolean/numeric key types. The
+        # browser therefore cannot safely round-trip these mappings.
+        if has_nontext_keys(original_data) and not allow_nontext_yaml_keys:
+            raise ValueError(
+                "This block contains non-text YAML mapping keys (for example, "
+                "unquoted Yes/No labels). Edit it in YAML mode, or quote the "
+                "labels there before using graphical controls."
+            )
         edited_data = yaml.safe_load(edited_body)
         if (
             "question" in original_data
@@ -1257,9 +1424,11 @@ def update_block_in_yaml(
                         if index + 1 < len(original_node.value)
                         else len(original_body)
                     )
-                    edited_body += "\n" + original_body[
-                        key.start_mark.index : property_end
-                    ].rstrip("\r\n")
+                    edited_body += (
+                        "" if edited_body.endswith(("\r", "\n")) else "\n"
+                    ) + original_body[key.start_mark.index : property_end].rstrip(
+                        "\r\n"
+                    )
         # The text-template form owns only these three properties. Keep any
         # custom Docassemble keys (and their exact comments/style) in place
         # instead of making a graphical subject/content edit erase them.
@@ -1282,15 +1451,21 @@ def update_block_in_yaml(
                         if index + 1 < len(original_node.value)
                         else len(original_body)
                     )
-                    edited_body += "\n" + original_body[
-                        key.start_mark.index : property_end
-                    ].rstrip("\r\n")
+                    edited_body += (
+                        "" if edited_body.endswith(("\r", "\n")) else "\n"
+                    ) + original_body[key.start_mark.index : property_end].rstrip(
+                        "\r\n"
+                    )
         replacement = _merge_changed_mapping_values(original_body, edited_body)
     if replacement is None:
         leading_len = len(original_body) - len(original_body.lstrip("\r\n"))
         trailing_len = len(original_body) - len(original_body.rstrip("\r\n"))
         leading = original_body[:leading_len]
         trailing = original_body[-trailing_len:] if trailing_len else ""
+        # Graphical text may end in a keep-chomp literal scalar. Its trailing
+        # newlines are part of the value, not padding to strip or duplicate.
+        if preserve_unchanged_annotations and edited_body.endswith(("\r", "\n")):
+            trailing = ""
         replacement = leading + edited_body + trailing
     return _replace_document_body(full_yaml, start, end, replacement)
 
@@ -1540,8 +1715,6 @@ STEP_CONDITION = "condition"
 STEP_RAW = "raw"
 
 # Patterns for parsing order code lines
-_RE_SET_PARTS = re.compile(r"""set_parts\(\s*subtitle\s*=\s*['"](.+?)['"]\s*\)""")
-_RE_NAV_SET_SECTION = re.compile(r"""nav\.set_section\(\s*['"](.+?)['"]\s*\)""")
 _RE_SET_PROGRESS = re.compile(r"set_progress\(\s*(\d+)\s*\)")
 _RE_GATHER = re.compile(r"(\S+)\.gather\(\)")
 _RE_FUNCTION_CALL = re.compile(r"(\S+\(.*\))")
@@ -1592,6 +1765,231 @@ def _join_continuation_lines(lines: list) -> list:
 
 
 def parse_order_code(code: str) -> List[Dict[str, Any]]:
+    """Read suites recursively, retaining source and comments on editable steps.
+
+    Unsupported statements remain indivisible raw steps. AST boundaries keep
+    their bodies intact; token boundaries distinguish suite headers from colons
+    inside expressions. No Python is executed.
+    """
+
+    def raw(source: str) -> Dict[str, Any]:
+        return {
+            "kind": STEP_RAW,
+            "label": "Raw Python",
+            "summary": source[:80],
+            "code": source,
+        }
+
+    def comments(source: str) -> List[str]:
+        return [
+            t.string
+            for t in tokenize.generate_tokens(io.StringIO(source).readline)
+            if t.type == tokenize.COMMENT
+        ]
+
+    def parse(source: str) -> List[Dict[str, Any]]:
+        try:
+            nodes = ast.parse(source).body
+        except SyntaxError:
+            return [raw(source)]
+        if not source.strip():
+            return []
+        lines = source.split("\n")
+        result: List[Dict[str, Any]] = []
+        cursor = 0
+
+        def gap(start: int, end: int) -> str:
+            text = "\n".join(lines[start:end])
+            if text.strip():
+                result.append(
+                    {
+                        "kind": "comment",
+                        "label": "Comment",
+                        "code": text,
+                        "summary": text.strip(),
+                    }
+                )
+                return ""
+            return text + "\n" if end > start else ""
+
+        for node_index, node in enumerate(nodes):
+            start = (
+                min(
+                    [node.lineno]
+                    + [n.lineno for n in getattr(node, "decorator_list", [])]
+                )
+                - 1
+            )
+            if start < cursor:
+                return [raw(source)]  # Multiple statements on a physical line.
+            prefix = gap(cursor, start)
+            end = node.end_lineno or node.lineno
+            if isinstance(node, (ast.If, ast.For)):
+                boundary = (
+                    nodes[node_index + 1].lineno - 1
+                    if node_index + 1 < len(nodes)
+                    else len(lines)
+                )
+                probe = end
+                while probe < boundary:
+                    line = lines[probe]
+                    if line.strip() and not (
+                        line.lstrip().startswith("#")
+                        and len(line) - len(line.lstrip()) > node.col_offset
+                    ):
+                        break
+                    if line.strip():
+                        end = probe + 1
+                    probe += 1
+            original = "\n".join(lines[start:end])
+            step = raw(original)
+            if isinstance(node, (ast.For, ast.If)) and not (
+                isinstance(node, ast.For) and node.orelse
+            ):
+                # A one-line suite stays raw: its statements share the header.
+                tokens = tokenize.generate_tokens(io.StringIO(original).readline)
+                depth = 0
+                header_line = None
+                for token in tokens:
+                    if token.type == tokenize.OP:
+                        if token.string in ("(", "[", "{"):
+                            depth += 1
+                        elif token.string in (")", "]", "}"):
+                            depth -= 1
+                        elif token.string == ":" and depth == 0:
+                            header_line = start + token.end[0]
+                            break
+                if header_line is not None and node.body[0].lineno > header_line:
+                    tail_line = end
+                    if node.orelse:
+                        for idx in range(
+                            node.body[-1].end_lineno or header_line,
+                            node.orelse[0].lineno,
+                        ):
+                            if re.match(r"^(?:elif\b|else\s*:)", lines[idx]):
+                                tail_line = idx
+                                break
+                    child_indent = node.body[0].col_offset
+                    body = "\n".join(
+                        (
+                            line[child_indent:]
+                            if line.startswith(" " * child_indent)
+                            else line
+                        )
+                        for line in lines[header_line:tail_line]
+                    )
+                    step = {
+                        "kind": "loop" if isinstance(node, ast.For) else STEP_CONDITION,
+                        "children": parse(body),
+                        "has_else": bool(node.orelse),
+                        "else_children": [],
+                    }
+                    if isinstance(node, ast.For):
+                        step.update(
+                            target=ast.get_source_segment(source, node.target),
+                            iterable=ast.get_source_segment(source, node.iter),
+                            label="For each",
+                        )
+                    else:
+                        step.update(
+                            condition=ast.get_source_segment(source, node.test),
+                            label="Condition",
+                        )
+                        if node.orelse:
+                            tail = lines[tail_line:end]
+                            if tail[0].startswith("elif"):
+                                step["else_children"] = parse(
+                                    "if" + "\n".join(tail)[4:]
+                                )
+                            else:
+                                step["_order_else_comment"] = " ".join(
+                                    comments(tail[0])
+                                )
+                                indent = node.orelse[0].col_offset
+                                step["else_children"] = parse(
+                                    "\n".join(
+                                        (
+                                            line[indent:]
+                                            if line.startswith(" " * indent)
+                                            else line
+                                        )
+                                        for line in tail[1:]
+                                    )
+                                )
+                    step["_order_header_comment"] = " ".join(
+                        comments("\n".join(lines[start:header_line]))
+                    )
+            elif isinstance(node, ast.Assign) and len(node.targets) == 1:
+                step = {
+                    "kind": "assignment",
+                    "label": "Set variable",
+                    "target": ast.get_source_segment(source, node.targets[0]),
+                    "expression": ast.get_source_segment(source, node.value),
+                }
+            elif isinstance(node, ast.Expr) and isinstance(
+                node.value, (ast.Name, ast.Attribute, ast.Subscript)
+            ):
+                step = {
+                    "kind": STEP_SCREEN,
+                    "label": "Screen",
+                    "invoke": ast.get_source_segment(source, node.value),
+                }
+            elif isinstance(node, (ast.Break, ast.Continue)):
+                step = {"kind": "break" if isinstance(node, ast.Break) else "continue"}
+            else:
+                candidate = _parse_simple_order_code(
+                    ast.get_source_segment(source, node) or original
+                )
+                try:
+                    if len(candidate) == 1 and ast.dump(
+                        ast.parse(serialize_order_steps(candidate))
+                    ) == ast.dump(ast.parse(original)):
+                        step = candidate[0]
+                except (SyntaxError, ValueError):
+                    pass
+            if step["kind"] != STEP_RAW:
+                try:
+                    rendered = serialize_order_steps([step])
+                    if ast.dump(ast.parse(rendered)) != ast.dump(ast.parse(original)):
+                        step = raw(original)
+                    elif step["kind"] not in ("loop", STEP_CONDITION) and comments(
+                        rendered
+                    ):
+                        step = raw(original)
+                except (SyntaxError, ValueError):
+                    step = raw(original)
+            if step["kind"] != STEP_RAW:
+                step["_order_source"] = original
+                if step["kind"] not in ("loop", STEP_CONDITION):
+                    step["_order_inline_comment"] = " ".join(comments(original))
+            if step["kind"] == STEP_RAW:
+                step = raw(original)
+            if prefix:
+                step["_order_prefix"] = prefix
+            result.append(step)
+            cursor = end
+        if cursor < len(lines):
+            suffix = gap(cursor, len(lines))
+            if suffix and result:
+                result[-1]["_order_suffix"] = suffix
+        return result
+
+    steps = parse(code)
+    counter = 0
+
+    def assign_ids(items: Sequence[Dict[str, Any]]) -> None:
+        nonlocal counter
+        for item in items:
+            counter += 1
+            item["id"] = f"step-{counter}"
+            assign_ids(item.get("children") or [])
+            assign_ids(item.get("else_children") or [])
+
+    assign_ids(steps)
+    return steps
+
+
+def _parse_simple_order_code(code: str) -> List[Dict[str, Any]]:
     """Parse a mandatory code block's body into structured order steps.
 
     Recognises:
@@ -1621,25 +2019,40 @@ def parse_order_code(code: str) -> List[Dict[str, Any]]:
         return parent_indent + 2
 
     def _parse_line(stripped_line: str, step_id: str) -> Dict[str, Any]:
-        m = _RE_SET_PARTS.search(stripped_line)
-        if m:
-            return {
-                "id": step_id,
-                "kind": STEP_SECTION,
-                "label": "Start section",
-                "summary": f"Set section to {m.group(1)}",
-                "value": m.group(1),
-            }
-
-        m = _RE_NAV_SET_SECTION.search(stripped_line)
-        if m:
-            return {
-                "id": step_id,
-                "kind": STEP_SECTION,
-                "label": "Start section",
-                "summary": f"Set section to {m.group(1)}",
-                "value": m.group(1),
-            }
+        try:
+            expression = ast.parse(stripped_line).body[0]
+        except (SyntaxError, IndexError):
+            expression = None
+        if isinstance(expression, ast.Expr) and isinstance(expression.value, ast.Call):
+            call = expression.value
+            value = None
+            call_name = None
+            if (
+                isinstance(call.func, ast.Name)
+                and call.func.id == "set_parts"
+                and not call.args
+                and len(call.keywords) == 1
+                and call.keywords[0].arg == "subtitle"
+            ):
+                value, call_name = call.keywords[0].value, "set_parts"
+            elif (
+                isinstance(call.func, ast.Attribute)
+                and call.func.attr == "set_section"
+                and isinstance(call.func.value, ast.Name)
+                and call.func.value.id == "nav"
+                and len(call.args) == 1
+                and not call.keywords
+            ):
+                value, call_name = call.args[0], "nav.set_section"
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                return {
+                    "id": step_id,
+                    "kind": STEP_SECTION,
+                    "label": "Start section",
+                    "summary": f"Set section to {value.value}",
+                    "value": value.value,
+                    "call": call_name,
+                }
 
         m = _RE_SET_PROGRESS.search(stripped_line)
         if m:
@@ -1824,10 +2237,114 @@ def parse_order_code(code: str) -> List[Dict[str, Any]]:
     return parsed_steps
 
 
-def serialize_order_steps(steps: Sequence[Dict[str, Any]]) -> str:
+def _patch_order_statement_source(source: str, rendered: str) -> str:
+    """Patch changed AST nodes using UTF-8 offsets; retain untouched formatting.
+
+    When a subtree changes shape (for example adding a branch), replace that
+    subtree. Never use source metadata unless the final AST matches the model.
+    """
+    try:
+        old_tree, new_tree = ast.parse(source), ast.parse(rendered)
+    except SyntaxError:
+        return rendered
+    encoded = source.encode("utf-8")
+    offsets = [0]
+    for line in encoded.splitlines(keepends=True):
+        offsets.append(offsets[-1] + len(line))
+
+    def patches(old: ast.AST, new: ast.AST) -> Optional[list]:
+        if ast.dump(old) == ast.dump(new):
+            return []
+        edits = []
+        compatible = type(old) is type(new)
+        if compatible:
+            for name, old_value in ast.iter_fields(old):
+                new_value = getattr(new, name)
+                if isinstance(old_value, ast.AST) and isinstance(new_value, ast.AST):
+                    child_edits = patches(old_value, new_value)
+                elif isinstance(old_value, list) and isinstance(new_value, list):
+                    child_edits = []
+                    if len(old_value) != len(new_value):
+                        child_edits = None
+                    else:
+                        for old_child, new_child in zip(old_value, new_value):
+                            if not isinstance(old_child, ast.AST) or not isinstance(
+                                new_child, ast.AST
+                            ):
+                                if old_child != new_child:
+                                    child_edits = None
+                                    break
+                                continue
+                            nested = patches(old_child, new_child)
+                            if nested is None:
+                                child_edits = None
+                                break
+                            child_edits.extend(nested)
+                else:
+                    child_edits = [] if old_value == new_value else None
+                if child_edits is None:
+                    compatible = False
+                    break
+                edits.extend(child_edits)
+        if compatible:
+            return edits
+        replacement = ast.get_source_segment(rendered, new)
+        start_line = getattr(old, "lineno", None)
+        start_column = getattr(old, "col_offset", None)
+        end_line = getattr(old, "end_lineno", None)
+        end_column = getattr(old, "end_col_offset", None)
+        if (
+            replacement is None
+            or not isinstance(start_line, int)
+            or not isinstance(start_column, int)
+            or not isinstance(end_line, int)
+            or not isinstance(end_column, int)
+        ):
+            return None
+        indent = " " * start_column
+        replacement = replacement.replace("\n", "\n" + indent)
+        return [
+            (
+                offsets[start_line - 1] + start_column,
+                offsets[end_line - 1] + end_column,
+                replacement.encode("utf-8"),
+            )
+        ]
+
+    edits = patches(old_tree, new_tree)
+    if edits is None:
+        return rendered
+    for start, end, replacement in sorted(edits, reverse=True):
+        encoded = encoded[:start] + replacement + encoded[end:]
+    result = encoded.decode("utf-8")
+    try:
+
+        def comment_tokens(text: str) -> list:
+            return [
+                token.string
+                for token in tokenize.generate_tokens(io.StringIO(text).readline)
+                if token.type == tokenize.COMMENT
+            ]
+
+        if ast.dump(ast.parse(result)) == ast.dump(new_tree) and comment_tokens(
+            result
+        ) == comment_tokens(rendered):
+            return result
+    except SyntaxError:
+        pass
+    return rendered
+
+
+def serialize_order_steps(
+    steps: Sequence[Dict[str, Any]], *, _preserve_source: bool = True
+) -> str:
     """Convert structured order steps back into Python code for a mandatory
     code block."""
     lines: List[str] = []
+
+    def _comment(step: Dict[str, Any], key: str) -> str:
+        value = str(step.get(key) or "")
+        return "  " + value if value else ""
 
     def _append_condition(step: Dict[str, Any], indent: int, keyword: str) -> None:
         """Write one link of an ``if``/``elif``/``else`` chain.
@@ -1839,11 +2356,13 @@ def serialize_order_steps(steps: Sequence[Dict[str, Any]]) -> str:
         """
         prefix = " " * indent
         condition = str(step.get("condition") or step.get("summary") or "True")
-        lines.append(f"{prefix}{keyword} {condition}:")
+        lines.append(
+            f"{prefix}{keyword} {condition}:" + _comment(step, "_order_header_comment")
+        )
         children = step.get("children") or []
         if children:
             _append_steps(children, indent + 2)
-        else:
+        if not any(child.get("kind") != "comment" for child in children):
             lines.append(f"{' ' * (indent + 2)}pass")
 
         if not step.get("has_else"):
@@ -1851,26 +2370,53 @@ def serialize_order_steps(steps: Sequence[Dict[str, Any]]) -> str:
 
         else_children = step.get("else_children") or []
         if (
-            len(else_children) == 1
+            not step.get("_order_else_comment")
+            and len(else_children) == 1
             and isinstance(else_children[0], dict)
             and else_children[0].get("kind") == STEP_CONDITION
         ):
             _append_condition(else_children[0], indent, "elif")
             return
 
-        lines.append(f"{prefix}else:")
+        lines.append(f"{prefix}else:" + _comment(step, "_order_else_comment"))
         if else_children:
             _append_steps(else_children, indent + 2)
-        else:
+        if not any(child.get("kind") != "comment" for child in else_children):
             lines.append(f"{' ' * (indent + 2)}pass")
 
     def _append_steps(step_list: Sequence[Dict[str, Any]], indent: int) -> None:
         prefix = " " * indent
         for step in step_list:
+            if _preserve_source and any(
+                key in step
+                for key in ("_order_source", "_order_prefix", "_order_suffix")
+            ):
+                bare = {
+                    key: value
+                    for key, value in step.items()
+                    if key not in ("_order_source", "_order_prefix", "_order_suffix")
+                }
+                rendered = serialize_order_steps([bare])
+                source = step.get("_order_source")
+                if isinstance(source, str):
+                    rendered = _patch_order_statement_source(source, rendered)
+                rendered = (
+                    str(step.get("_order_prefix", ""))
+                    + rendered
+                    + str(step.get("_order_suffix", ""))
+                )
+                lines.extend(
+                    prefix + line if line.strip() else line
+                    for line in rendered.split("\n")
+                )
+                continue
             kind = step.get("kind", STEP_RAW)
             if kind == STEP_SECTION:
                 value = step.get("value", "")
-                lines.append(f"{prefix}nav.set_section('{value}')")
+                if step.get("call") == "set_parts":
+                    lines.append(f"{prefix}set_parts(subtitle={value!r})")
+                else:
+                    lines.append(f"{prefix}nav.set_section({value!r})")
             elif kind == STEP_PROGRESS:
                 value = step.get("value", "0")
                 lines.append(f"{prefix}set_progress({value})")
@@ -1882,13 +2428,80 @@ def serialize_order_steps(steps: Sequence[Dict[str, Any]]) -> str:
                 lines.append(f"{prefix}{step.get('invoke', '')}")
             elif kind == STEP_CONDITION:
                 _append_condition(step, indent, "if")
-            elif kind == STEP_RAW:
+            elif kind == "loop":
+                lines.append(
+                    f"{prefix}for {step.get('target', '')} in {step.get('iterable', '')}:"
+                    + _comment(step, "_order_header_comment")
+                )
+                children = step.get("children") or []
+                _append_steps(children, indent + 2)
+                if not any(child.get("kind") != "comment" for child in children):
+                    lines.append(prefix + "  pass")
+            elif kind == "assignment":
+                lines.append(
+                    f"{prefix}{step.get('target', '')} = {step.get('expression', '')}"
+                )
+            elif kind in ("break", "continue"):
+                lines.append(prefix + kind)
+            elif kind in (STEP_RAW, "comment"):
                 code = step.get("code", "")
-                for raw_line in str(code).splitlines() or [""]:
-                    lines.append(f"{prefix}{raw_line}")
+                for raw_line in str(code).split("\n"):
+                    lines.append(
+                        f"{prefix}{raw_line}" if raw_line.strip() else raw_line
+                    )
+            if kind not in (STEP_RAW, "comment", "loop", STEP_CONDITION) and lines:
+                lines[-1] += _comment(step, "_order_inline_comment")
 
     _append_steps(steps, 0)
     return "\n".join(lines)
+
+
+def validate_order_steps(steps: Sequence[Dict[str, Any]]) -> None:
+    """Validate guided field boundaries and Python control flow before a write."""
+
+    def visit(items: Sequence[Dict[str, Any]]) -> None:
+        for step in items:
+            kind = step.get("kind")
+            if kind in ("assignment", "loop"):
+                target = str(step.get("target") or "")
+                expression = str(
+                    step.get("expression" if kind == "assignment" else "iterable") or ""
+                )
+                try:
+                    ast.parse(expression, mode="eval")
+                    assignment = ast.parse(target + " = None").body
+                    if (
+                        len(assignment) != 1
+                        or not isinstance(assignment[0], ast.Assign)
+                        or len(assignment[0].targets) != 1
+                    ):
+                        raise ValueError("Enter one assignment target")
+                    if (
+                        not isinstance(assignment[0].value, ast.Constant)
+                        or assignment[0].value.value is not None
+                    ):
+                        raise ValueError("Enter an assignment target without a value")
+                except SyntaxError as exc:
+                    raise ValueError(
+                        f"Invalid {kind} target or expression: {exc.msg}"
+                    ) from exc
+            if kind == "comment" and any(
+                line.strip() and not line.lstrip().startswith("#")
+                for line in str(step.get("code") or "").splitlines()
+            ):
+                raise ValueError(
+                    "Comment steps must contain only comments or blank lines"
+                )
+            visit(step.get("children") or [])
+            visit(step.get("else_children") or [])
+
+    visit(steps)
+    try:
+        compile(serialize_order_steps(steps), "<interview order>", "exec")
+    except SyntaxError as exc:
+        raise ValueError(
+            f"Invalid interview order: {exc.msg} (line {exc.lineno})"
+        ) from exc
 
 
 def generate_draft_order(blocks: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -2046,7 +2659,15 @@ def playground_read_yaml(user_id: int, project: str, filename: str) -> str:
             raise FileNotFoundError(
                 f"File {filename!r} not found in project {project!r}"
             )
-        content = pg.read_file(filename)
+        # Playground.read_file uses universal-newline translation, which turns
+        # CRLF into LF before the source-preserving patcher ever sees it.
+        path = pg.get_file(filename)
+        if path is None:
+            raise FileNotFoundError(
+                f"File {filename!r} not found in project {project!r}"
+            )
+        with open(path, "r", encoding="utf-8", newline="") as source:
+            content = source.read()
     return content or ""
 
 
@@ -2125,6 +2746,62 @@ def _al_individual_primitive_groups(model: Dict[str, Any]) -> Dict[str, List[str
     return result
 
 
+def _playground_symbols_without_execution(pg, user_id, project, filename):
+    """Parse the selected project without assembling or running author code."""
+    from docassemble.base.parse import Interview
+
+    try:
+        from docassemble.base.interview_source import InterviewSourceFile
+    except ImportError:  # Docassemble 1.9
+        from docassemble.base.parse import InterviewSourceFile
+
+    path = pg.get_file(filename)
+    if path is None:
+        raise FileNotFoundError(filename)
+    with open(path, encoding="utf-8", newline="") as source_file:
+        content = source_file.read()
+    package = "docassemble.playground" + str(user_id)
+    if project != "default":
+        package += project
+    source = InterviewSourceFile(
+        filepath=path,
+        path=package + ":" + filename,
+        package=package,
+        testing=True,
+    )
+    # String sources cannot append relative includes, even with a directory.
+    source.set_content(content)
+    interview = Interview(source=source)
+    names = set(interview.names_used)
+    fields = set()
+    origins: Dict[str, List[str]] = {}
+    for question in interview.questions_list:
+        question_names = set(getattr(question, "names_used", ()))
+        question_names.update(getattr(question, "mako_names", ()))
+        question_names.update(getattr(question, "fields_used", ()))
+        names.update(question_names)
+        fields.update(getattr(question, "fields_used", ()))
+        origin = str(getattr(getattr(question, "from_source", None), "path", ""))
+        for name in question_names:
+            if origin and origin not in origins.setdefault(str(name), []):
+                origins[str(name)].append(origin)
+    fields.update(interview.questions)
+    names.update(fields)
+    names.difference_update(
+        {"_internal", "url_args", "device_local", "session_local", "user_local"}
+    )
+    return (
+        {
+            "all_names_reduced": names,
+            "fields_used": fields,
+            "names_used": names,
+            "undefined_names": names - fields,
+        },
+        interview_function_catalog(interview),
+        origins,
+    )
+
+
 def playground_get_variables(
     user_id: int, project: str, filename: str
 ) -> Dict[str, Any]:
@@ -2135,22 +2812,12 @@ def playground_get_variables(
             raise FileNotFoundError(
                 f"File {filename!r} not found in project {project!r}"
             )
-        variable_info = pg.variables_from_file(filename)
-        # Reuse the interview tree the playground just assembled for symbol
-        # discovery. Its module questions include all transitive YAML includes.
-        function_catalog = {}
-        try:
-            try:
-                from docassemble.base.thread_context import this_thread
-            except ImportError:
-                from docassemble.base.functions import this_thread
-
-            function_catalog = interview_function_catalog(this_thread.interview)
-        except Exception:
-            # Optional help must never break variable discovery: the catalog
-            # introspects whatever modules the author's interview imported, so
-            # any failure there leaves the rest of the symbols intact.
-            pass
+        # variables_from_file() creates a default-project Playground internally
+        # and variables_from() assembles it. Neither is safe symbol discovery:
+        # includes resolve in the wrong project and mandatory code may execute.
+        variable_info, function_catalog, variable_origins = (
+            _playground_symbols_without_execution(pg, user_id, project, filename)
+        )
 
     if not isinstance(variable_info, dict):
         variable_info = {}
@@ -2311,6 +2978,7 @@ def playground_get_variables(
         "classes": sorted(classes),
         "functions": sorted(functions),
         "function_catalog": list(function_catalog.values()),
+        "variable_origins": variable_origins,
         "yaml_files": yaml_files,
         "template_files": template_files,
         "static_files": static_files,

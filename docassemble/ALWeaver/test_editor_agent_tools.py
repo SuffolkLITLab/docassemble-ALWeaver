@@ -11,6 +11,8 @@ reject.
 import unittest
 from unittest.mock import patch
 
+import yaml
+
 from . import editor_agent_validation
 from .editor_agent_models import AgentCandidate, AgentToolCall, WeaverAgentSession
 from .editor_agent_tools import (
@@ -109,6 +111,63 @@ class AgentToolTestCase(unittest.TestCase):
                 arguments={} if arguments is None else arguments,
                 expected_candidate_revision=expected_revision,
             ),
+        )
+
+
+class TestAgentSourcePreservation(AgentToolTestCase):
+    def test_question_tools_accept_yaml_boolean_mapping_keys(self):
+        source = """id: intro
+question: Original title
+fields:
+  - Name: user_name
+buttons:
+  - Yes: True
+"""
+        expected_buttons = yaml.safe_load(source)["buttons"]
+        for tool, arguments in (
+            (
+                "replace_question",
+                {"block_id": "intro", "question": {"question": "Updated"}},
+            ),
+            (
+                "replace_fields",
+                {
+                    "block_id": "intro",
+                    "fields": [{"label": "Full name", "field": "user_name"}],
+                },
+            ),
+        ):
+            with self.subTest(tool=tool):
+                self.context.candidate = AgentCandidate.from_source(source)
+                result = self.call(tool, arguments)
+                self.assertTrue(result.succeeded, result.message)
+                self.assertEqual(
+                    yaml.safe_load(self.context.candidate.raw_source)["buttons"],
+                    expected_buttons,
+                )
+
+    def test_question_edit_preserves_key_order_comments_and_quotes(self):
+        source = """---
+id: intro
+continue button field: intro  # keep this position
+question: |
+  Original title
+subquestion: 'Keep my quotes'
+# keep trailing note
+---
+mandatory: true
+code: |
+  intro
+"""
+        self.context.candidate = AgentCandidate.from_source(source)
+        result = self.call(
+            "replace_question",
+            {"block_id": "intro", "question": {"question": "Changed title"}},
+        )
+        self.assertEqual(result.status, "success", result)
+        self.assertEqual(
+            self.context.candidate.raw_source,
+            source.replace("Original title", "Changed title"),
         )
 
 
@@ -371,6 +430,43 @@ class TestLosslessEditing(AgentToolTestCase):
         self.assertIn("  has_children\n", updated)
         # The order block had no explicit id; a fingerprint is never written back.
         self.assertNotIn("id: block-", updated)
+
+    def test_order_loop_assignment_and_controls_pass_the_tool_schema(self):
+        result = self.call(
+            "replace_order_steps",
+            {
+                "steps": [
+                    {
+                        "kind": "loop",
+                        "target": "person",
+                        "iterable": "users",
+                        "children": [
+                            {"kind": "comment", "code": "# Contact details"},
+                            {
+                                "kind": "assignment",
+                                "target": "person.complete",
+                                "expression": "True",
+                            },
+                            {
+                                "kind": "condition",
+                                "condition": "person.skip",
+                                "children": [{"kind": "continue"}],
+                            },
+                            {"kind": "break"},
+                        ],
+                    }
+                ]
+            },
+        )
+        self.assertTrue(result.succeeded, result.message)
+        self.assertIn("for person in users:", self.context.candidate.raw_source)
+        self.assertIn("person.complete = True", self.context.candidate.raw_source)
+
+    def test_order_tool_rejects_break_outside_loop(self):
+        result = self.call("replace_order_steps", {"steps": [{"kind": "break"}]})
+        self.assertFalse(result.succeeded)
+        self.assertEqual(result.reason, "invalid_steps")
+        self.assertEqual(self.context.candidate.raw_source, INTERVIEW)
 
     def test_the_diff_is_taken_against_the_session_working_source(self):
         self.call(

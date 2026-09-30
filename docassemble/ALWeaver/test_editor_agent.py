@@ -14,6 +14,7 @@ import unittest
 from unittest.mock import patch
 
 from . import editor_agent_validation
+from . import editor_agent_tools
 from .editor_agent import (
     MAX_AGENT_STEPS,
     SYSTEM_PROMPT,
@@ -125,6 +126,30 @@ class TestActionParsing(unittest.TestCase):
         final_action = parse_model_action({"action": "final", "summary": "Done"})
         self.assertEqual(final_action["summary"], "Done")
 
+    def test_read_only_final_requires_the_actual_answer(self):
+        self.assertEqual(
+            parse_model_action(
+                {"action": "final", "summary": "Explained how to do it."},
+                read_only=True,
+            )["action"],
+            "invalid",
+        )
+        self.assertEqual(
+            parse_model_action(
+                {"action": "final", "answer": "Explained how to do it."},
+                read_only=True,
+            )["action"],
+            "invalid",
+        )
+        answer = parse_model_action(
+            {
+                "action": "final",
+                "answer": "Put a condition around the screen in the interview order.",
+            },
+            read_only=True,
+        )
+        self.assertEqual(answer["action"], "final")
+
 
 class TestModelCall(unittest.TestCase):
     """How the request reaches ALToolbox, which is easy to get silently wrong."""
@@ -197,6 +222,40 @@ class TestModelSelection(unittest.TestCase):
 
 
 class TestHappyPath(AgentLoopTestCase):
+    def test_invalid_tool_step_is_diagnosed_and_a_later_valid_step_is_retained(self):
+        result, _llm = self.run_turn(
+            [
+                {
+                    "action": "tool",
+                    "tool": "replace_question",
+                    "arguments": {"block_id": "intro"},
+                },
+                {
+                    "action": "tool",
+                    "tool": "replace_question",
+                    "arguments": {
+                        "block_id": "intro",
+                        "question": {"question": "Updated welcome"},
+                    },
+                },
+                {"action": "final", "summary": "Updated the welcome screen."},
+            ]
+        )
+
+        tool_results = [
+            event for event in result.turn.events if event.get("type") == "tool_result"
+        ]
+        self.assertEqual(
+            [event.get("reason") for event in tool_results],
+            ["invalid_arguments", None],
+        )
+        self.assertEqual(tool_results[0].get("status"), "rejected")
+        self.assertTrue(tool_results[0].get("message"))
+        self.assertEqual(tool_results[1].get("status"), "success")
+        self.assertEqual(result.status, "ready")
+        self.assertTrue(result.candidate.changed)
+        self.assertIn("Updated welcome", result.candidate.raw_source)
+
     def test_a_valid_tool_sequence_produces_an_applicable_candidate(self):
         result, llm = self.run_turn(
             [
@@ -252,6 +311,92 @@ class TestHappyPath(AgentLoopTestCase):
         )
         self.assertEqual(result.status, "no_changes")
         self.assertFalse(result.candidate.changed)
+
+    def test_read_only_question_can_search_docs_without_editing(self):
+        with patch.object(
+            editor_agent_tools,
+            "search_documentation",
+            return_value=[
+                {
+                    "title": "Fields",
+                    "excerpt": "Use fields in a question block.",
+                    "url": "https://assemblyline.suffolklitlab.org/docs/authoring/fields",
+                }
+            ],
+        ) as search:
+            result, llm = self.run_turn(
+                [
+                    {
+                        "action": "tool",
+                        "tool": "search_documentation",
+                        "arguments": {"query": "fields"},
+                    },
+                    {
+                        "action": "final",
+                        "answer": "Use a fields list in the question block. See https://assemblyline.suffolklitlab.org/docs/authoring/fields",
+                    },
+                ],
+                message="How do fields work?",
+                read_only=True,
+            )
+        search.assert_called_once_with("fields")
+        self.assertEqual(result.status, "answered")
+        self.assertEqual(result.candidate.raw_source, INTERVIEW)
+        self.assertEqual(
+            result.public_dict()["documentation_links"],
+            [
+                {
+                    "title": "Fields",
+                    "url": "https://assemblyline.suffolklitlab.org/docs/authoring/fields",
+                }
+            ],
+        )
+        self.assertIn("turn_mode: read_only", llm.last_user_message)
+        self.assertIn("search_documentation", llm.last_system_message)
+        self.assertNotIn('"name": "replace_question"', llm.last_system_message)
+        self.assertIn(
+            "The answer field is displayed to the user verbatim",
+            llm.last_system_message,
+        )
+
+    def test_read_only_summary_is_retried_until_it_answers(self):
+        result, llm = self.run_turn(
+            [
+                {
+                    "action": "final",
+                    "summary": "Explained how to make a screen conditional.",
+                },
+                {
+                    "action": "final",
+                    "answer": "Explained how to make a screen conditional.",
+                },
+                {
+                    "action": "final",
+                    "answer": "Add a condition around the screen in the interview order.",
+                },
+            ],
+            message="How do I make a screen conditional?",
+            read_only=True,
+        )
+        self.assertEqual(llm.call_count, 3)
+        self.assertEqual(result.status, "answered")
+        self.assertEqual(
+            result.summary,
+            "Add a condition around the screen in the interview order.",
+        )
+        self.assertEqual(result.candidate.raw_source, INTERVIEW)
+        self.assertEqual(
+            [event for event in result.turn.events if event["type"] == "tool_result"],
+            [],
+        )
+        self.assertEqual(
+            [
+                event["label"]
+                for event in result.turn.events
+                if event["type"] == "status" and event["label"] == "Retrying response"
+            ],
+            ["Retrying response", "Retrying response"],
+        )
 
     def test_the_transcript_carries_over_to_the_next_turn(self):
         result, _llm = self.run_turn(

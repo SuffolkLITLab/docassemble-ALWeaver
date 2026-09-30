@@ -53,6 +53,27 @@ The API uses docassemble's API key authentication via `api_verify()`.
 The `POST` endpoint defaults to synchronous behavior, and supports optional
 asynchronous execution with `mode=async` (or `async=true`).
 
+## GitHub permissions for publishing workflows
+
+Publishing to GitHub uses Docassemble's GitHub connection. Weaver also writes
+ALKiln test workflows under `.github/workflows/`, and GitHub refuses those
+files unless the connection may change workflows. Without that permission the
+other files still publish, existing workflows are kept, and the publish dialog
+says which of the fixes below is needed.
+
+- **OAuth App** (Docassemble's usual setup): the token needs the `workflow`
+  scope as well as `repo`. Docassemble's own GitHub page does not ask for it;
+  connect through **Configure GitHub** in Weaver's publish dialog, which does.
+  If an organization restricts third-party access, it must also approve the
+  OAuth App.
+- **GitHub App**: scopes are ignored. In the App's settings, set the
+  repository permissions **Contents** and **Workflows** to *Read and write*
+  (and **Administration** to *Read and write* if Weaver should create
+  repositories). Install the App on every account or organization people
+  publish to. After changing permissions, an owner of each installation must
+  accept the updated permissions under *Settings → Applications → Installed
+  GitHub Apps*; until then the old permissions still apply.
+
 ## Celery worker configuration
 
 Uploaded-document project generation in the graphical editor, importing a
@@ -91,6 +112,38 @@ scenario seeding, and back navigation. Set `weaver: {runtime inspector: false}`
 (or `WEAVER_ENABLE_RUNTIME_INSPECTOR: false`) to turn it off. Its server API uses
 owner-scoped target sessions and a fixed read-only `al_weaver.inspect_*` action
 allowlist; Docassemble remains the only interview runtime.
+
+## Editing assistant data handling
+
+Before a developer sends a request to the graphical editing assistant, Weaver
+discloses that the request and relevant interview source may be sent to the
+configured model provider. Configure model access only with a provider
+approved for the source material handled on that Docassemble server. Weaver
+stores assistant chat in an owner-scoped session for up to two hours after its
+last update, and progress details for up to 30 minutes after their last update.
+These Weaver-side expiry periods do not describe the model provider's data
+handling or retention; administrators should consult the provider's applicable
+terms and configuration separately.
+
+Administrators can show the applicable provider terms in the assistant drawer
+through global Docassemble configuration. For an OpenAI API project using
+standard data controls, for example:
+
+```yaml
+weaver:
+  assistant provider name: OpenAI API
+  assistant model: gpt-5.4-mini
+  assistant provider retention: >-
+    Prompts and responses may be retained in abuse-monitoring logs for up to
+    30 days, unless legally required for longer.
+```
+
+Check the API organization's actual Data controls and agreement before setting
+this text; Modified Abuse Monitoring or Zero Data Retention require different
+wording. If the retention setting is absent, the drawer asks the developer to
+consult an administrator. The configured text is displayed as plain text.
+See [OpenAI API data controls](https://platform.openai.com/docs/guides/your-data)
+for the standard policy and available controls.
 
 ## History
 

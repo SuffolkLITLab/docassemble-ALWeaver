@@ -12,6 +12,7 @@ import json
 import os
 import posixpath
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -19,10 +20,22 @@ import tempfile
 import tarfile
 import pathlib
 import threading
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
+import time
+from typing import (
+    Any,
+    Callable,
+    Collection,
+    Dict,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 from urllib.parse import quote, urlparse
 
-from flask import Response, jsonify, url_for
+from flask import Response, jsonify, session, url_for
 
 
 class DocassembleCompatibilityError(RuntimeError):
@@ -38,6 +51,21 @@ class GithubCredentialError(DocassembleCompatibilityError):
 # exactly the repository Weaver just created for a first publish.  Both mean
 # "there is nothing to build on", not "something went wrong".
 _GITHUB_NO_SUCH_REF_STATUSES = frozenset({404, 409})
+
+
+def _github_ref_is_missing(status: int, response_body: Any) -> bool:
+    """Recognize GitHub's 422 response for an unknown commit/ref name.
+
+    The REST ``commits/{ref}`` endpoint returns 422 (rather than 404) when a
+    repository exists but the requested branch does not. Keep the check
+    narrow: other validation errors must remain actionable errors.
+    """
+    if status in _GITHUB_NO_SUCH_REF_STATUSES:
+        return True
+    if status != 422 or not isinstance(response_body, dict):
+        return False
+    message = str(response_body.get("message") or "").strip()
+    return message.startswith("No commit found for SHA:")
 
 
 @dataclass(frozen=True)
@@ -535,6 +563,37 @@ def background_context() -> AbstractContextManager[Any]:
     return context_factory()
 
 
+@contextmanager
+def github_publish_context():
+    """Provide Flask context without initializing the interview server.
+
+    On 1.9, native ``bg_context`` imports webapp.server and copies/scans all
+    Playground modules. Concurrent worker startups can lose a file during that
+    scan, leaving Flask initialized but the server import incomplete. The next
+    task retries it and fails registering ``flask_user`` a second time (#1086).
+
+    GitHub publishing uses explicit user IDs, Redis credentials, and SavedFile;
+    it needs neither interview execution nor request preprocessing. Use the
+    existing application and leave server initialization to Docassemble.
+    """
+    from docassemble.base.config import daconfig
+
+    try:
+        from docassemble.base.thread_context import empty_globals, global_context
+    except ImportError:
+        # 1.9 uses threading.local; 1.10 replaced this reset with a context.
+        _base_functions().reset_local_variables()
+        context = nullcontext()
+    else:
+        context = global_context(empty_globals())
+    app = get_flask_app()
+    url_root = daconfig.get("url root", "http://localhost") + daconfig.get("root", "/")
+    with context, app.app_context(), app.test_request_context(
+        base_url=url_root, path="/interview"
+    ):
+        yield
+
+
 def _optional_webapp_attr(candidates: Sequence[Tuple[str, str]]) -> Any:
     """Like :func:`_first_webapp_attr` but returns ``None`` instead of raising.
 
@@ -780,7 +839,164 @@ def _github_authorized_http(*, user_id: Optional[int] = None) -> Any:
             "The GitHub connection has expired; reconnect it in Docassemble"
         )
     httplib2 = importlib.import_module("httplib2")
+    if getattr(credentials, "access_token_expired", False):
+        credentials = _refresh_github_credentials(
+            credentials, httplib2.Http(), user_id=user_id
+        )
     return credentials.authorize(httplib2.Http())
+
+
+def _refresh_github_credentials(
+    credentials: Any, http: Any, *, user_id: Optional[int]
+) -> Any:
+    """Renew an expiring GitHub token and store it where Docassemble keeps it.
+
+    GitHub Apps issue user tokens that last eight hours, with a refresh token.
+    oauth2client can refresh them, but GitHub answers form-encoded unless the
+    request asks for JSON, so oauth2client's own refresh always fails with a
+    JSON parse error and the connection dies after eight hours.
+
+    A refresh token works once, and opening the GitHub dialog alone makes two
+    requests.  The renewal therefore holds a per-user Redis lock and re-reads
+    the stored credential inside it, so a request that waited uses the token
+    the first one saved instead of spending the retired refresh token.
+    Returns the credentials to authorize with.
+    """
+    if user_id is None:
+        from flask_login import current_user
+
+        user_id = getattr(current_user, "id", None)
+    if user_id is None:
+        raise GithubCredentialError(
+            "The GitHub connection has expired; reconnect it in Docassemble"
+        )
+    redis = get_redis_client()
+    key = f"da:github:userid:{int(user_id)}"
+    lock_key = f"da:github:weaver-refresh-lock:userid:{int(user_id)}"
+    lock_token = secrets.token_hex(16)
+    deadline = time.monotonic() + 15
+    while not redis.set(lock_key, lock_token, nx=True, ex=30):
+        if time.monotonic() > deadline:
+            raise GithubCredentialError(
+                "Another request is renewing the GitHub connection; try again"
+            )
+        time.sleep(0.2)
+    try:
+        stored = redis.get(key)
+        if stored is not None:
+            try:
+                oauth_client = importlib.import_module("oauth2client.client")
+                latest = oauth_client.Credentials.new_from_json(
+                    stored.decode("utf-8") if isinstance(stored, bytes) else stored
+                )
+            except (TypeError, ValueError, UnicodeDecodeError, AttributeError):
+                latest = None
+            if latest is not None and not getattr(latest, "invalid", False):
+                if not getattr(latest, "access_token_expired", False):
+                    return latest
+                credentials = latest
+        _renew_github_token(credentials, http)
+        # GitHub has already retired the old refresh token, so the new one
+        # must be saved or the next request fails for good.
+        redis.set(key, credentials.to_json())
+        return credentials
+    finally:
+        held = redis.get(lock_key)
+        if held in (lock_token, lock_token.encode("ascii")):
+            redis.delete(lock_key)
+
+
+def _renew_github_token(credentials: Any, http: Any) -> None:
+    refresh_token = str(getattr(credentials, "refresh_token", "") or "")
+    token_uri = str(getattr(credentials, "token_uri", "") or "")
+    if not refresh_token or not token_uri:
+        raise GithubCredentialError(
+            "The GitHub connection has expired; reconnect it in Docassemble"
+        )
+    from urllib.parse import urlencode
+
+    try:
+        response, content = http.request(
+            token_uri,
+            "POST",
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body=urlencode(
+                {
+                    "client_id": credentials.client_id,
+                    "client_secret": credentials.client_secret,
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                }
+            ),
+        )
+        payload = json.loads(content.decode("utf-8")) if content else {}
+    except (OSError, AttributeError, UnicodeDecodeError, ValueError) as exc:
+        raise GithubCredentialError(
+            "GitHub could not renew the connection; reconnect it in Docassemble"
+        ) from exc
+    if (
+        int(response.get("status", 0)) != 200
+        or not isinstance(payload, dict)
+        or not payload.get("access_token")
+    ):
+        # A refresh token lasts six months and is single use.
+        raise GithubCredentialError(
+            "The GitHub connection has expired; reconnect it in Docassemble"
+        )
+    import datetime
+
+    credentials.access_token = str(payload["access_token"])
+    credentials.refresh_token = str(payload.get("refresh_token") or refresh_token)
+    expires_in = payload.get("expires_in")
+    credentials.token_expiry = (
+        # oauth2client compares against a naive UTC time.
+        datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+        + datetime.timedelta(seconds=int(expires_in))
+        if expires_in
+        else None
+    )
+    credentials.token_response = payload
+    credentials.invalid = False
+
+
+def github_authorization_url() -> str:
+    """Request workflow access using Docassemble's existing OAuth callback.
+
+    Native Docassemble requests repo access but omits workflow access. The
+    editor also publishes ALKiln workflows, which need this additional scope.
+    Keep the native state validation and credential storage, and do not discard
+    the working credentials before the user approves the new authorization.
+    """
+    app = get_flask_app()
+    if not app.config.get("USE_GITHUB") or not app.config.get("ENABLE_PLAYGROUND"):
+        raise DocassembleCompatibilityError(
+            "GitHub integration and the Playground must be enabled on this server"
+        )
+    configure_url = _first_endpoint_url(
+        ("develop.github_configure", "github_configure")
+    )
+    if not configure_url:
+        raise DocassembleCompatibilityError(
+            "Docassemble's GitHub callback is unavailable"
+        )
+    get_flow = _first_webapp_attr(
+        (
+            ("docassemble.webapp.develop.helpers", "get_github_flow"),
+            ("docassemble.webapp.server", "get_github_flow"),
+        ),
+        "its GitHub OAuth flow",
+    )
+    flow = get_flow()
+    scopes = flow.scope.split() if isinstance(flow.scope, str) else list(flow.scope)
+    flow.scope = " ".join(dict.fromkeys([*scopes, "workflow"]))
+    state = secrets.token_urlsafe(32)
+    session["github_next"] = json.dumps(
+        {"state": state, "path": configure_url, "arguments": {}}
+    )
+    return str(flow.step1_get_authorize_url(state=state))
 
 
 def _github_json_request(
@@ -794,7 +1010,16 @@ def _github_json_request(
     if body is not None:
         headers["Content-Type"] = "application/json"
         encoded_body = json.dumps(body)
-    response, content = http.request(url, method, headers=headers, body=encoded_body)
+    try:
+        response, content = http.request(
+            url, method, headers=headers, body=encoded_body
+        )
+    except ValueError as exc:
+        # oauth2client refreshes on a 401 mid-request and cannot parse
+        # GitHub's reply; that is a lost connection, not a bad request.
+        raise GithubCredentialError(
+            "The GitHub connection has expired; reconnect it in Docassemble"
+        ) from exc
     try:
         payload = json.loads(content.decode("utf-8")) if content else None
     except (AttributeError, UnicodeDecodeError, json.JSONDecodeError):
@@ -802,9 +1027,15 @@ def _github_json_request(
     return response, payload
 
 
+def _github_next_page_url(response: Any) -> Optional[str]:
+    """Return the ``rel="next"`` URL from a GitHub ``Link`` header, if any."""
+    next_match = re.search(r'<([^>]+)>;\s*rel="next"', str(response.get("link") or ""))
+    return next_match.group(1) if next_match else None
+
+
 def _github_error_message(payload: Any, fallback: str) -> str:
     if isinstance(payload, dict) and payload.get("message"):
-        return str(payload["message"])
+        return f"{fallback}: {payload['message']}"
     return fallback
 
 
@@ -839,6 +1070,8 @@ def get_github_repository_snapshot(
     repository_url: str,
     user_id: Optional[int] = None,
     ref: Optional[str] = None,
+    allow_missing: bool = False,
+    include_all_files: bool = False,
 ) -> Dict[str, Any]:
     """Read one GitHub repository tree, using OAuth when available.
 
@@ -889,6 +1122,16 @@ def get_github_repository_snapshot(
             if result.returncode != 0 or not re.fullmatch(
                 r"[0-9a-fA-F]{40}", commit_sha
             ):
+                if allow_missing and result.returncode == 0:
+                    return {
+                        **repository,
+                        "branch": selected_ref,
+                        "sha": "",
+                        "files": {},
+                        "private": False,
+                        "missing": True,
+                        "repository_exists": True,
+                    }
                 raise DocassembleCompatibilityError(
                     "GitHub repository was not found, is private, or does not contain that branch"
                 )
@@ -901,6 +1144,16 @@ def get_github_repository_snapshot(
         response, repo_info = _github_json_request(http, base_url)
         status = int(response.get("status", 0))
         if status != 200 or not isinstance(repo_info, dict):
+            if allow_missing and status in _GITHUB_NO_SUCH_REF_STATUSES:
+                return {
+                    **repository,
+                    "branch": str(ref or "main"),
+                    "sha": "",
+                    "files": {},
+                    "private": None,
+                    "missing": True,
+                    "repository_exists": False,
+                }
             if status == 404:
                 message = "GitHub repository was not found or is private"
             else:
@@ -913,7 +1166,19 @@ def get_github_repository_snapshot(
         response, commit = _github_json_request(
             http, f"{base_url}/commits/{quote(selected_ref, safe='')}"
         )
-        if int(response.get("status", 0)) != 200 or not isinstance(commit, dict):
+        commit_status = int(response.get("status", 0))
+        if commit_status != 200 or not isinstance(commit, dict):
+            if allow_missing and _github_ref_is_missing(commit_status, commit):
+                return {
+                    **repository,
+                    "branch": selected_ref,
+                    "sha": "",
+                    "files": {},
+                    "private": bool(repo_info.get("private")),
+                    "missing": True,
+                    "repository_exists": True,
+                    "default_branch": str(repo_info.get("default_branch") or "main"),
+                }
             raise DocassembleCompatibilityError(
                 _github_error_message(commit, f"GitHub could not read {selected_ref}")
             )
@@ -951,7 +1216,7 @@ def get_github_repository_snapshot(
                 if not member.isfile() or "/" not in member.name:
                     continue
                 path = member.name.split("/", 1)[1]
-                if re.fullmatch(
+                if not include_all_files and re.fullmatch(
                     r"docassemble/[^/]+/data/(questions|templates|static|sources)/.+/.+",
                     path,
                 ):
@@ -959,12 +1224,16 @@ def get_github_repository_snapshot(
                         "The repository contains nested files under a docassemble data directory; "
                         "move them directly into questions, templates, static, or sources before importing"
                     )
-                if not (
+                if not include_all_files and not (
                     re.fullmatch(
                         r"docassemble/[^/]+/data/(questions|templates|static|sources)/[^/]+",
                         path,
                     )
                     or re.fullmatch(r"docassemble/[^/]+/[^/]+\.py", path)
+                    # Weaver keeps its workflow and dependency settings in
+                    # step with these repository files.
+                    or path in {"pyproject.toml", "setup.py"}
+                    or re.fullmatch(r"\.github/workflows/[^/]+\.ya?ml", path)
                 ):
                     continue
                 if member.size > 25 * 1024 * 1024:
@@ -985,6 +1254,8 @@ def get_github_repository_snapshot(
         "sha": commit_sha,
         "files": files,
         "private": bool(repo_info.get("private")),
+        "repository_exists": True,
+        "default_branch": str(repo_info.get("default_branch") or ""),
     }
 
 
@@ -1017,10 +1288,228 @@ def get_github_publish_owners(*, user_id: Optional[int] = None) -> List[Dict[str
             for org in organizations
             if isinstance(org, dict) and org.get("login")
         )
-        link_header = str(response.get("link") or "")
-        next_match = re.search(r'<([^>]+)>;\s*rel="next"', link_header)
-        url = next_match.group(1) if next_match else None
+        url = _github_next_page_url(response)
     return owners
+
+
+def get_github_repository_branches(
+    *, owner: str, repository: str, user_id: Optional[int] = None
+) -> Dict[str, Any]:
+    """List all branches of one repository through the connected GitHub account."""
+    http = _github_authorized_http(user_id=user_id)
+    base_url = (
+        "https://api.github.com/repos/"
+        f"{quote(owner, safe='')}/{quote(repository, safe='')}"
+    )
+    response, repo_info = _github_json_request(http, base_url)
+    status = int(response.get("status", 0))
+    if status == 404:
+        return {"repository_exists": False, "default_branch": "main", "branches": []}
+    if status != 200 or not isinstance(repo_info, dict):
+        raise DocassembleCompatibilityError(
+            _github_error_message(repo_info, "GitHub could not read the repository")
+        )
+
+    branches: List[str] = []
+    url: Optional[str] = f"{base_url}/branches?per_page=100"
+    while url:
+        response, payload = _github_json_request(http, url)
+        if int(response.get("status", 0)) != 200 or not isinstance(payload, list):
+            raise DocassembleCompatibilityError(
+                _github_error_message(payload, "GitHub could not list branches")
+            )
+        branches.extend(
+            str(branch["name"])
+            for branch in payload
+            if isinstance(branch, dict) and branch.get("name")
+        )
+        next_url = _github_next_page_url(response)
+        if next_url and not next_url.startswith(f"{base_url}/branches?"):
+            raise DocassembleCompatibilityError(
+                "GitHub returned an invalid branch page"
+            )
+        url = next_url
+    return {
+        "repository_exists": True,
+        "default_branch": str(repo_info.get("default_branch") or "main"),
+        "branches": list(dict.fromkeys(branches)),
+    }
+
+
+WORKFLOW_ACCESS_GRANTED = "granted"
+WORKFLOW_ACCESS_UNKNOWN = "unknown"
+WORKFLOW_ACCESS_MISSING_SCOPE = "missing_scope"
+WORKFLOW_ACCESS_APP_NOT_INSTALLED = "app_not_installed"
+WORKFLOW_ACCESS_APP_PENDING_APPROVAL = "app_pending_approval"
+WORKFLOW_ACCESS_APP_MISSING_PERMISSION = "app_missing_permission"
+
+
+def _workflow_access(
+    status: str, message: str = "", action: str = "", url: str = ""
+) -> Dict[str, str]:
+    return {"status": status, "message": message, "action": action, "url": url}
+
+
+def _github_user_installations(http: Any) -> Optional[List[Dict[str, Any]]]:
+    """List the GitHub App installations a user token can use, or None.
+
+    Only a GitHub App user token may call this endpoint; an OAuth App token
+    gets a 403, which is how the caller tells the two kinds apart.
+    """
+    installations: List[Dict[str, Any]] = []
+    url: Optional[str] = "https://api.github.com/user/installations?per_page=100"
+    while url:
+        response, payload = _github_json_request(http, url)
+        if int(response.get("status", 0)) != 200 or not isinstance(payload, dict):
+            return None
+        installations.extend(
+            entry
+            for entry in payload.get("installations") or []
+            if isinstance(entry, dict)
+        )
+        url = _github_next_page_url(response)
+    return installations
+
+
+def get_github_workflow_access(
+    owners: Sequence[str], *, user_id: Optional[int] = None, http: Any = None
+) -> Dict[str, Any]:
+    """Explain whether the GitHub connection can write ``.github/workflows``.
+
+    GitHub rejects workflow files unless the token may change workflows, and
+    it reports that as a bare 403 or 404. What "may" means depends on how the
+    server connects to GitHub:
+
+    * An OAuth App token needs the ``workflow`` scope, which only Weaver's own
+      Configure GitHub link requests; reconnecting through it fixes this.
+    * A GitHub App ignores scopes. The App needs the Workflows (write)
+      repository permission, it must be installed on the owning account, and
+      every installation has to accept a permission change before it applies.
+
+    Returns ``{"token_type": ..., "owners": {login: access}}`` where each
+    access has ``status``, ``message``, ``action`` and ``url``. Anything that
+    cannot be determined is ``unknown`` rather than an error, so a failed
+    check never blocks publishing.
+    """
+    unknown = _workflow_access(WORKFLOW_ACCESS_UNKNOWN)
+    result: Dict[str, Any] = {
+        "token_type": "unknown",
+        "owners": {owner: dict(unknown) for owner in owners},
+    }
+    if http is None:
+        http = _github_authorized_http(user_id=user_id)
+    response, _user = _github_json_request(http, "https://api.github.com/user")
+    if int(response.get("status", 0)) != 200:
+        return result
+    scope_header = response.get("x-oauth-scopes")
+    scopes = {
+        scope.strip() for scope in str(scope_header or "").split(",") if scope.strip()
+    }
+    installations = None if scopes else _github_user_installations(http)
+
+    if installations is None:
+        if scope_header is None:
+            return result
+        result["token_type"] = "oauth_app"
+        if "workflow" in scopes:
+            access = _workflow_access(WORKFLOW_ACCESS_GRANTED)
+        else:
+            access = _workflow_access(
+                WORKFLOW_ACCESS_MISSING_SCOPE,
+                "The GitHub connection was made without permission to change "
+                "workflows. Use Configure GitHub to reconnect and approve "
+                "workflow access.",
+                "reconnect",
+            )
+        result["owners"] = {owner: dict(access) for owner in owners}
+        return result
+
+    result["token_type"] = "github_app"
+    by_account = {
+        str((entry.get("account") or {}).get("login") or "").lower(): entry
+        for entry in installations
+    }
+    app_slug = next(
+        (
+            str(entry.get("app_slug"))
+            for entry in installations
+            if entry.get("app_slug")
+        ),
+        "",
+    )
+    app_permissions: Dict[str, Optional[Dict[str, Any]]] = {}
+
+    def requested_permissions(slug: str) -> Optional[Dict[str, Any]]:
+        if slug not in app_permissions:
+            response, app = _github_json_request(
+                http, f"https://api.github.com/apps/{quote(slug, safe='')}"
+            )
+            permissions = app.get("permissions") if isinstance(app, dict) else None
+            app_permissions[slug] = (
+                permissions
+                if int(response.get("status", 0)) == 200
+                and isinstance(permissions, dict)
+                else None
+            )
+        return app_permissions[slug]
+
+    for owner in owners:
+        installation = by_account.get(owner.lower())
+        if installation is None:
+            result["owners"][owner] = _workflow_access(
+                WORKFLOW_ACCESS_APP_NOT_INSTALLED,
+                f"The GitHub App this server uses is not installed on {owner}, "
+                "so it cannot publish there. Install the App on that account "
+                "and give it access to the repository, then publish again.",
+                "install",
+                (
+                    f"https://github.com/apps/{quote(app_slug, safe='')}"
+                    "/installations/new"
+                    if app_slug
+                    else ""
+                ),
+            )
+            continue
+        granted = installation.get("permissions") or {}
+        if granted.get("workflows") == "write":
+            result["owners"][owner] = _workflow_access(WORKFLOW_ACCESS_GRANTED)
+            continue
+        slug = str(installation.get("app_slug") or app_slug)
+        requested = requested_permissions(slug) if slug else None
+        if requested is not None and requested.get("workflows") == "write":
+            result["owners"][owner] = _workflow_access(
+                WORKFLOW_ACCESS_APP_PENDING_APPROVAL,
+                f"The GitHub App asks for permission to change workflows, but "
+                f"{owner} has not approved that request yet. An owner of "
+                f"{owner} must review and accept the App's updated permissions "
+                "in its GitHub settings.",
+                "approve",
+                str(installation.get("html_url") or ""),
+            )
+        else:
+            result["owners"][owner] = _workflow_access(
+                WORKFLOW_ACCESS_APP_MISSING_PERMISSION,
+                "The GitHub App this server uses cannot change workflows. A "
+                "server administrator must set the App's Workflows repository "
+                "permission to Read and write, and each account that installed "
+                "it must then accept the updated permissions.",
+                "admin",
+            )
+    return result
+
+
+def _diagnose_workflow_rejection(http: Any, owner: str) -> Dict[str, str]:
+    """Say why GitHub refused workflow files, without failing the publish."""
+    try:
+        access = get_github_workflow_access([owner], http=http)["owners"][owner]
+    except Exception:
+        # The publish already succeeded without workflows; a failed diagnosis
+        # only costs the specific explanation.
+        return _workflow_access(WORKFLOW_ACCESS_UNKNOWN)
+    if access.get("status") == WORKFLOW_ACCESS_GRANTED:
+        # The permission is there, so GitHub refused for another reason.
+        return _workflow_access(WORKFLOW_ACCESS_UNKNOWN)
+    return access
 
 
 def ensure_github_repository(
@@ -1106,6 +1595,143 @@ def ensure_github_repository(
     return repo
 
 
+def _github_tree_blobs(
+    http: Any, repository_path: str, commit_sha: str
+) -> Optional[List[Dict[str, str]]]:
+    """Return every file entry on a commit, or ``None`` if it cannot be read whole."""
+    response, tree = _github_json_request(
+        http, f"{repository_path}/git/trees/{commit_sha}?recursive=1"
+    )
+    if (
+        int(response.get("status", 0)) != 200
+        or not isinstance(tree, dict)
+        or not isinstance(tree.get("tree"), list)
+        or tree.get("truncated")
+    ):
+        return None
+    return [
+        {key: str(entry[key]) for key in ("path", "mode", "type", "sha")}
+        for entry in tree["tree"]
+        if isinstance(entry, dict)
+        and entry.get("type") == "blob"
+        and all(key in entry for key in ("path", "mode", "type", "sha"))
+    ]
+
+
+def build_github_package_snapshot(
+    *,
+    package: str,
+    project: str,
+    user_id: int,
+    package_info: Dict[str, Any],
+    author_name: str,
+    author_email: str,
+    manifest_path: str = "",
+    extra_repository_files: Optional[Mapping[str, Union[str, bytes]]] = None,
+    directory: Optional[str] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """Build the exact local package tree that the GitHub publisher will commit.
+
+    The returned mapping contains file bytes and Git mode so preview and publish
+    can hash and compare one deterministic snapshot rather than a list of names.
+    """
+    make_package_dir = _first_webapp_attr(
+        (
+            ("docassemble.webapp.files", "make_package_dir"),
+            ("docassemble.webapp.files.savedfile", "make_package_dir"),
+        ),
+        "its Playground package builder",
+    )
+    package_data = dict(package_info)
+    manifest_path = str(manifest_path or "")
+    if manifest_path and os.path.isfile(manifest_path):
+        package_data["modtime"] = os.path.getmtime(manifest_path)
+    else:
+        package_data.setdefault("modtime", 0)
+
+    display_name = str(author_name or "Account").strip() or "Account"
+    author_info = {
+        "id": user_id,
+        "author name": display_name,
+        "author email": author_email,
+        "author name and email": (
+            f"{display_name} <{author_email}>" if author_email else display_name
+        ),
+    }
+    created_directory = directory is None
+    package_directory = str(
+        directory or tempfile.mkdtemp(prefix="weaver-github-preview-")
+    )
+    try:
+        make_package_dir(
+            package,
+            package_data,
+            author_info,
+            directory=package_directory,
+            current_project=project,
+        )
+        packagedir = os.path.join(package_directory, f"docassemble-{package}")
+        if not os.path.isdir(packagedir):
+            raise DocassembleCompatibilityError(
+                "Docassemble did not create the GitHub package directory"
+            )
+        for relative_path, content in (extra_repository_files or {}).items():
+            normalized_path = posixpath.normpath(str(relative_path).replace("\\", "/"))
+            if (
+                normalized_path in {"", ".", ".."}
+                or normalized_path.startswith("../")
+                or normalized_path.startswith("/")
+            ):
+                raise ValueError(
+                    "Extra GitHub package paths must stay inside the repository"
+                )
+            destination = os.path.join(packagedir, *normalized_path.split("/"))
+            os.makedirs(os.path.dirname(destination), exist_ok=True)
+            if isinstance(content, bytes):
+                with open(destination, "wb") as stream:
+                    stream.write(content)
+            else:
+                with open(destination, "w", encoding="utf-8") as stream:
+                    stream.write(str(content))
+
+        files: Dict[str, Dict[str, Any]] = {}
+        for root, _directories, filenames in os.walk(packagedir):
+            for filename in filenames:
+                full_path = os.path.join(root, filename)
+                relative_path = os.path.relpath(full_path, packagedir).replace(
+                    os.sep, "/"
+                )
+                with open(full_path, "rb") as stream:
+                    content = stream.read()
+                files[relative_path] = {
+                    "content": content,
+                    "mode": "100755" if os.access(full_path, os.X_OK) else "100644",
+                }
+        if not files:
+            raise ValueError("The generated GitHub package is empty")
+        return dict(sorted(files.items()))
+    finally:
+        if created_directory:
+            shutil.rmtree(package_directory, ignore_errors=True)
+
+
+def github_package_snapshot_revision(files: Mapping[str, Mapping[str, Any]]) -> str:
+    """Return a stable digest for a packaged tree, including path/mode/bytes."""
+    import hashlib
+
+    digest = hashlib.sha256()
+    for path in sorted(files):
+        item = files[path]
+        digest.update(path.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(str(item.get("mode") or "100644").encode("ascii"))
+        digest.update(b"\0")
+        content = item.get("content", b"")
+        digest.update(content if isinstance(content, bytes) else str(content).encode())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
 def publish_github_package(
     *,
     owner: str,
@@ -1122,6 +1748,10 @@ def publish_github_package(
     default_branch: str = "",
     on_progress: Optional[Callable[[str, int], None]] = None,
     extra_repository_files: Optional[Mapping[str, Union[str, bytes]]] = None,
+    preserved_path_prefixes: Sequence[str] = (),
+    managed_paths: Collection[str] = (),
+    expected_remote_sha: Optional[str] = None,
+    expected_source_revision: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Commit a generated Playground package through GitHub's Git API.
 
@@ -1138,6 +1768,11 @@ def publish_github_package(
     ``manifest_path`` supplies the modification time Docassemble's package
     builder expects, and ``default_branch`` is the repository's default branch,
     used as the starting point when ``branch`` does not exist yet.
+
+    Files already on the branch under ``preserved_path_prefixes`` survive the
+    commit unless they are in ``managed_paths``, which this publish decides
+    for itself: a workflow someone added on GitHub is kept, while a standard
+    workflow the author turned off is removed.
     """
 
     def report(message: str, percent: int) -> None:
@@ -1149,32 +1784,8 @@ def publish_github_package(
             # Progress reporting must never abort a publish that is working.
             pass
 
-    make_package_dir = _first_webapp_attr(
-        (
-            ("docassemble.webapp.files", "make_package_dir"),
-            ("docassemble.webapp.files.savedfile", "make_package_dir"),
-        ),
-        "its Playground package builder",
-    )
-    package_info = dict(package_info)
     manifest_path = str(manifest_path or "")
     default_branch = str(default_branch or "").strip()
-    if manifest_path and os.path.isfile(manifest_path):
-        package_info["modtime"] = os.path.getmtime(manifest_path)
-    else:
-        package_info.setdefault("modtime", 0)
-
-    display_name = str(author_name or "Account").strip() or "Account"
-    if author_email:
-        author_label = f"{display_name} <{author_email}>"
-    else:
-        author_label = display_name
-    author_info = {
-        "id": user_id,
-        "author name": display_name,
-        "author email": author_email,
-        "author name and email": author_label,
-    }
 
     # Create the staging directory here rather than letting Docassemble pick a
     # temporary one: if the package build fails partway through the copy, the
@@ -1182,49 +1793,27 @@ def publish_github_package(
     package_directory = tempfile.mkdtemp(prefix="weaver-github-")
     try:
         report("Building the package from the Playground project.", 5)
-        make_package_dir(
-            package,
-            package_info,
-            author_info,
+        files = build_github_package_snapshot(
+            package=package,
+            project=project,
+            user_id=user_id,
+            package_info=package_info,
+            author_name=author_name,
+            author_email=author_email,
+            manifest_path=manifest_path,
+            extra_repository_files=extra_repository_files,
             directory=package_directory,
-            current_project=project,
         )
-        packagedir = os.path.join(package_directory, f"docassemble-{package}")
-        if not os.path.isdir(packagedir):
-            raise DocassembleCompatibilityError(
-                "Docassemble did not create the GitHub package directory"
+        source_revision = github_package_snapshot_revision(files)
+        if (
+            expected_source_revision is not None
+            and source_revision != expected_source_revision
+        ):
+            raise ValueError(
+                "The Playground package changed after its publish preview. "
+                "Preview the current files again before publishing."
             )
-
-        for relative_path, content in (extra_repository_files or {}).items():
-            normalized_path = posixpath.normpath(str(relative_path).replace("\\", "/"))
-            if (
-                normalized_path in {"", ".", ".."}
-                or normalized_path.startswith("../")
-                or normalized_path.startswith("/")
-            ):
-                raise ValueError(
-                    "Extra GitHub package paths must stay inside the repository"
-                )
-            destination = os.path.join(packagedir, *normalized_path.split("/"))
-            os.makedirs(os.path.dirname(destination), exist_ok=True)
-            if isinstance(content, bytes):
-                with open(destination, "wb") as binary_stream:
-                    binary_stream.write(content)
-            else:
-                with open(destination, "w", encoding="utf-8") as text_stream:
-                    text_stream.write(str(content))
-
-        files: List[Tuple[str, str]] = []
-        for root, _directories, filenames in os.walk(packagedir):
-            for filename in filenames:
-                full_path = os.path.join(root, filename)
-                relative_path = os.path.relpath(full_path, packagedir).replace(
-                    os.sep, "/"
-                )
-                files.append((relative_path, full_path))
-        files.sort()
-        if not files:
-            raise ValueError("The generated GitHub package is empty")
+        display_name = str(author_name or "Account").strip() or "Account"
 
         http = _github_authorized_http(user_id=user_id)
         repository_path = (
@@ -1276,7 +1865,6 @@ def publish_github_package(
             raise DocassembleCompatibilityError(
                 _github_error_message(ref, "GitHub could not read the target branch")
             )
-
         # If the requested branch does not exist, base it on the repository's
         # default branch when one is available.  A repository Weaver just
         # created has no commits at all, so it simply starts without a parent.
@@ -1296,16 +1884,24 @@ def publish_github_package(
                         default_ref, "GitHub could not read the default branch"
                     )
                 )
+        if (
+            expected_remote_sha is not None
+            and (parent_sha or "") != expected_remote_sha
+        ):
+            raise ValueError(
+                f"GitHub branch {branch!r} changed after the publish preview. "
+                "Review its latest changes before publishing; no files were committed."
+            )
 
         tree_entries: List[Dict[str, str]] = []
         total_files = len(files)
-        for index, (relative_path, full_path) in enumerate(files, start=1):
+        for index, relative_path in enumerate(files, start=1):
+            file_data = files[relative_path]
             report(
                 f"Uploading {relative_path} ({index} of {total_files}).",
                 15 + int(70 * (index - 1) / total_files),
             )
-            with open(full_path, "rb") as stream:
-                encoded_content = base64.b64encode(stream.read()).decode("ascii")
+            encoded_content = base64.b64encode(file_data["content"]).decode("ascii")
             response, blob = _github_json_request(
                 http,
                 f"{repository_path}/git/blobs",
@@ -1326,7 +1922,7 @@ def publish_github_package(
             tree_entries.append(
                 {
                     "path": relative_path,
-                    "mode": "100755" if os.access(full_path, os.X_OK) else "100644",
+                    "mode": file_data["mode"],
                     "type": "blob",
                     "sha": blob_sha,
                 }
@@ -1336,11 +1932,81 @@ def publish_github_package(
         # file in the package, so posting a standalone tree replaces the branch
         # contents.  Extending the parent tree instead would leave files the
         # author deleted or renamed in the Playground behind forever, which is
-        # not what the native ``git add .`` publisher did.
+        # not what the native ``git add .`` publisher did.  Only the prefixes
+        # the caller names, such as ``.github/``, are carried over.
+        prior_entries: Optional[List[Dict[str, str]]] = None
+        if parent_sha and preserved_path_prefixes:
+            prior_entries = _github_tree_blobs(http, repository_path, parent_sha)
+            if prior_entries is None:
+                raise DocassembleCompatibilityError(
+                    "Weaver could not read the existing repository files, so it "
+                    "could not keep the ones it does not manage. No commit was "
+                    "published."
+                )
+            published_paths = {entry["path"] for entry in tree_entries}
+            managed = set(managed_paths)
+            tree_entries.extend(
+                entry
+                for entry in prior_entries
+                if entry["path"].startswith(tuple(preserved_path_prefixes))
+                and entry["path"] not in published_paths
+                and entry["path"] not in managed
+            )
         report("Creating the package tree.", 88)
+        warnings: List[str] = []
+        skipped_workflows: List[str] = []
+        workflow_access: Dict[str, str] = {}
         response, tree = _github_json_request(
             http, f"{repository_path}/git/trees", "POST", {"tree": tree_entries}
         )
+        if int(response.get("status", 0)) != 201 or not isinstance(tree, dict):
+            if int(response.get("status", 0)) in {403, 404} and any(
+                entry["path"].startswith(".github/workflows/") for entry in tree_entries
+            ):
+                # GitHub can hide workflow permission failures behind a 404.
+                # Retry once without workflow changes. A standalone tree must
+                # retain the parent's workflows or this would delete them.
+                skipped_workflows = [
+                    entry["path"]
+                    for entry in tree_entries
+                    if entry["path"].startswith(".github/workflows/")
+                ]
+                tree_entries = [
+                    entry
+                    for entry in tree_entries
+                    if not entry["path"].startswith(".github/workflows/")
+                ]
+                if parent_sha:
+                    if prior_entries is None:
+                        prior_entries = _github_tree_blobs(
+                            http, repository_path, parent_sha
+                        )
+                    if prior_entries is None:
+                        raise DocassembleCompatibilityError(
+                            "GitHub rejected workflow changes, and Weaver could not "
+                            "read the existing workflows safely. No commit was published."
+                        )
+                    tree_entries.extend(
+                        entry
+                        for entry in prior_entries
+                        if entry["path"].startswith(".github/workflows/")
+                    )
+                report(
+                    "Publishing other files while preserving existing workflows.", 90
+                )
+                response, tree = _github_json_request(
+                    http, f"{repository_path}/git/trees", "POST", {"tree": tree_entries}
+                )
+                workflow_access = _diagnose_workflow_rejection(http, str(owner))
+                reason = workflow_access.get("message") or (
+                    "Use Configure GitHub to grant workflow access and publish "
+                    "again, or add the workflows manually using the ALKiln "
+                    "setup guide."
+                )
+                warnings.append(
+                    "GitHub rejected the workflow changes. The other project files "
+                    f"were published and existing workflows were preserved. {reason}"
+                )
         if int(response.get("status", 0)) != 201 or not isinstance(tree, dict):
             raise DocassembleCompatibilityError(
                 _github_error_message(tree, "GitHub could not create the package tree")
@@ -1397,7 +2063,16 @@ def publish_github_package(
             raise DocassembleCompatibilityError(
                 _github_error_message(updated_ref, "GitHub could not update the branch")
             )
-        return {"sha": commit_sha, "branch": branch, "files": len(files)}
+        result: Dict[str, Any] = {
+            "sha": commit_sha,
+            "branch": branch,
+            "files": len(tree_entries),
+        }
+        if warnings:
+            result["warnings"] = warnings
+            result["skipped_workflows"] = skipped_workflows
+            result["workflow_access"] = workflow_access
+        return result
     finally:
         shutil.rmtree(package_directory, ignore_errors=True)
 

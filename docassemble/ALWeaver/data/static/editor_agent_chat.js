@@ -22,8 +22,9 @@
     validating: 'Validating…',
     testing: 'Testing in Docassemble…',
     ready: 'Ready to apply',
-    no_changes: 'No changes were needed',
-    failed: 'Could not produce a valid edit',
+    answered: 'Answered without editing',
+    no_changes: 'No interview changes',
+    failed: 'Could not complete the request',
     cancelled: 'Stopped',
     stale: 'The saved file changed — restart the assistant',
     error: 'Something went wrong',
@@ -95,6 +96,8 @@
     var draft = '';
     var repairOffer = null;
     var lastRequest = '';
+    var askOnly = false;
+    var lastRequestAskOnly = false;
     // When the server says no model is configured, the panel explains that
     // instead of offering a composer that would fail on submit.
     var availability = options.getAvailability
@@ -355,7 +358,7 @@
           busy = false;
           setState('idle');
           render();
-          if (pending) return send(pending);
+          if (pending) return send(pending, lastRequestAskOnly);
           return undefined;
         })
         .catch(function (error) {
@@ -363,13 +366,15 @@
         });
     }
 
-    function send(message) {
+    function send(message, readOnly) {
       var text = String(message || '').trim();
       if (!text || busy || !isAvailable() || isExhausted())
         return Promise.resolve();
+      var askingOnly = readOnly === undefined ? askOnly : Boolean(readOnly);
       busy = true;
       draft = '';
       lastRequest = text;
+      lastRequestAskOnly = askingOnly;
       transcript.push({ role: 'user', content: text });
       setState('thinking');
       // The clock starts when the developer hits send, not when the first poll
@@ -388,6 +393,7 @@
             {
               message: text,
               selected_block_id: context.selectedBlockId || null,
+              read_only: askingOnly,
             },
             { preventStale: false },
           );
@@ -407,6 +413,7 @@
             events: data.turn && data.turn.events ? data.turn.events : [],
             diagnostics: data.diagnostics || [],
             diff: data.diff || null,
+            documentationLinks: data.documentation_links || [],
           });
           setState(data.status === 'ready' ? 'ready' : data.status);
           busy = false;
@@ -672,6 +679,32 @@
           element('div', 'editor-agent-message-body', entry.content),
         );
         if (entry.role === 'assistant') {
+          if (entry.documentationLinks && entry.documentationLinks.length) {
+            var sources = element('div', 'editor-agent-documentation-links');
+            sources.appendChild(
+              element(
+                'p',
+                'editor-agent-documentation-title',
+                'Documentation links',
+              ),
+            );
+            var links = element('ul', 'editor-agent-documentation-list');
+            entry.documentationLinks.forEach(function (source) {
+              var item = element('li', 'editor-agent-documentation-item');
+              var link = element(
+                'a',
+                'editor-agent-documentation-link',
+                source.title || source.url,
+              );
+              link.href = source.url;
+              link.target = '_blank';
+              link.rel = 'noopener noreferrer';
+              item.appendChild(link);
+              links.appendChild(item);
+            });
+            sources.appendChild(links);
+            row.appendChild(sources);
+          }
           renderRepairs(row, entry.repairs);
           renderEvents(row, entry.events);
           if (entry.stopReason && STOP_REASON_NOTES[entry.stopReason]) {
@@ -693,7 +726,7 @@
     function canApply() {
       return Boolean(
         latest &&
-        latest.status === 'ready' &&
+        (latest.status === 'ready' || latest.status === 'answered') &&
         latest.has_candidate_changes &&
         !busy &&
         uiState !== 'stale',
@@ -835,18 +868,26 @@
       }
 
       var form = element('form', 'editor-agent-composer');
-      var label = element(
-        'label',
-        'visually-hidden',
-        'Ask the assistant to change this interview',
+      form.appendChild(
+        element(
+          'p',
+          'editor-agent-disclosure',
+          'The assistant sends information from your request and interview to ' +
+            'the configured AI model or endpoint. When it searches AssemblyLine ' +
+            'documentation, it also sends a search query that may include that ' +
+            'information to Algolia.',
+        ),
       );
+      var label = element('label', 'visually-hidden', 'Ask the assistant');
       label.setAttribute('for', 'editor-agent-input');
       form.appendChild(label);
       var input = element('textarea', 'form-control');
       input.id = 'editor-agent-input';
       input.rows = 3;
       input.value = draft;
-      input.placeholder = 'Describe the change you want…';
+      input.placeholder = askOnly
+        ? 'Ask about the documentation or this interview…'
+        : 'Describe a change or ask a question…';
       input.disabled = busy || isExhausted();
       input.addEventListener('input', function () {
         draft = input.value;
@@ -858,6 +899,27 @@
         }
       });
       form.appendChild(input);
+      var option = element('div', 'form-check mt-2');
+      var checkbox = element('input', 'form-check-input');
+      checkbox.type = 'checkbox';
+      checkbox.id = 'editor-agent-ask-only';
+      checkbox.checked = askOnly;
+      checkbox.disabled = busy || isExhausted();
+      checkbox.addEventListener('change', function () {
+        askOnly = checkbox.checked;
+        input.placeholder = askOnly
+          ? 'Ask about the documentation or this interview…'
+          : 'Describe a change or ask a question…';
+      });
+      option.appendChild(checkbox);
+      var optionLabel = element(
+        'label',
+        'form-check-label',
+        'Ask only (no edits)',
+      );
+      optionLabel.setAttribute('for', checkbox.id);
+      option.appendChild(optionLabel);
+      form.appendChild(option);
       var submit = element(
         'button',
         'btn btn-primary btn-sm mt-2',

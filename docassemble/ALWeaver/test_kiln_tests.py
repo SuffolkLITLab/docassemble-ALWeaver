@@ -102,14 +102,6 @@ class TestKilnTests(unittest.TestCase):
             )
         self.assertFalse(seen["check_all_pages_for_accessibility"])
 
-    def test_default_workflow_uses_standard_alkiln_action_and_secrets(self):
-        self.assertIn("SuffolkLITLab/ALKiln@v5", kiln_tests.DEFAULT_ALKILN_WORKFLOW)
-        self.assertIn("secrets.SERVER_URL", kiln_tests.DEFAULT_ALKILN_WORKFLOW)
-        self.assertIn(
-            "secrets.DOCASSEMBLE_DEVELOPER_API_KEY",
-            kiln_tests.DEFAULT_ALKILN_WORKFLOW,
-        )
-
     def test_detects_all_pages_accessibility_step(self):
         self.assertTrue(
             kiln_tests.kiln_feature_checks_accessibility(

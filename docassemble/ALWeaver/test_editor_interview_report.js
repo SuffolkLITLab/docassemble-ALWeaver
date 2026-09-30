@@ -53,6 +53,34 @@ const steps = [
 
 const blockMap = report.buildBlockMap(blocks);
 
+// Named order blocks in included files run where the parent calls their
+// completion variable, even when another named block is called in a branch.
+{
+  const childOrders = {
+    child_flow_done: [
+      { kind: 'screen', invoke: 'child_intro' },
+      { kind: 'condition', condition: 'has_children', children: [
+        { kind: 'screen', invoke: 'nested_flow_done' },
+      ], else_children: [] },
+    ],
+    nested_flow_done: [{ kind: 'screen', invoke: 'child_details' }],
+  };
+  const parent = [
+    { kind: 'screen', invoke: 'start' },
+    { kind: 'screen', invoke: 'child_flow_done' },
+    { kind: 'screen', invoke: 'finish' },
+  ];
+  const expanded = report.expandNamedOrders(parent, childOrders);
+  assert.deepStrictEqual(expanded.map((step) => step.invoke || step.kind),
+    ['start', 'child_intro', 'condition', 'finish']);
+  assert.strictEqual(expanded[2].children[0].invoke, 'child_details');
+  assert.strictEqual(parent[1].invoke, 'child_flow_done', 'the editable order is unchanged');
+  assert.deepStrictEqual(report.expandNamedOrders(
+    [{ kind: 'screen', invoke: 'child_flow_done' }],
+    { child_flow_done: [{ kind: 'screen', invoke: 'child_flow_done' }] },
+  ).map((step) => step.invoke), ['child_flow_done'], 'a cycle stops expanding');
+}
+
 // --- Flowchart --------------------------------------------------------------
 
 {
@@ -317,6 +345,23 @@ const blockMap = report.buildBlockMap(blocks);
   assert.ok(!/href="\/static/.test(html), 'no stylesheet is left root-relative');
   assert.ok(!/src="\/static/.test(html), 'no script is left root-relative');
 
+  const modern = report.buildReport(steps, blocks, {
+    origin: 'https://da.example.org', widgetStyle: 'native',
+  });
+  assert.ok(modern.includes('for="s1_dapv_field_0" class="btn btn-primary text-start dalabelauty">I understand</label>'));
+  assert.ok(!modern.includes('/static/labelauty/'));
+  assert.ok(!modern.includes('.labelauty('));
+
+  const mappedReport = report.buildReport(
+    [{ kind: 'screen', invoke: 'role' }],
+    [{ id: 'role', type: 'question', variable: 'role', title: 'Role', data: {
+      question: 'Role?', fields: [{ label: 'Role', field: 'role', 'input type': 'radio',
+        choices: [{ key: 'plaintiff', label: 'Person who started the case' }] }],
+    } }],
+    { origin: 'https://da.example.org', widgetStyle: 'native' }
+  );
+  assert.ok(mappedReport.includes('for="s1_dapv_field_0_0" class="btn btn-primary text-start dalabelauty">Person who started the case</label>'));
+
   // Field ids are per screen, so a label on one screen cannot answer another.
   assert.ok(html.includes('id="s1_dapv_field_0"') && html.includes('id="s2_dapv_field_0"'),
     'each screen numbers its fields under its own prefix');
@@ -385,3 +430,25 @@ const blockMap = report.buildBlockMap(blocks);
 }
 
 console.log('editor_interview_report.js: all assertions passed');
+
+{
+  const steps = [{ kind: 'loop', target: 'person', iterable: 'users', children: [
+    { kind: 'condition', condition: 'person.skip', children: [{ kind: 'continue' }] },
+    { kind: 'condition', condition: 'person.stop', children: [{ kind: 'break' }] },
+    { kind: 'screen', invoke: 'person.email' },
+    { kind: 'assignment', target: 'person.complete', expression: 'True' },
+  ] }, { kind: 'screen', invoke: 'download' }];
+  const model = report.buildFlowModel(steps, {}, {}, {});
+  const header = model.nodes.find(n => n.label === 'For each person');
+  const skip = model.nodes.find(n => n.label === 'continue');
+  const stop = model.nodes.find(n => n.label === 'break');
+  const download = model.nodes.find(n => n.sublabel === 'download');
+  assert.ok(model.edges.some(e => e.from === skip.id && e.to === header.id));
+  assert.ok(model.edges.some(e => e.from === stop.id && e.to === download.id));
+  assert.ok(model.nodes.some(n => n.label === 'person.complete = True'));
+  const html = report.buildReport(steps, [], {});
+  assert.ok(html.includes('<code>person</code> in <code>users</code>'));
+  assert.ok(html.includes('person.email'));
+  const expanded = report.expandNamedOrders([{ kind: 'loop', target: 'item', iterable: 'items', children: [{ kind: 'screen', invoke: 'child_order' }] }], { child_order: [{ kind: 'screen', invoke: 'item.name' }] });
+  assert.strictEqual(expanded[0].children[0].invoke, 'item.name');
+}

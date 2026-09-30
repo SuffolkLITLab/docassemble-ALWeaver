@@ -71,3 +71,69 @@ Everytime you finish working on testing, exit your virtual environment with
 ```
 $ deactivate
 ```
+
+## Editor navigation end-to-end regression
+
+`scripts/editor_navigation_smoketest.js` runs against an authenticated, live
+Docassemble server. It creates disposable Playground projects, uploads interview
+and secondary-file fixtures, and removes those projects when the run ends. It
+checks project switching and the unsaved-change prompt, project-wide search,
+sidebar collapse, all five file sections, responsive account and folder menus, visible desktop folder tabs,
+200% text size, project-list deduplication and search, and the Default project's
+reserved actions. It also runs four Axe WCAG 2 A/AA audits.
+
+Install the browser test tools outside the repository:
+
+```bash
+npm install --prefix /tmp/alweaver-e2e @playwright/test @axe-core/playwright
+/tmp/alweaver-e2e/node_modules/.bin/playwright install chromium
+```
+
+Set `SERVER_URL`, `EDITOR_EMAIL`, `EDITOR_PASSWORD`, and `EDITOR_API_KEY` for your
+test server, then run:
+
+```bash
+NODE_PATH=/tmp/alweaver-e2e/node_modules \
+  SCREENSHOT_DIR=/tmp/alweaver-navigation-screenshots \
+  node scripts/editor_navigation_smoketest.js
+```
+
+The API key must belong to the browser's user. An administrator's API key can
+instead create the fixtures for a different browser user when `EDITOR_USER_ID`
+is set to that user's numeric ID. Fixture requests use a separate cookie jar so
+API-key authentication does not replace the browser's logged-in user.
+`ADMIN_API_KEY` is also accepted by the CI workflow. An authenticated Playwright
+`STORAGE_STATE` file can replace the email and password. `CHROMIUM_PATH` can select
+an existing Chromium executable.
+
+The output directory contains ten screenshots and `results.json`. Layout checks
+cover widths from 320 to 1920 pixels; large-text checks set the root font to 200%
+at widths 576, 768, 1024 and 1366. This tests text sizing, not browser zoom. The
+editor accessibility workflow runs this regression and uploads the
+`editor-navigation-screenshots` artifact, including on failure. The existing
+`scripts/editor_route_smoketest.py` also supports the compact section menus.
+
+## Reusable help template end-to-end regression
+
+`scripts/editor_help_templates_smoketest.js` creates a disposable Playground
+project and exercises template creation from both the outline and a question's
+subquestion toolbar, reuse across questions, nested help, editing and reloading,
+YAML/form switching, and adding a subject to a subjectless template. It checks
+source comments and custom properties, invalid names, duplicate definitions,
+and guards against renaming or deleting referenced templates. It then runs the
+interview in Docassemble and verifies collapse behavior, Markdown, and evaluated
+Mako on both question screens. Two Axe audits cover the new dialog and editor.
+The fixture project is removed after success or failure.
+
+Use the same browser dependencies and authentication variables as the navigation
+regression above, then run:
+
+```bash
+NODE_PATH=/tmp/alweaver-e2e/node_modules \
+  SCREENSHOT_DIR=/tmp/alweaver-help-template-screenshots \
+  node scripts/editor_help_templates_smoketest.js
+```
+
+The output contains editor and live interview screenshots plus `results.json`.
+Template insertion and reference checks are scoped to the active YAML file;
+advanced templates remain editable in YAML mode.

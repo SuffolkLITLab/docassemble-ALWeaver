@@ -9,8 +9,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from docx import Document
+
 from . import interview_generator as interview_generator_module
 from .template_analysis import (
+    _attachment_mapping_field_names,
     analyze_template,
     document_variable_for,
     interview_defined_variables,
@@ -60,6 +63,20 @@ attachment:
 
 
 class TestInterviewIntrospection(unittest.TestCase):
+    def test_nested_mapping_expression_keys_are_not_template_field_names(self):
+        data = {
+            "attachment": {
+                "fields": [
+                    {"form_field": {"code": "${ value }", "value": "value"}},
+                    {"other_form_field": "${ other_value }"},
+                ]
+            }
+        }
+        self.assertEqual(
+            _attachment_mapping_field_names(data),
+            {"form_field", "other_form_field"},
+        )
+
     def test_a_document_is_named_the_way_output_mako_names_it(self):
         # `output.mako` uses `varname(base_name(filename))`, which keeps case.
         naming = document_variable_for("Affidavit of Indigency.pdf")
@@ -81,16 +98,24 @@ class TestInterviewIntrospection(unittest.TestCase):
 
 
 class TestAnalyzeTemplate(unittest.TestCase):
-    def _analyze(self, field_names, filename="affidavit.pdf", interview=None):
+    def _analyze(
+        self, field_names, filename="affidavit.pdf", interview=None, docx_fields=None
+    ):
         tmpdir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, tmpdir, True)
         template_path = os.path.join(tmpdir, filename)
         if filename.lower().endswith(".docx"):
-            # The generator really opens the file, so a DOCX has to be one.
-            shutil.copyfile(
-                Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx",
-                template_path,
-            )
+            if docx_fields is None:
+                # The generator really opens the file, so a DOCX has to be one.
+                shutil.copyfile(
+                    Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx",
+                    template_path,
+                )
+            else:
+                document = Document()
+                for field_name in docx_fields:
+                    document.add_paragraph("{{ " + field_name + " }}")
+                document.save(template_path)
         else:
             _build_pdf_with_fields(template_path, field_names)
         with patch.object(
@@ -164,6 +189,141 @@ class TestAnalyzeTemplate(unittest.TestCase):
         self.assertTrue(analysis.attachment.replaces_block_id)
         # A field the revised form added is still offered as a new screen.
         self.assertIn("landlord_visits", analysis.new_variables)
+
+    def test_revised_template_reports_added_removed_and_stale_fields(self):
+        """A re-read previews field changes without deleting authored work."""
+        old_fields = EXISTING_INTERVIEW.replace(
+            '"users_name": ${ users[0] }',
+            '"matrix_doc_revision_primary": ${ matrix_doc_revision_primary }\n'
+            '    - "matrix_doc_revision_removed": ${ matrix_doc_revision_removed }\n'
+            '    - "matrix_doc_revision_old_name": ${ matrix_doc_revision_old_name }',
+        )
+        old_fields += """---
+id: authored removed-field question
+question: Existing authored question
+fields:
+  - Removed value: matrix_doc_revision_removed
+"""
+
+        analysis = self._analyze(
+            [
+                "matrix_doc_revision_primary",
+                "matrix_doc_revision_added",
+                "matrix_doc_revision_new_name",
+            ],
+            filename="petition.pdf",
+            interview=old_fields,
+        )
+
+        self.assertTrue(analysis.already_imported)
+        self.assertEqual(
+            analysis.mapping_changes,
+            {
+                "added": [
+                    "matrix_doc_revision_added",
+                    "matrix_doc_revision_new_name",
+                ],
+                "removed": [
+                    "matrix_doc_revision_old_name",
+                    "matrix_doc_revision_removed",
+                ],
+                "retained": ["matrix_doc_revision_primary"],
+            },
+        )
+        self.assertEqual(
+            analysis.stale_question_variables, ["matrix_doc_revision_removed"]
+        )
+        self.assertTrue(
+            any(
+                "no longer contains mapped fields" in item for item in analysis.warnings
+            )
+        )
+        self.assertTrue(
+            any(
+                "Existing question screens still ask" in item
+                for item in analysis.warnings
+            )
+        )
+        self.assertIn("matrix_doc_revision_removed", old_fields)
+        data = analysis.to_dict()
+        self.assertEqual(data["mapping_changes"], analysis.mapping_changes)
+        self.assertEqual(
+            data["stale_question_variables"], ["matrix_doc_revision_removed"]
+        )
+
+    def test_revised_docx_compares_its_saved_field_manifest(self):
+        docx_interview = EXISTING_INTERVIEW.replace(
+            "pdf template file: petition.pdf",
+            "docx template file: petition.docx",
+        )
+        docx_interview = docx_interview.replace(
+            "attachment:\n",
+            "# ALWeaver DOCX template field manifest: "
+            '["matrix_doc_revision_primary", "matrix_doc_revision_removed", '
+            '"matrix_doc_revision_old_name"]\nattachment:\n',
+        )
+        docx_interview += """---
+id: authored old DOCX fields
+question: Existing questions from the previous DOCX
+fields:
+  - Removed value: matrix_doc_revision_removed
+  - Old spelling: matrix_doc_revision_old_name
+"""
+
+        analysis = self._analyze(
+            [],
+            filename="petition.docx",
+            interview=docx_interview,
+            docx_fields=[
+                "matrix_doc_revision_primary",
+                "matrix_doc_revision_added",
+                "matrix_doc_revision_new_name",
+            ],
+        )
+
+        self.assertTrue(analysis.already_imported)
+        self.assertEqual(
+            analysis.mapping_changes,
+            {
+                "added": [
+                    "matrix_doc_revision_added",
+                    "matrix_doc_revision_new_name",
+                ],
+                "removed": [
+                    "matrix_doc_revision_old_name",
+                    "matrix_doc_revision_removed",
+                ],
+                "retained": ["matrix_doc_revision_primary"],
+            },
+        )
+        self.assertEqual(
+            analysis.stale_question_variables,
+            ["matrix_doc_revision_old_name", "matrix_doc_revision_removed"],
+        )
+        self.assertIsNotNone(analysis.attachment)
+        assert analysis.attachment is not None
+        self.assertIn(
+            "# ALWeaver DOCX template field manifest: "
+            '["matrix_doc_revision_added", "matrix_doc_revision_new_name", '
+            '"matrix_doc_revision_primary"]',
+            analysis.attachment.yaml,
+        )
+
+    def test_legacy_docx_without_manifest_warns_about_unknown_removed_fields(self):
+        legacy = EXISTING_INTERVIEW.replace(
+            "pdf template file: petition.pdf",
+            "docx template file: petition.docx",
+        )
+
+        analysis = self._analyze(
+            [], filename="petition.docx", interview=legacy, docx_fields=["new_field"]
+        )
+
+        self.assertTrue(
+            any(
+                "no saved template-field manifest" in item for item in analysis.warnings
+            )
+        )
 
     def test_a_name_another_template_holds_is_taken_by_extension(self):
         """A `petition.docx` joining an interview that assembles `petition`."""

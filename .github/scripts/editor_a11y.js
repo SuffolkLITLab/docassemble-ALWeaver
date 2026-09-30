@@ -51,6 +51,7 @@ async function audit(page, label) {
         help: violation.help,
         helpUrl: violation.helpUrl,
         targets: violation.nodes.map((node) => node.target),
+        details: violation.nodes.map((node) => node.failureSummary),
       })
     );
   }
@@ -65,7 +66,12 @@ async function auditAfter(page, label, locator, action) {
 }
 
 async function auditSecondaryView(page, view, filename, blockingViolations) {
-  await page.locator(`.editor-top-tab[data-view="${view}"]`).click();
+  const tab = page.locator(`.editor-top-tab[data-view="${view}"]`);
+  if (await tab.isVisible()) await tab.click();
+  else {
+    await page.locator("#editor-section-menu").click();
+    await page.locator(`.editor-view-switch[data-view="${view}"]`).click();
+  }
   await page
     .locator(".editor-full-yaml-header h2")
     .filter({ hasText: filename })
@@ -118,21 +124,27 @@ async function settledFindings(page) {
 }
 
 async function openInterviewMenu(page) {
+  const compact = await page.locator("#editor-section-menu").isVisible();
+  if (compact) {
+    await page.locator("#editor-section-menu").click();
+    const toggle = page.locator('[data-section-submenu="editor-interview-submenu"]');
+    if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+    const menu = page.locator("#editor-interview-submenu");
+    await menu.waitFor({ state: "visible", timeout: 10_000 });
+    return menu;
+  }
   const button = page.locator("#interview-menu");
   const menu = page.locator('ul[aria-labelledby="interview-menu"]');
-  if ((await button.getAttribute("aria-expanded")) !== "true") {
-    await button.click();
-  }
-  await page.waitForFunction(
-    () => document.querySelector("#interview-menu")?.getAttribute("aria-expanded") === "true",
-    undefined,
-    { timeout: 10_000 }
-  );
+  if ((await button.getAttribute("aria-expanded")) !== "true") await button.click();
   await menu.waitFor({ state: "visible", timeout: 10_000 });
+  return menu;
 }
 
 async function main() {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({
+    headless: true,
+    ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}),
+  });
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1200 },
   });
@@ -145,6 +157,11 @@ async function main() {
     await page.locator("#editor-app").waitFor({ state: "visible", timeout: 30_000 });
 
     // Open a real Playground interview and its file-backed editing areas.
+    await page.locator('#project-select option[value="default"]').waitFor({
+      state: "attached",
+      timeout: 30_000,
+    });
+    await page.locator("#editor-project-menu").click();
     await selectOption(page, "#project-select", "default", "project");
     await page.locator('#file-select option[value="editor_accessibility.yml"]').waitFor({
       state: "attached",
@@ -182,7 +199,10 @@ async function main() {
         page,
         "project selector",
         page.locator("#project-search-input"),
-        () => page.locator('[data-action="open-project-selector"]').first().click()
+        async () => {
+          await page.locator("#editor-project-menu").click();
+          await page.locator('.editor-project-menu [data-action="open-project-selector"]').click();
+        }
       )
     );
     blockingViolations = blockingViolations.concat(
@@ -199,6 +219,10 @@ async function main() {
 
     // Project-wide search dialog and its result state.
     await page.locator("#btn-project-search").click();
+    await page.locator("#project-search-modal").waitFor({ state: "visible" });
+    await page.waitForFunction(
+      () => getComputedStyle(document.querySelector("#project-search-modal")).opacity === "1"
+    );
     blockingViolations = blockingViolations.concat(
       await audit(page, "project search dialog")
     );
@@ -211,23 +235,23 @@ async function main() {
     await closeModal(page, "#project-search-modal");
 
     // Validation actions and the open results drawer.
-    await page.locator('[data-action="check-errors"]').click();
+    await page.locator("#btn-run-validation").click();
     await settledFindings(page);
     blockingViolations = blockingViolations.concat(
       await audit(page, "validation drawer")
     );
     // The style check lives in the Interview menu, and the deterministic run
     // is the one that needs no model configured on the test server.
-    await openInterviewMenu(page);
-    await page.locator('[data-action="run-style-check"]').click();
+    let interviewMenu = await openInterviewMenu(page);
+    await interviewMenu.locator('[data-action="run-style-check"]').click();
     await settledFindings(page);
     blockingViolations = blockingViolations.concat(
       await audit(page, "style-check results")
     );
 
     // Full YAML, metadata, and interview-order source editors.
-    await openInterviewMenu(page);
-    await page.locator('[data-action="open-full-yaml"]').click();
+    interviewMenu = await openInterviewMenu(page);
+    await interviewMenu.locator('[data-action="open-full-yaml"]').click();
     await page.locator("#full-source-editor").waitFor({ state: "visible" });
     blockingViolations = blockingViolations.concat(
       await audit(page, "full YAML editor")
@@ -243,8 +267,10 @@ async function main() {
     await page.locator("#outline-list .editor-outline-item").first().waitFor();
 
     // AssemblyLine settings, including its explanatory popover.
-    await openInterviewMenu(page);
-    await page.locator('[data-action="open-assemblyline-settings"]').click();
+    interviewMenu = await openInterviewMenu(page);
+    await interviewMenu
+      .locator('[data-action="open-assemblyline-settings"]')
+      .click();
     await page.locator("#assemblyline-settings-filter").waitFor({ state: "visible" });
     blockingViolations = blockingViolations.concat(
       await audit(page, "AssemblyLine settings")
@@ -268,23 +294,40 @@ async function main() {
     blockingViolations = blockingViolations.concat(
       await audit(page, "graphical question editor")
     );
-    const fieldSettingsButton = page.locator(".editor-field-kebab-btn").first();
-    if (await fieldSettingsButton.count()) {
-      await fieldSettingsButton.click();
-      await page.waitForTimeout(250);
-      blockingViolations = blockingViolations.concat(
-        await audit(page, "field settings editor")
-      );
-      await fieldSettingsButton.click();
-    } else {
-      console.log("field settings editor: fixture field has no settings control");
-    }
+    // Add a field so this audit exercises the field authoring controls even
+    // when the loaded screen has no editable field rows.
+    await page.locator("#add-field-btn").click();
+    const newField = page.locator(".editor-field-row").last();
+    await newField.waitFor({ state: "visible", timeout: 30_000 });
+    const fieldSettingsButton = newField.locator(".editor-field-kebab-btn");
+    await fieldSettingsButton.waitFor({ state: "visible", timeout: 30_000 });
+    await fieldSettingsButton.click();
+    const fieldIndex = await newField.getAttribute("data-field-idx");
+    await page.locator(`.editor-field-mods-panel[data-field-idx="${fieldIndex}"]`).waitFor({
+      state: "visible",
+      timeout: 30_000,
+    });
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "field settings editor")
+    );
+    await fieldSettingsButton.click();
     await page.locator('[data-question-tab="options"]').click();
     await page.waitForTimeout(250);
     blockingViolations = blockingViolations.concat(
       await audit(page, "question options editor")
     );
     await page.locator("#toggle-edit-mode-tab").click();
+    const unsavedChanges = page.locator("#unsaved-changes-modal");
+    await page.locator("#unsaved-changes-modal.show").waitFor({
+      state: "visible",
+      timeout: 10_000,
+    });
+    await page.waitForTimeout(350);
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "unsaved changes dialog")
+    );
+    await unsavedChanges.locator('[data-unsaved-choice="discard"]').click();
+    await unsavedChanges.waitFor({ state: "hidden", timeout: 10_000 });
     await page.locator("#block-source-editor").waitFor({ state: "visible" });
     blockingViolations = blockingViolations.concat(
       await audit(page, "question YAML editor")
@@ -313,6 +356,36 @@ async function main() {
       await audit(page, "insert-block dialog")
     );
     await closeModal(page, "#insert-modal");
+
+    // The section switcher keeps the top rail compact on laptops and tablets.
+    // Audit its expanded Interview actions as part of the full page, too.
+    await page.setViewportSize({ width: 1024, height: 1200 });
+    await page.locator("#editor-section-menu").click();
+    await page
+      .locator('[data-section-submenu="editor-interview-submenu"]')
+      .click();
+    await page.locator("#editor-interview-submenu").waitFor({
+      state: "visible",
+    });
+    await page.waitForTimeout(350);
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "compact Interview menu")
+    );
+    await page
+      .locator('#editor-interview-submenu [data-action="run-style-check"]')
+      .click();
+    await settledFindings(page);
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "compact style-check results")
+    );
+
+    // On phones, the Interview menu moves inside the collapsed navbar.
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.locator(".navbar-toggler").click();
+    await openInterviewMenu(page);
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "phone Interview menu")
+    );
 
     if (pageErrors.length) {
       console.error("Browser page errors:");

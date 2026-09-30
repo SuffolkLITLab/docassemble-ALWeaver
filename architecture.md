@@ -226,7 +226,11 @@ kept. Rejected mutations return structured diagnostics to the model and leave th
 candidate at its last valid revision, so candidate validity is monotonic. Only
 low-risk tools and a small set of deliberately implemented medium-risk ones are
 registered; blocks that `source_document.py` marks unsupported are readable but
-never rewritten. Runtime tools require `WEAVER_ENABLE_RUNTIME_INSPECTOR`, wrap
+never rewritten. The read-only `search_documentation` tool queries the public
+Algolia DocSearch index already used by the AssemblyLine documentation site;
+query length, result count and excerpts are bounded, only official documentation
+URLs are returned, and the result is labelled untrusted reference data before it
+is replayed to the model. Runtime tools require `WEAVER_ENABLE_RUNTIME_INSPECTOR`, wrap
 the existing allowlisted `al_weaver.inspect_*` actions, and label their results
 `observed_runtime` so the model cannot present a static prediction — or a seeded
 scenario fixture — as observed behaviour.
@@ -415,9 +419,11 @@ kinds of interviews that the Weaver can produce.
 - `field_grouping.py` is a copy of some features from [FormyFyxer](https://github.com/SuffolkLITLab/FormFyxer) that power the "I'm feeling lucky" button (should be deprecated)
 - `generator_constants.py` contains several lists of rules for how to transform PDF field names like `users_name_full` into Docassemble objects like `users[0].name`, as well as indicating reserved DOCX variable names that are handled by questions in the AssemblyLine's question library
 - `api_editor.py` is HTTP orchestration for the graphical editor; the editing business logic lives in the modules below
+- `editor_utils.py` parses interview-order code into source-preserving steps. The order builder supports `for` loops (`target`, `iterable`, and nested `children`), single-target assignments (`target` and `expression`), comments, and `break`/`continue`, alongside conditions, screens, gathers, sections, and calls. Assignment values and iterable expressions use the shared expression editor. Both order-writing APIs validate Python syntax and loop control placement before saving. Unsupported suites, including `for/else`, remain intact raw steps. The interview report traverses loop bodies and charts loop exits and continuation edges.
 - `editor_agent_validation.py` is the one whole-candidate validator, plus the diagnostic normalisation the editor's error drawer consumes
 - `editor_agent_models.py` holds the agent session, candidate, turn and tool-result records and their owner-scoped Redis persistence
 - `editor_agent_tools.py` is the semantic tool registry — the security and accuracy boundary for everything the model can do
+- `documentation_search.py` is the bounded client for the public AssemblyLine Algolia DocSearch index used by the assistant's read-only documentation lookup
 - `editor_agent_repair.py` deterministically fixes missing and duplicate block ids so a mechanical problem does not stop the assistant from starting
 - `editor_agent_rename.py` classifies every appearance of a variable name and renames only the references it can positively recognise
 - `editor_agent_context.py` assembles the compact interview context a turn is given, fencing untrusted reference material
@@ -460,13 +466,14 @@ The Weaver has two kinds of test that are currently configured to run on push to
 GitHub:
 
 1. Standard unit tests of pure-Python modules
-1. Integration tests using the [ALKiln](https://github.com/suffolkLITLab/ALKiln)
-   testing framework
+1. Playwright and Axe accessibility audits of the editor on a temporary
+   docassemble server
 
 Unit tests can be found in docassemble/ALWeaver/. Filenames begin with `test_`.
 
-The integration tests are located in docassemble/ALWeaver/data/sources/ and
-filenames ending with .feature will be run as ALKiln tests.
+The accessibility workflow seeds the fixtures in `.github/fixtures/editor_a11y/`
+and runs `.github/scripts/editor_a11y.js`. It audits the loaded interview,
+secondary source editors, dialogs, authoring controls, and responsive menus.
 
 In addition, `generator_test.yml` is an interactive Docassemble interview that
 will test the `map_raw_to_final_display()` function from

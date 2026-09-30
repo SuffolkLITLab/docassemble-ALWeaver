@@ -54,6 +54,7 @@
     canvasMode: 'project-selector',
     questionEditMode: 'preview',
     questionBlockTab: 'screen',
+    blankQuestionAllowed: {},
     advancedOpen: false,
     advancedShowMore: false,
     reviewMetaOpen: false,
@@ -76,6 +77,7 @@
     },
     sectionDirty: false,
     sectionSavedContent: {},
+    sectionFileRevisions: {},
     templatesMode: 'files',
     kilnTests: [],
     kilnManagedFilename: 'weaver_it_runs.feature',
@@ -109,12 +111,308 @@
     assemblyLineSettingsFilter: '',
   };
 
+  // Durable navigation is committed in one place after rendering. This also
+  // covers links from validation, search, and file-management controls.
+  var router = window.ALWeaverRouter;
+  var routeReady = false;
+  var routeApplying = false;
+  var routeSequence = 0;
+  var routeSyncQueued = false;
+  var routeReplaceNext = false;
+  var routeError = null;
+  var routeIndex = 0;
+  var routeCommittedUrl = '';
+  var routeRestoring = null;
+  var routeAcceptedPop = null;
+  var loadedInterviewKey = null;
+  var loadingFilesProject = null;
+  var fileLoadSequence = 0;
+
+  function editorRoute() {
+    var view = state.currentView;
+    var mode = state.canvasMode;
+    var documents = view === 'templates' && state.templatesMode === 'documents';
+    if (
+      !state.project ||
+      (view === 'interview' &&
+        (mode === 'project-selector' || mode === 'new-project'))
+    ) {
+      return {
+        mode: mode === 'new-project' ? mode : 'project-selector',
+        view: 'interview',
+      };
+    }
+    return {
+      project: state.project,
+      filename: view === 'interview' || documents ? state.filename : null,
+      blockId:
+        view === 'interview' && mode === 'question'
+          ? state.selectedBlockId
+          : null,
+      view: view,
+      mode: documents ? 'documents' : view === 'interview' ? mode : 'question',
+      sectionFilename:
+        view !== 'interview' && !documents
+          ? state.sectionSelectedFile[view]
+          : null,
+    };
+  }
+
+  function interviewKey() {
+    return JSON.stringify([state.project, state.filename]);
+  }
+
+  function routeFailure(message) {
+    routeError = {
+      message: message,
+      path: router.routeForState(editorRoute()),
+    };
+  }
+
+  function commitEditorRoute(replace) {
+    var path = router.routeForState(editorRoute());
+    if (!path) return;
+    var currentPath = new URL(
+      routeCommittedUrl || window.location.href,
+      window.location.href,
+    ).pathname;
+    if (path === currentPath && routeCommittedUrl) {
+      routeReplaceNext = false;
+      return;
+    }
+    var previous = router.parseRoute(currentPath);
+    var next = editorRoute();
+    // A section may choose its first file after its listing arrives. That
+    // completes the original navigation instead of adding a second Back stop.
+    if (
+      previous &&
+      previous.project === next.project &&
+      previous.view === next.view &&
+      next.view !== 'interview' &&
+      previous.mode !== 'documents' &&
+      !previous.sectionFilename &&
+      next.sectionFilename
+    )
+      replace = true;
+    if (!replace && !routeReplaceNext) routeIndex += 1;
+    window.history[replace || routeReplaceNext ? 'replaceState' : 'pushState'](
+      { alEditorIndex: routeIndex },
+      '',
+      path,
+    );
+    routeCommittedUrl = window.location.href;
+    routeReplaceNext = false;
+  }
+
+  function scheduleEditorRoute() {
+    if (!routeReady || routeSyncQueued) return;
+    routeSyncQueued = true;
+    Promise.resolve().then(function () {
+      routeSyncQueued = false;
+      if (
+        routeApplying ||
+        routeRestoring ||
+        routeAcceptedPop ||
+        _pendingNavigationAction
+      )
+        return;
+      if (state.project && loadingFilesProject === state.project) return;
+      if (
+        state.currentView === 'interview' &&
+        state.filename &&
+        state.canvasMode !== 'project-selector' &&
+        state.canvasMode !== 'new-project' &&
+        loadedInterviewKey !== interviewKey() &&
+        !routeError
+      )
+        return;
+      commitEditorRoute(false);
+    });
+  }
+
+  function resetProjectNavigation() {
+    state.filename = null;
+    state.files = [];
+    state.blocks = [];
+    state.selectedBlockId = null;
+    state.rawYaml = '';
+    state.revision = null;
+    state.documents = null;
+    state.documentsLoaded = null;
+    state.assemblyLineSettings = null;
+    state.sectionFiles = { templates: [], modules: [], static: [], data: [] };
+    state.sectionSelectedFile = {
+      templates: null,
+      modules: null,
+      static: null,
+      data: null,
+    };
+    loadedInterviewKey = null;
+  }
+
+  async function applyEditorRoute(route) {
+    var sequence = ++routeSequence;
+    function isCurrentDestination() {
+      return (
+        sequence === routeSequence &&
+        state.project === (route.project || null) &&
+        state.currentView === (route.view || 'interview') &&
+        state.canvasMode ===
+          (route.mode === 'documents' ? 'question' : route.mode)
+      );
+    }
+    routeApplying = true;
+    loadingFilesProject = null;
+    routeError = null;
+    // All in-flight resource loads carry this sequence as well as their keys.
+    // Going back to the selector must invalidate them even without another GET.
+    var sameInterview =
+      route.project === state.project &&
+      route.filename === state.filename &&
+      loadedInterviewKey === interviewKey();
+    if (route.project !== state.project) resetProjectNavigation();
+    state.project = route.project || null;
+    state.currentView = route.view || 'interview';
+    state.canvasMode = route.mode === 'documents' ? 'question' : route.mode;
+    state.templatesMode = route.mode === 'documents' ? 'documents' : 'files';
+    state.searchQuery = '';
+    searchInput.value = '';
+    state.fullYamlTab = 'full';
+    state.questionEditMode = 'preview';
+    if (state.currentView === 'interview') {
+      state.filename = route.filename || null;
+      state.selectedBlockId = route.blockId || null;
+    } else {
+      if (route.filename) state.filename = route.filename;
+      state.sectionSelectedFile[state.currentView] =
+        route.sectionFilename || null;
+    }
+    populateProjects();
+    renderOutline();
+    renderCanvas();
+    try {
+      if (route.project && state.projects.indexOf(route.project) === -1) {
+        routeFailure('Project "' + route.project + '" was not found.');
+      } else if (route.project) {
+        if (!sameInterview) await loadFiles(route);
+        if (!isCurrentDestination()) return;
+        if (!routeError && route.view !== 'interview') {
+          await loadSectionFiles(route.view, route.sectionFilename);
+        }
+        if (!isCurrentDestination()) return;
+        if (!routeError && sameInterview && !route.blockId) {
+          state.selectedBlockId = getDefaultVisibleBlockId();
+        }
+        if (!routeError && route.blockId) {
+          var requestedBlock = getBlockById(route.blockId);
+          state.selectedBlockId = route.blockId;
+          if (!requestedBlock) {
+            routeFailure(
+              'Block "' + route.blockId + '" was not found in this interview.',
+            );
+          } else if (!isBlockVisibleInOutline(requestedBlock)) {
+            state.jumpTarget = 'all';
+            syncJumpSelect();
+          }
+        }
+        if (
+          !routeError &&
+          route.mode === 'runtime-inspector' &&
+          !(BOOT.features && BOOT.features.runtimeInspector)
+        ) {
+          routeFailure('The runtime inspector is not enabled on this server.');
+        }
+        if (!routeError && route.mode === 'assemblyline-settings')
+          await loadAssemblyLineSettings();
+        if (!routeError && route.mode === 'tests-overview')
+          await loadKilnTestsOverview();
+        if (!routeError && route.mode === 'order-builder')
+          await enterOrderBuilder(null, 'route');
+      }
+    } catch (error) {
+      if (sequence === routeSequence && !isSupersededRequest(error)) {
+        routeFailure(error.message || 'Unable to open this editor location.');
+      }
+    } finally {
+      if (sequence === routeSequence) {
+        var restoredDestination = isCurrentDestination();
+        routeApplying = false;
+        dirtyState.activate(state.filename, state.selectedBlockId);
+        populateFiles();
+        renderOutline();
+        renderCanvas();
+        // Default interview/block selections normalize the entry being loaded.
+        commitEditorRoute(restoredDestination);
+      }
+    }
+  }
+
+  function startEditorRouter() {
+    var existingIndex =
+      window.history.state && window.history.state.alEditorIndex;
+    routeIndex = Number.isInteger(existingIndex) ? existingIndex : 0;
+    window.history.replaceState(
+      { alEditorIndex: routeIndex },
+      '',
+      window.location.href,
+    );
+    routeCommittedUrl = window.location.href;
+    routeReady = true;
+    var route = router.parseRoute(window.location.pathname);
+    if (route) applyEditorRoute(route);
+    else {
+      state.canvasMode = 'project-selector';
+      routeFailure('This editor location was not found.');
+      renderCanvas();
+    }
+  }
+
+  window.addEventListener('popstate', function (event) {
+    if (!routeReady) return;
+    var nextIndex = event.state && event.state.alEditorIndex;
+    var destination = { url: window.location.href, index: nextIndex };
+    if (routeRestoring && nextIndex === routeIndex) {
+      destination = routeRestoring;
+      routeRestoring = null;
+      var resume = function () {
+        routeAcceptedPop = destination.url;
+        window.history.go(destination.index - routeIndex);
+      };
+      if (
+        !deferNavigationForUnsavedChanges(
+          'go to another editor location',
+          resume,
+        )
+      )
+        resume();
+      return;
+    }
+    var route = router.parseRoute(window.location.pathname);
+    if (!route) return;
+    var accepted = routeAcceptedPop === window.location.href;
+    routeAcceptedPop = null;
+    if (!accepted && Number.isInteger(nextIndex) && nextIndex !== routeIndex) {
+      // Restore the current entry BEFORE asking. Stay (or failed Save) then
+      // leaves both the history pointer and dirty editor exactly where they were.
+      if (stashCurrentEditorState() === false || hasUnsavedChanges()) {
+        routeRestoring = destination;
+        window.history.go(routeIndex - nextIndex);
+        return;
+      }
+    }
+    routeIndex = Number.isInteger(nextIndex) ? nextIndex : 0;
+    routeCommittedUrl = window.location.href;
+    dismissTransientTools({});
+    applyEditorRoute(route);
+  });
+
   var RECENT_PROJECTS_STORAGE_KEY = 'alweaver_recent_projects';
   var VALIDATION_DOCK_STORAGE_KEY = 'alweaver_validation_dock';
   var VALIDATION_DOCKS = ['bottom', 'tall', 'side', 'full'];
   var MAX_RECENT_PROJECTS = 8;
   var _symbolInsertContext = null;
   var _templateInsertContext = null;
+  var _templateInsertBusy = false;
   var _alFieldMethodContext = null;
   var _pendingOrderInsert = null;
   var _lastInsertedOrderStepId = null;
@@ -190,7 +488,10 @@
     var fileSection = document.getElementById('editor-file-section');
     var jumpTargets = document.getElementById('jump-targets');
     if (fileSection)
-      fileSection.classList.toggle('editor-section-hidden', !isInterviewView());
+      fileSection.classList.toggle(
+        'editor-secondary-files',
+        !isInterviewView(),
+      );
     if (jumpTargets) jumpTargets.classList.toggle('d-none', !isInterviewView());
     updateOutlineHeader();
   }
@@ -211,8 +512,18 @@
   function updateTopbarSaveState() {
     var buttons = document.querySelectorAll('.js-save-file-btn');
     if (!buttons.length) return;
+    var canvasSave = document.getElementById('editor-canvas-save');
+    if (canvasSave)
+      canvasSave.classList.toggle(
+        'd-none',
+        !state.project ||
+          !isInterviewView() ||
+          state.canvasMode !== 'question' ||
+          !getSelectedBlock(),
+      );
     dirtyState.activate(state.filename, state.selectedBlockId);
     var isDirty =
+      blankQuestionNeedsDecision() ||
       dirtyState.hasDirty(state.filename) ||
       state.sectionDirty ||
       state.assemblyLineSettingsDirty ||
@@ -289,8 +600,50 @@
     );
   }
 
+  function blankQuestionKey(block) {
+    return JSON.stringify([state.project, state.filename, block.id]);
+  }
+
+  function blankQuestionNeedsDecision() {
+    if (state.currentView !== 'interview' || !state.selectedBlockId)
+      return false;
+    var block = getBlockById(state.selectedBlockId);
+    if (!isQuestionEditorBlock(block)) return false;
+    if (
+      state.questionEditMode === 'yaml' &&
+      dirtyState.hasDirty(state.filename)
+    )
+      return false;
+    var titleInput = document.getElementById('q-title');
+    var questionText =
+      titleInput && titleInput.getAttribute('data-block-id') === block.id
+        ? titleInput.value
+        : String((block.data && block.data.question) || '');
+    return (
+      !questionText.trim() &&
+      !state.blankQuestionAllowed[blankQuestionKey(block)]
+    );
+  }
+
+  function setBlankQuestionAllowed(allowed) {
+    var block = state.selectedBlockId && getBlockById(state.selectedBlockId);
+    if (!isQuestionEditorBlock(block)) return;
+    var key = blankQuestionKey(block);
+    if (allowed) state.blankQuestionAllowed[key] = true;
+    else delete state.blankQuestionAllowed[key];
+    var titleInput = document.getElementById('q-title');
+    if (titleInput) {
+      titleInput.required = !allowed;
+      titleInput.setCustomValidity('');
+    }
+    var inlineCheckbox = document.getElementById('q-allow-blank');
+    if (inlineCheckbox) inlineCheckbox.checked = allowed;
+    updateTopbarSaveState();
+  }
+
   function hasUnsavedChanges() {
     return (
+      blankQuestionNeedsDecision() ||
       dirtyState.hasDirty(state.filename) ||
       state.sectionDirty ||
       state.assemblyLineSettingsDirty ||
@@ -301,6 +654,16 @@
   function sectionSnapshotKey() {
     var filename = state.sectionSelectedFile[state.currentView] || '';
     return [state.project || '', state.currentView || '', filename].join('::');
+  }
+
+  function sectionRevisionFor(view, filename) {
+    var key = [state.project || '', view || '', filename || ''].join('::');
+    if (state.sectionFileRevisions[key]) return state.sectionFileRevisions[key];
+    var files = getSectionFiles(view);
+    for (var i = 0; i < files.length; i++) {
+      if (files[i].filename === filename) return files[i].revision || null;
+    }
+    return null;
   }
 
   function discardSectionChanges() {
@@ -360,9 +723,18 @@
     var container = document.getElementById(containerId);
     if (!container) return null;
     options = options || {};
+    function unavailable(message) {
+      container.innerHTML = '';
+      var alert = document.createElement('div');
+      alert.className = 'alert alert-danger';
+      alert.setAttribute('role', 'alert');
+      alert.textContent = message;
+      container.appendChild(alert);
+      throw new Error(message);
+    }
     if (typeof window.daNewEditor !== 'function') {
-      throw new Error(
-        'CodeMirror is missing in your Docassemble install. Maybe you need a newer Weaver version?',
+      unavailable(
+        'The source editor could not load because the Docassemble CodeMirror bundle is missing. Reload this page; if the problem continues, ask your administrator to check the Docassemble and Weaver installation.',
       );
     }
     if (!Array.isArray(window.daAutoComp)) window.daAutoComp = [];
@@ -379,8 +751,8 @@
       true,
     );
     if (!bundle || !bundle.ev) {
-      throw new Error(
-        'Docassemble could not initialize its CodeMirror editor.',
+      unavailable(
+        'Docassemble could not initialize the source editor. Reload this page; if the problem continues, ask your administrator to check the Docassemble and Weaver installation.',
       );
     }
     var view = bundle.ev;
@@ -402,6 +774,10 @@
         options.ariaLabel || 'Source editor',
       );
       view.contentDOM.setAttribute('aria-multiline', 'true');
+      // contenteditable is already a tab stop, but axe only recognises focusable
+      // content in a scrollable region by tabindex, so a long file fails
+      // scrollable-region-focusable without it.
+      view.contentDOM.setAttribute('tabindex', '0');
     }
     var editor = {
       getValue: function () {
@@ -437,7 +813,11 @@
     };
     if (options.onChange) editor.onChange(options.onChange);
     _sourceEditors[containerId] = editor;
-    if (expressionEditor && containerId !== 'expression-modal-source') {
+    if (
+      expressionEditor &&
+      options.expressions !== false &&
+      containerId !== 'expression-modal-source'
+    ) {
       container.classList.add('expression-selectable-source');
       var expressionAction = document.createElement('button');
       expressionAction.type = 'button';
@@ -508,6 +888,11 @@
   }
 
   function expressionModifierYamlValue(key, value) {
+    if (
+      typeof value === 'string' &&
+      ['none of the above', 'all of the above'].indexOf(key) !== -1
+    )
+      return escapeYamlStr(value);
     var pythonModifiers = [
       'validate',
       'disabled',
@@ -532,11 +917,18 @@
       if (/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(scalar)) return scalar;
       return escapeYamlStr(value);
     }
-    return escapeYamlStr(String(value));
+    return window.ALWeaverSerializers.fieldModifierYamlValue(key, value);
   }
 
   function readExpressionModifier(input, original) {
     var value = input ? input.value.trim() : '';
+    if (
+      original !== undefined &&
+      original !== null &&
+      typeof original !== 'string' &&
+      String(original) === value
+    )
+      return original;
     if (
       value &&
       ((original && typeof original === 'object') ||
@@ -629,6 +1021,12 @@
       .forEach(function (input) {
         input.dataset.expressionContext = 'code';
       });
+    document
+      .querySelectorAll('textarea[data-choice-expression="true"]')
+      .forEach(function (input) {
+        input.dataset.expressionContext = 'value';
+        input.dataset.expressionWrapper = '';
+      });
     // Text/Mako fields need an insertion action: only the selected Python span
     // is edited. Unselected prose and existing template directives stay exact.
     document
@@ -644,7 +1042,9 @@
         host.dataset.expressionReady = 'true';
         var action = document.createElement('button');
         action.type = 'button';
-        action.className = 'btn btn-sm btn-outline-secondary';
+        action.className = host.matches('textarea')
+          ? 'btn btn-sm btn-outline-secondary'
+          : 'dropdown-item';
         action.textContent = 'Insert / edit expression';
         action.title =
           'Select a Python expression or a complete ${ expression }, or insert at the cursor';
@@ -670,7 +1070,7 @@
               );
             },
             'Python expression in template text',
-            action,
+            host.querySelector('.editor-md-kebab') || action,
           );
         });
         if (host.matches('textarea')) {
@@ -678,7 +1078,11 @@
           group.className = 'expression-input-group';
           host.insertAdjacentElement('beforebegin', group);
           group.append(host, action);
-        } else host.appendChild(action);
+        } else {
+          var menuItem = document.createElement('li');
+          menuItem.appendChild(action);
+          host.querySelector('[data-md-more-menu]').prepend(menuItem);
+        }
       });
   }
 
@@ -1296,7 +1700,19 @@
     if (!modalEl || typeof bootstrap === 'undefined' || !bootstrap.Modal)
       return;
     var instance = bootstrap.Modal.getInstance(modalEl);
-    if (instance) instance.hide();
+    if (!instance) return;
+    instance.hide();
+    // Bootstrap ignores hide() during its opening transition. Fast keyboard
+    // or pointer actions can finish a dialog before that transition ends.
+    if (modalEl.classList.contains('show')) {
+      modalEl.addEventListener(
+        'shown.bs.modal',
+        function () {
+          instance.hide();
+        },
+        { once: true },
+      );
+    }
   }
 
   /* The block templates live in editor_serializers.js so a test can require
@@ -1397,7 +1813,10 @@
         ? state.orderStepMap[nextOrderBlockId]
         : data.order_steps || [],
     );
-    state.selectedBlockId = data.inserted_block_id || state.selectedBlockId;
+    state.selectedBlockId =
+      options.selectedBlockId ||
+      data.inserted_block_id ||
+      state.selectedBlockId;
     if (
       !state.selectedBlockId ||
       !getBlockById(state.selectedBlockId) ||
@@ -1431,6 +1850,14 @@
     renderOutline();
     renderCanvas();
     runCurrentValidationCheck();
+  }
+
+  function refreshAfterBlockSave(data, originalBlockId, savedBlockId) {
+    if (originalBlockId !== savedBlockId) routeReplaceNext = true;
+    refreshFromFileResponse(data, {
+      savedBlockId: originalBlockId,
+      selectedBlockId: savedBlockId,
+    });
   }
 
   // Applying an assistant candidate replaces the working buffer only.
@@ -1479,8 +1906,11 @@
   }
 
   function setActiveTopTab(targetTab) {
-    $$('.editor-top-tab').forEach(function (tab) {
-      var isActive = tab === targetTab;
+    var activeView = targetTab.getAttribute('data-view');
+    var sectionLabel = document.getElementById('editor-section-label');
+    if (sectionLabel) sectionLabel.textContent = targetTab.textContent.trim();
+    $$('.editor-top-tab, .editor-view-switch').forEach(function (tab) {
+      var isActive = tab.getAttribute('data-view') === activeView;
       tab.classList.toggle('active', isActive);
       if (isActive) {
         tab.setAttribute('aria-current', 'page');
@@ -1488,6 +1918,26 @@
         tab.removeAttribute('aria-current');
       }
     });
+  }
+
+  function setSectionSubmenu(openId) {
+    document
+      .querySelectorAll('.editor-section-submenu-toggle')
+      .forEach(function (toggle) {
+        var submenu = document.getElementById(
+          toggle.getAttribute('data-section-submenu'),
+        );
+        var isOpen = Boolean(submenu && submenu.id === openId);
+        toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        if (submenu) submenu.classList.toggle('d-none', !isOpen);
+      });
+  }
+
+  function hideSectionSwitcher() {
+    var trigger = document.getElementById('editor-section-menu');
+    if (!trigger || !window.bootstrap || !window.bootstrap.Dropdown) return;
+    var dropdown = window.bootstrap.Dropdown.getInstance(trigger);
+    if (dropdown) dropdown.hide();
   }
 
   // -------------------------------------------------------------------------
@@ -2380,7 +2830,7 @@
     if (argsInput) argsInput.value = parts.join(', ');
     var block = getSelectedBlock();
     if (block && block.type === 'question') {
-      syncFieldsToData(block);
+      if (syncFieldsToData(block) === false) return false;
       markInterviewDirty('set-al-field-method-options:' + context.fieldIndex);
     }
     closeBootstrapModal('al-field-method-modal');
@@ -2685,7 +3135,56 @@
   }
 
   function apiPost(path, body, options) {
-    return apiClient.post(path, body, options);
+    body = window.ALWeaverApiClient.attachExpectedRevision(path, body, {
+      project: state.project,
+      filename: state.filename,
+      revision: state.revision,
+    });
+    return apiClient
+      .post(path, body, options)
+      .catch(function (error) {
+        if (
+          !error ||
+          error.code !== 'draft_confirmation_required' ||
+          !body ||
+          typeof body !== 'object' ||
+          Array.isArray(body)
+        )
+          throw error;
+        var details = error.details || {};
+        var count = Number(details.blocking_count || 0);
+        var description = count
+          ? count + ' validation error' + (count === 1 ? '' : 's')
+          : 'validation errors';
+        var message =
+          'This source has ' +
+          description +
+          '. Save it as a draft anyway? You can keep editing it; run Check errors before relying on the interview.';
+        if (!window.confirm(message)) {
+          return {
+            success: false,
+            error: {
+              code: 'draft_save_cancelled',
+              message: 'Draft save cancelled; your unsaved changes remain.',
+            },
+          };
+        }
+        return apiClient.post(
+          path,
+          Object.assign({}, body, { save_as_draft: true }),
+          options,
+        );
+      })
+      .then(function (res) {
+        if (
+          res.success &&
+          /\/(rename|delete)$/.test(path) &&
+          body &&
+          body.project === state.project
+        )
+          routeReplaceNext = true;
+        return res;
+      });
   }
 
   function apiDelete(path, body, options) {
@@ -2712,6 +3211,120 @@
     if (!status) return;
     status.className = 'alert py-2 alert-' + (kind || 'secondary');
     status.textContent = message;
+  }
+
+  function showGithubPublishedTarget(sync) {
+    var existing = document.getElementById('github-publish-existing');
+    var repositoryLink = document.getElementById('github-repository-link');
+    var commitLink = document.getElementById('github-commit-link');
+    var published = Boolean(sync && sync.published && sync.commit_url);
+    if (existing) {
+      existing.classList.toggle('d-none', !published);
+      existing.textContent = published
+        ? 'Last published to ' +
+          sync.owner +
+          '/docassemble-' +
+          sync.package +
+          ' on ' +
+          sync.branch +
+          '.'
+        : '';
+    }
+    [
+      [repositoryLink, sync && sync.repository_url],
+      [commitLink, sync && sync.commit_url],
+    ].forEach(function (entry) {
+      var link = entry[0];
+      if (!link) return;
+      if (published) link.href = entry[1];
+      else link.removeAttribute('href');
+      link.classList.toggle('d-none', !published);
+    });
+  }
+
+  var githubPublishPreviewToken = null;
+
+  function clearGithubPublishPreview(message) {
+    githubPublishPreviewToken = null;
+    var preview = document.getElementById('github-publish-preview');
+    var submit = document.getElementById('github-publish-submit');
+    if (preview) preview.hidden = true;
+    if (submit) submit.disabled = true;
+    if (message) setGithubPublishStatus(message, 'secondary');
+  }
+
+  function renderGithubPublishPreview(data) {
+    var preview = document.getElementById('github-publish-preview');
+    var summary = document.getElementById('github-publish-preview-summary');
+    var fileCount = document.getElementById(
+      'github-publish-preview-file-count',
+    );
+    var fileList = document.getElementById('github-publish-preview-files');
+    var changes = document.getElementById('github-publish-preview-changes');
+    if (!preview || !summary || !fileList || !changes) return;
+    fileList.replaceChildren();
+    changes.replaceChildren();
+    (data.files || []).forEach(function (path) {
+      var item = document.createElement('li');
+      item.textContent = path;
+      fileList.appendChild(item);
+    });
+    if (fileCount)
+      fileCount.textContent =
+        (data.files || []).length +
+        ((data.files || []).length === 1 ? ' file' : ' files');
+    if (data.repository_missing) {
+      summary.textContent =
+        'The repository or branch is not available yet. The preview shows the files Weaver will add; GitHub will check access when you publish.';
+      summary.className = 'alert alert-warning py-2';
+    } else if (data.remote_advanced) {
+      summary.textContent =
+        'This branch has advanced since Weaver last synchronized it. Pull and reconcile those changes before publishing.';
+      summary.className = 'alert alert-danger py-2';
+    } else {
+      summary.textContent =
+        'Target: ' +
+        data.owner +
+        '/' +
+        'docassemble-' +
+        data.package +
+        ' — ' +
+        data.branch +
+        '. Review the file changes below before publishing.';
+      summary.className = 'alert alert-info py-2';
+    }
+    var rows = data.changes || [];
+    if (!rows.length) {
+      changes.textContent = 'No file content changes on this branch.';
+    } else {
+      rows.forEach(function (change) {
+        var details = document.createElement('details');
+        details.className = 'mb-2';
+        var heading = document.createElement('summary');
+        heading.textContent = change.change.toUpperCase() + '  ' + change.path;
+        details.appendChild(heading);
+        if (change.binary) {
+          var binary = document.createElement('div');
+          binary.className = 'text-muted mt-1';
+          binary.textContent = 'Binary file; content diff is not available.';
+          details.appendChild(binary);
+        } else if (change.diff) {
+          var diff = document.createElement('pre');
+          diff.className = 'small bg-light border rounded p-2 mt-2';
+          diff.style.maxHeight = '18rem';
+          diff.style.overflow = 'auto';
+          diff.textContent =
+            change.diff + (change.diff_truncated ? '\n… diff truncated' : '');
+          details.appendChild(diff);
+        }
+        changes.appendChild(details);
+      });
+    }
+    preview.hidden = false;
+    githubPublishPreviewToken = data.preview_token || null;
+    var submit = document.getElementById('github-publish-submit');
+    if (submit)
+      submit.disabled = !githubPublishPreviewToken || data.remote_advanced;
   }
 
   function _pollGithubPublishJob(jobUrl) {
@@ -2775,14 +3388,193 @@
     });
   }
 
+  var githubWorkflowAccessByOwner = {};
+
+  function githubWorkflowAccessLink(access) {
+    var labels = {
+      reconnect: 'Reconnect GitHub',
+      approve: 'Review the App permissions',
+      install: 'Install the GitHub App',
+    };
+    var href = access.url;
+    if (access.action === 'reconnect') {
+      var configure = document.getElementById('github-configure-link');
+      href = configure && configure.href;
+    }
+    if (!href || !labels[access.action]) return null;
+    var link = document.createElement('a');
+    link.href = href;
+    link.textContent = labels[access.action];
+    if (access.action !== 'reconnect') {
+      link.target = '_blank';
+      link.rel = 'noopener';
+    }
+    return link;
+  }
+
+  function appendGithubWorkflowAccessLink(element, access) {
+    var link = access && githubWorkflowAccessLink(access);
+    if (!element || !link) return;
+    element.appendChild(document.createTextNode(' '));
+    element.appendChild(link);
+  }
+
+  function showGithubWorkflowAccess() {
+    var notice = document.getElementById('github-workflow-access');
+    var ownerSelect = document.getElementById('github-owner');
+    if (!notice) return;
+    var access = ownerSelect
+      ? githubWorkflowAccessByOwner[ownerSelect.value]
+      : null;
+    notice.replaceChildren();
+    if (
+      !access ||
+      !access.message ||
+      access.status === 'granted' ||
+      access.status === 'unknown'
+    ) {
+      notice.classList.add('d-none');
+      return;
+    }
+    notice.textContent =
+      'Workflows cannot be published to this account. ' +
+      access.message +
+      ' Everything else still publishes.';
+    appendGithubWorkflowAccessLink(notice, access);
+    notice.classList.remove('d-none');
+  }
+
+  var githubBranchRequest = 0;
+  var githubBranchTimer = null;
+
+  function githubBranchValue() {
+    var select = document.getElementById('github-branch-name');
+    var newName = document.getElementById('github-new-branch-name');
+    return select && select.value === '<new>'
+      ? (newName && newName.value) || ''
+      : (select && select.value) || '';
+  }
+
+  function updateGithubNewBranchInput() {
+    var select = document.getElementById('github-branch-name');
+    var newName = document.getElementById('github-new-branch-name');
+    if (!newName) return;
+    var isNew = !!select && select.value === '<new>';
+    newName.classList.toggle('d-none', !isNew);
+    newName.disabled = !isNew;
+    newName.required = isNew;
+  }
+
+  function resetGithubBranchChoices(label) {
+    githubBranchRequest += 1;
+    clearTimeout(githubBranchTimer);
+    var select = document.getElementById('github-branch-name');
+    var retry = document.getElementById('github-branch-retry');
+    var preview = document.getElementById('github-publish-preview-button');
+    if (select) {
+      select.disabled = true;
+      select.replaceChildren();
+      var placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = label;
+      select.appendChild(placeholder);
+      select.value = '';
+    }
+    if (retry) retry.classList.add('d-none');
+    if (preview) preview.disabled = true;
+    updateGithubNewBranchInput();
+  }
+
+  function loadGithubBranches(savedBranch) {
+    var owner = document.getElementById('github-owner');
+    var packageInput = document.getElementById('github-package-name');
+    if (!owner || !owner.value || !packageInput || !packageInput.value.trim()) {
+      resetGithubBranchChoices('Choose a repository to load branches');
+      return;
+    }
+    resetGithubBranchChoices('Loading branches…');
+    var request = githubBranchRequest;
+    var select = document.getElementById('github-branch-name');
+    var newName = document.getElementById('github-new-branch-name');
+    var retry = document.getElementById('github-branch-retry');
+    var preview = document.getElementById('github-publish-preview-button');
+    apiGet(
+      '/api/github/branches?project=' +
+        encodeURIComponent(state.project) +
+        '&owner=' +
+        encodeURIComponent(owner.value) +
+        '&package=' +
+        encodeURIComponent(packageInput.value.trim()),
+    )
+      .then(function (res) {
+        if (request !== githubBranchRequest) return;
+        if (!res.success || !res.data) {
+          throw new Error(
+            (res.error && res.error.message) ||
+              'Unable to load GitHub branches.',
+          );
+        }
+        var data = res.data;
+        var existing = data.branches || [];
+        select.replaceChildren();
+        if (newName) newName.value = '';
+        existing.forEach(function (branch) {
+          var option = document.createElement('option');
+          option.value = branch;
+          option.textContent = branch;
+          select.appendChild(option);
+        });
+        var newOption = document.createElement('option');
+        newOption.value = '<new>';
+        newOption.textContent = 'New branch...';
+        select.appendChild(newOption);
+        if (savedBranch && existing.includes(savedBranch)) {
+          select.value = savedBranch;
+        } else if (savedBranch || !existing.length) {
+          select.value = '<new>';
+          if (newName)
+            newName.value = savedBranch || data.default_branch || 'main';
+        } else if (existing.includes(data.default_branch)) {
+          select.value = data.default_branch;
+        } else {
+          select.value = existing[0];
+        }
+        select.disabled = false;
+        updateGithubNewBranchInput();
+        if (preview) preview.disabled = false;
+      })
+      .catch(function (error) {
+        if (request !== githubBranchRequest) return;
+        resetGithubBranchChoices('Unable to load branches');
+        if (retry) retry.classList.remove('d-none');
+        setGithubPublishStatus(
+          error && error.message
+            ? error.message
+            : 'Unable to load GitHub branches.',
+          'danger',
+        );
+      });
+  }
+
   function applyGithubIntegrationStatus(data) {
     var submit = document.getElementById('github-publish-submit');
     var configure = document.getElementById('github-configure-link');
     var packageInput = document.getElementById('github-package-name');
     var ownerSelect = document.getElementById('github-owner');
-    if (packageInput && data && data.default_package) {
-      packageInput.value = data.default_package;
+    var sync = data && data.sync;
+    resetGithubBranchChoices('Choose a repository to load branches');
+    showGithubPublishedTarget(sync);
+    githubWorkflowAccessByOwner = {};
+    showGithubWorkflowAccess();
+    if (ownerSelect && !(data && data.enabled && data.connected)) {
+      // Accounts only load once GitHub is connected; don't claim otherwise.
+      ownerSelect.replaceChildren();
+      var unavailable = document.createElement('option');
+      unavailable.textContent = 'Connect GitHub to choose an account';
+      ownerSelect.appendChild(unavailable);
     }
+    if (packageInput && data)
+      packageInput.value = (sync && sync.package) || data.default_package || '';
     if (configure) {
       configure.classList.toggle('d-none', !(data && data.configure_url));
       if (data && data.configure_url) configure.href = data.configure_url;
@@ -2815,6 +3607,7 @@
     if (ownerSelect) {
       ownerSelect.replaceChildren();
       (data.owners || []).forEach(function (owner) {
+        githubWorkflowAccessByOwner[owner.login] = owner.workflow_access;
         var option = document.createElement('option');
         option.value = owner.login;
         option.textContent =
@@ -2823,8 +3616,24 @@
         option.disabled = owner.available === false;
         ownerSelect.appendChild(option);
       });
+      if (sync && sync.owner) {
+        var savedOwner = (data.owners || []).find(function (owner) {
+          return owner.login.toLowerCase() === sync.owner.toLowerCase();
+        });
+        if (savedOwner && savedOwner.available !== false) {
+          ownerSelect.value = savedOwner.login;
+        } else {
+          var unavailableOwner = document.createElement('option');
+          unavailableOwner.value = '';
+          unavailableOwner.textContent = sync.owner + ' (unavailable)';
+          unavailableOwner.disabled = true;
+          ownerSelect.prepend(unavailableOwner);
+          ownerSelect.value = '';
+        }
+      }
       ownerSelect.disabled = !(data.owners && data.owners.length);
     }
+    showGithubWorkflowAccess();
     if (!data.owners || !data.owners.length) {
       setGithubPublishStatus(
         'GitHub did not return an account or organization that can own the repository.',
@@ -2848,13 +3657,27 @@
         'success',
       );
     }
-    if (submit) submit.disabled = false;
+    if (submit) submit.disabled = true;
+    setGithubPublishStatus(
+      'Connected. Choose the target and preview the files before publishing.',
+      'success',
+    );
+    if (sync && sync.owner && (!ownerSelect || !ownerSelect.value)) {
+      setGithubPublishStatus(
+        'The saved GitHub owner is unavailable. Choose an account before publishing.',
+        'warning',
+      );
+    } else {
+      loadGithubBranches(sync && sync.branch);
+    }
   }
 
   function refreshGithubSyncAction() {
-    var item = document.getElementById('github-pull-menu-item');
-    if (!item) return;
-    item.classList.add('d-none');
+    var items = document.querySelectorAll('.js-github-pull-menu-item');
+    if (!items.length) return;
+    items.forEach(function (item) {
+      item.classList.add('d-none');
+    });
     if (!state.project || state.canvasMode === 'project-selector') return;
     var checkedProject = state.project;
     apiGet(
@@ -2866,26 +3689,34 @@
           state.project !== checkedProject ||
           state.canvasMode === 'project-selector'
         ) {
-          item.classList.add('d-none');
+          items.forEach(function (item) {
+            item.classList.add('d-none');
+          });
           return;
         }
         if (res.success && res.data && res.data.sync) {
           state.projectSyncs[checkedProject] = res.data.sync;
-          item.classList.remove('d-none');
-          var button = item.querySelector('[data-action="pull-github"]');
-          if (button)
-            button.title =
-              'Merge ' +
-              res.data.sync.branch +
-              ' from ' +
-              res.data.sync.repository_url;
+          items.forEach(function (item) {
+            item.classList.remove('d-none');
+            var button = item.querySelector('[data-action="pull-github"]');
+            if (button)
+              button.title =
+                'Merge ' +
+                res.data.sync.branch +
+                ' from ' +
+                res.data.sync.repository_url;
+          });
         } else {
           delete state.projectSyncs[checkedProject];
-          item.classList.add('d-none');
+          items.forEach(function (item) {
+            item.classList.add('d-none');
+          });
         }
       })
       .catch(function () {
-        item.classList.add('d-none');
+        items.forEach(function (item) {
+          item.classList.add('d-none');
+        });
       });
   }
 
@@ -2950,13 +3781,18 @@
         var modal = getOrCreateBootstrapModal('github-publish-modal');
         var submit = document.getElementById('github-publish-submit');
         var configure = document.getElementById('github-configure-link');
-        var repositoryLink = document.getElementById('github-repository-link');
-        var commitLink = document.getElementById('github-commit-link');
+        var previewButton = document.getElementById(
+          'github-publish-preview-button',
+        );
         var ownerSelect = document.getElementById('github-owner');
+        resetGithubBranchChoices('Choose a repository to load branches');
         if (submit) submit.disabled = true;
+        if (previewButton) previewButton.disabled = true;
+        clearGithubPublishPreview();
         if (configure) configure.classList.add('d-none');
-        if (repositoryLink) repositoryLink.classList.add('d-none');
-        if (commitLink) commitLink.classList.add('d-none');
+        githubWorkflowAccessByOwner = {};
+        showGithubWorkflowAccess();
+        showGithubPublishedTarget(null);
         if (ownerSelect) {
           ownerSelect.disabled = true;
           ownerSelect.replaceChildren();
@@ -2990,6 +3826,12 @@
                 : 'Unable to check GitHub integration.',
               'danger',
             );
+          })
+          .then(function () {
+            // Workflows and dependencies do not need a GitHub connection.
+            // Loading after the status check picks up its default package
+            // name, which pyproject.toml is named after.
+            loadGithubRepositoryConfig();
           });
       },
     );
@@ -2998,26 +3840,131 @@
   function initGithubPublishing() {
     var form = document.getElementById('github-publish-form');
     if (!form) return;
+    initGithubRepositorySettings();
+    var ownerSelect = document.getElementById('github-owner');
+    var packageInput = document.getElementById('github-package-name');
+    var branchInput = document.getElementById('github-branch-name');
+    var newBranchInput = document.getElementById('github-new-branch-name');
+    var branchRetry = document.getElementById('github-branch-retry');
+    var previewButton = document.getElementById(
+      'github-publish-preview-button',
+    );
+    function githubTargetChanged() {
+      clearGithubPublishPreview(
+        'Target changed. Preview the repository changes again.',
+      );
+    }
+    if (ownerSelect)
+      ownerSelect.addEventListener('change', function () {
+        showGithubWorkflowAccess();
+        githubTargetChanged();
+        loadGithubBranches();
+      });
+    if (packageInput)
+      packageInput.addEventListener('input', function () {
+        githubTargetChanged();
+        resetGithubBranchChoices('Loading branches…');
+        githubBranchTimer = setTimeout(loadGithubBranches, 350);
+      });
+    if (branchInput)
+      branchInput.addEventListener('change', function () {
+        updateGithubNewBranchInput();
+        githubTargetChanged();
+      });
+    if (branchRetry)
+      branchRetry.addEventListener('click', function () {
+        loadGithubBranches();
+      });
+    if (newBranchInput)
+      newBranchInput.addEventListener('input', githubTargetChanged);
+    if (previewButton)
+      previewButton.addEventListener('click', function () {
+        if (!state.project || !form.reportValidity()) return;
+        var owner = document.getElementById('github-owner');
+        var packageName = document.getElementById('github-package-name');
+        var selectedOwner = owner ? owner.value : '';
+        var selectedPackage = packageName ? packageName.value : '';
+        var selectedBranch = githubBranchValue();
+        var branchRequest = githubBranchRequest;
+        function targetUnchanged() {
+          return (
+            branchRequest === githubBranchRequest &&
+            selectedOwner === (owner ? owner.value : '') &&
+            selectedPackage === (packageName ? packageName.value : '') &&
+            selectedBranch === githubBranchValue()
+          );
+        }
+        previewButton.disabled = true;
+        clearGithubPublishPreview();
+        setGithubPublishStatus('Building the package preview…', 'info');
+        saveDirtyGithubEditors()
+          .then(function () {
+            if (!targetUnchanged()) return null;
+            return apiPost('/api/github/publish/preview', {
+              project: state.project,
+              owner: selectedOwner,
+              package: selectedPackage,
+              branch: selectedBranch,
+            });
+          })
+          .then(function (res) {
+            if (!targetUnchanged()) return;
+            if (!res.success || !res.data) {
+              throw new Error(
+                (res.error && res.error.message) ||
+                  'Unable to preview the GitHub publish.',
+              );
+            }
+            renderGithubPublishPreview(res.data);
+            setGithubPublishStatus(
+              res.data.remote_advanced
+                ? 'The selected branch has newer remote commits. Pull and reconcile before publishing.'
+                : 'Review the target and file diff, then choose Publish to GitHub.',
+              res.data.remote_advanced ? 'danger' : 'success',
+            );
+          })
+          .catch(function (error) {
+            if (!targetUnchanged()) return;
+            setGithubPublishStatus(
+              error && error.message
+                ? error.message
+                : 'Unable to preview the GitHub publish.',
+              'danger',
+            );
+          })
+          .finally(function () {
+            var select = document.getElementById('github-branch-name');
+            previewButton.disabled = !select || select.disabled;
+          });
+      });
     form.addEventListener('submit', function (event) {
       event.preventDefault();
       if (!state.project) return;
       var packageInput = document.getElementById('github-package-name');
       var ownerSelect = document.getElementById('github-owner');
-      var branchInput = document.getElementById('github-branch-name');
       var messageInput = document.getElementById('github-commit-message');
       var submit = document.getElementById('github-publish-submit');
-      var repositoryLink = document.getElementById('github-repository-link');
-      var commitLink = document.getElementById('github-commit-link');
       if (!form.reportValidity()) return;
+      if (!githubPublishPreviewToken) {
+        setGithubPublishStatus(
+          'Preview the repository changes before publishing.',
+          'warning',
+        );
+        return;
+      }
       if (submit) submit.disabled = true;
       setGithubPublishStatus('Preparing the project for GitHub…', 'info');
-      apiPost('/api/github/publish', {
-        project: state.project,
-        owner: ownerSelect ? ownerSelect.value : '',
-        package: packageInput ? packageInput.value : '',
-        branch: branchInput ? branchInput.value : '',
-        commit_message: messageInput ? messageInput.value : '',
-      })
+      saveDirtyGithubEditors()
+        .then(function () {
+          return apiPost('/api/github/publish', {
+            project: state.project,
+            owner: ownerSelect ? ownerSelect.value : '',
+            package: packageInput ? packageInput.value : '',
+            branch: githubBranchValue(),
+            commit_message: messageInput ? messageInput.value : '',
+            preview_token: githubPublishPreviewToken,
+          });
+        })
         .then(function (res) {
           if (!res.success || !res.data || !res.data.job_url) {
             setGithubPublishStatus(
@@ -3026,33 +3973,56 @@
               'danger',
             );
             if (submit) submit.disabled = false;
+            clearGithubPublishPreview(
+              'Preview expired or changed. Review the current files before publishing.',
+            );
             return;
           }
+          clearGithubPublishPreview();
           setGithubPublishStatus('Queued for publishing to GitHub…', 'info');
           return _pollGithubPublishJob(res.data.job_url).then(
             function (result) {
-              if (repositoryLink && result.repository_url) {
-                repositoryLink.href = result.repository_url;
-                repositoryLink.classList.remove('d-none');
-              }
-              if (commitLink && result.commit_url) {
-                commitLink.href = result.commit_url;
-                commitLink.classList.remove('d-none');
-              }
+              showGithubPublishedTarget({ published: true, ...result });
               var fileCount = result.files_committed;
               var published =
                 typeof fileCount === 'number'
                   ? fileCount + (fileCount === 1 ? ' file' : ' files')
                   : 'the project files';
+              var warnings = Array.isArray(result.warnings)
+                ? result.warnings
+                : [];
               setGithubPublishStatus(
                 'Published ' +
                   published +
                   ' to ' +
                   (result.branch || 'GitHub') +
-                  '.',
-                'success',
+                  '.' +
+                  (warnings.length ? ' ' + warnings.join(' ') : ''),
+                warnings.length ? 'warning' : 'success',
               );
+              if (warnings.length) {
+                var guidance = document.createElement('a');
+                guidance.href =
+                  'https://assemblyline.suffolklitlab.org/docs/components/ALKiln/setup/';
+                guidance.textContent = 'ALKiln workflow setup guide';
+                guidance.target = '_blank';
+                guidance.rel = 'noopener';
+                var statusElement = document.getElementById(
+                  'github-publish-status',
+                );
+                if (statusElement) {
+                  appendGithubWorkflowAccessLink(
+                    statusElement,
+                    result.workflow_access,
+                  );
+                  statusElement.appendChild(document.createTextNode(' '));
+                  statusElement.appendChild(guidance);
+                }
+              }
               if (submit) submit.disabled = false;
+              clearGithubPublishPreview(
+                'Publish completed. Preview the latest branch again before another commit.',
+              );
             },
           );
         })
@@ -3064,8 +4034,610 @@
             'danger',
           );
           if (submit) submit.disabled = false;
+          clearGithubPublishPreview(
+            'Publish did not start. Preview the current files before trying again.',
+          );
         });
     });
+  }
+
+  // -------------------------------------------------------------------------
+  // GitHub repository settings: workflows and pyproject.toml
+  // -------------------------------------------------------------------------
+  // Each toggle or editor save goes to the server as one change, and the
+  // response re-renders both tabs, so the browser never holds settings the
+  // server has not accepted.  Open editors are the only unsaved state.
+  var githubRepoConfig = {
+    data: null,
+    requestId: 0,
+    openWorkflow: null,
+    workflowEditor: null,
+    workflowSaved: '',
+    pyprojectEditor: null,
+    pyprojectSaved: '',
+  };
+
+  function githubRepoPackage() {
+    var input = document.getElementById('github-package-name');
+    return input ? input.value.trim() : '';
+  }
+
+  function setGithubRepoStatus(elementId, message, kind) {
+    var status = document.getElementById(elementId);
+    if (!status) return;
+    if (!message) {
+      status.className = 'alert py-2 d-none';
+      status.textContent = '';
+      return;
+    }
+    status.className = 'alert py-2 alert-' + (kind || 'secondary');
+    status.textContent = message;
+  }
+
+  function githubWorkflowEditorDirty() {
+    return Boolean(
+      githubRepoConfig.workflowEditor &&
+      githubRepoConfig.workflowEditor.getValue() !==
+        githubRepoConfig.workflowSaved,
+    );
+  }
+
+  function githubPyprojectEditorDirty() {
+    return Boolean(
+      githubRepoConfig.pyprojectEditor &&
+      githubRepoConfig.pyprojectEditor.getValue() !==
+        githubRepoConfig.pyprojectSaved,
+    );
+  }
+
+  function disposeGithubRepoEditors() {
+    if (githubRepoConfig.workflowEditor)
+      githubRepoConfig.workflowEditor.dispose();
+    if (githubRepoConfig.pyprojectEditor)
+      githubRepoConfig.pyprojectEditor.dispose();
+    githubRepoConfig.workflowEditor = null;
+    githubRepoConfig.pyprojectEditor = null;
+    githubRepoConfig.openWorkflow = null;
+  }
+
+  function loadGithubRepositoryConfig() {
+    if (!state.project) return Promise.resolve(null);
+    var requestId = ++githubRepoConfig.requestId;
+    var query =
+      '/api/github/repository-config?project=' +
+      encodeURIComponent(state.project);
+    if (githubRepoPackage())
+      query += '&package=' + encodeURIComponent(githubRepoPackage());
+    return apiGet(query)
+      .then(function (res) {
+        if (requestId !== githubRepoConfig.requestId) return null;
+        if (!res.success || !res.data) {
+          throw new Error(
+            (res.error && res.error.message) ||
+              'Unable to load the GitHub repository settings.',
+          );
+        }
+        renderGithubRepositoryConfig(res.data, { resetEditors: true });
+        return res.data;
+      })
+      .catch(function (error) {
+        if (requestId !== githubRepoConfig.requestId) return null;
+        var message =
+          error && error.message
+            ? error.message
+            : 'Unable to load the GitHub repository settings.';
+        setGithubRepoStatus('github-workflows-status', message, 'danger');
+        setGithubRepoStatus('github-dependencies-status', message, 'danger');
+        return null;
+      });
+  }
+
+  function saveGithubRepositoryChange(operation, statusElementId) {
+    if (!state.project) return Promise.reject(new Error('No project'));
+    ++githubRepoConfig.requestId;
+    return apiPost('/api/github/repository-config', {
+      project: state.project,
+      package: githubRepoPackage(),
+      operation: operation,
+    }).then(function (res) {
+      if (!res.success || !res.data) {
+        var message =
+          (res.error && res.error.message) || 'Unable to save that change.';
+        setGithubRepoStatus(statusElementId, message, 'danger');
+        throw new Error(message);
+      }
+      setGithubRepoStatus(statusElementId, 'Saved.', 'success');
+      clearGithubPublishPreview(
+        'Repository settings changed. Preview the package again before publishing.',
+      );
+      renderGithubRepositoryConfig(res.data, { resetEditors: false });
+      return res.data;
+    });
+  }
+
+  function renderGithubRepositoryConfig(data, options) {
+    githubRepoConfig.data = data;
+    renderGithubWorkflows(data, options);
+    renderGithubDependencies(data, options);
+  }
+
+  function renderGithubWorkflows(data, options) {
+    var list = document.getElementById('github-workflows-list');
+    if (!list) return;
+    var keepOpen =
+      !options.resetEditors && githubRepoConfig.openWorkflow
+        ? githubRepoConfig.openWorkflow
+        : null;
+    // A toggle elsewhere in the list must not throw away unsaved edits.
+    var unsavedText =
+      keepOpen && githubWorkflowEditorDirty()
+        ? githubRepoConfig.workflowEditor.getValue()
+        : null;
+    if (githubRepoConfig.workflowEditor)
+      githubRepoConfig.workflowEditor.dispose();
+    githubRepoConfig.workflowEditor = null;
+    githubRepoConfig.openWorkflow = null;
+    list.innerHTML = (data.workflows || [])
+      .map(function (workflow) {
+        var toggleId = 'github-workflow-toggle-' + workflow.id;
+        var badges = '';
+        if (workflow.customized)
+          badges += ' <span class="badge text-bg-info fw-normal">Edited</span>';
+        if (!workflow.recommended && !workflow.enabled)
+          badges +=
+            ' <span class="badge text-bg-light border fw-normal">Optional</span>';
+        var secrets = (workflow.secrets || []).length
+          ? '<div class="small mt-1">Needs repository secrets: ' +
+            workflow.secrets
+              .map(function (name) {
+                return '<code>' + esc(name) + '</code>';
+              })
+              .join(', ') +
+            '</div>'
+          : '';
+        var needsEditing = workflow.needs_editing
+          ? '<div class="small mt-1">Replace the example server and email addresses before turning this on.</div>'
+          : '';
+        return (
+          '<div class="list-group-item" data-github-workflow="' +
+          esc(workflow.id) +
+          '">' +
+          '<div class="d-flex gap-3 align-items-start">' +
+          '<div class="form-check form-switch flex-grow-1 mb-0">' +
+          '<input class="form-check-input" type="checkbox" role="switch" id="' +
+          esc(toggleId) +
+          '" data-github-workflow-toggle="' +
+          esc(workflow.id) +
+          '"' +
+          (workflow.enabled ? ' checked' : '') +
+          '>' +
+          '<label class="form-check-label fw-semibold" for="' +
+          esc(toggleId) +
+          '">' +
+          esc(workflow.label) +
+          '</label>' +
+          badges +
+          '<div class="small text-muted">' +
+          esc(workflow.description) +
+          '</div>' +
+          '<div class="small text-muted font-monospace">' +
+          esc(workflow.path) +
+          '</div>' +
+          secrets +
+          needsEditing +
+          '</div>' +
+          '<button type="button" class="btn btn-sm btn-outline-secondary" data-github-workflow-edit="' +
+          esc(workflow.id) +
+          '" aria-expanded="false">Edit</button>' +
+          '</div>' +
+          '<div class="d-none mt-2" data-github-workflow-editor="' +
+          esc(workflow.id) +
+          '"></div>' +
+          '</div>'
+        );
+      })
+      .join('');
+    if (keepOpen) {
+      openGithubWorkflowEditor(keepOpen);
+      if (unsavedText !== null && githubRepoConfig.workflowEditor)
+        githubRepoConfig.workflowEditor.setValue(unsavedText);
+    }
+  }
+
+  function githubWorkflowById(workflowId) {
+    var workflows = (githubRepoConfig.data || {}).workflows || [];
+    for (var i = 0; i < workflows.length; i++) {
+      if (workflows[i].id === workflowId) return workflows[i];
+    }
+    return null;
+  }
+
+  function closeGithubWorkflowEditor() {
+    var openId = githubRepoConfig.openWorkflow;
+    if (githubRepoConfig.workflowEditor)
+      githubRepoConfig.workflowEditor.dispose();
+    githubRepoConfig.workflowEditor = null;
+    githubRepoConfig.openWorkflow = null;
+    if (!openId) return;
+    var holder = document.querySelector(
+      '[data-github-workflow-editor="' + openId + '"]',
+    );
+    if (holder) {
+      holder.classList.add('d-none');
+      holder.innerHTML = '';
+    }
+    var button = document.querySelector(
+      '[data-github-workflow-edit="' + openId + '"]',
+    );
+    if (button) button.setAttribute('aria-expanded', 'false');
+  }
+
+  function openGithubWorkflowEditor(workflowId) {
+    var workflow = githubWorkflowById(workflowId);
+    var holder = document.querySelector(
+      '[data-github-workflow-editor="' + workflowId + '"]',
+    );
+    if (!workflow || !holder) return;
+    closeGithubWorkflowEditor();
+    var sourceId = 'github-workflow-source-' + workflowId;
+    holder.innerHTML =
+      '<div class="editor-source-container github-file-source" id="' +
+      esc(sourceId) +
+      '"></div>' +
+      '<div class="d-flex gap-2 mt-2">' +
+      '<button type="button" class="btn btn-sm btn-primary" data-github-workflow-save="' +
+      esc(workflowId) +
+      '" disabled>Save workflow</button>' +
+      '<button type="button" class="btn btn-sm btn-outline-secondary' +
+      (workflow.customized ? '' : ' d-none') +
+      '" data-github-workflow-reset="' +
+      esc(workflowId) +
+      '">Use the standard version</button>' +
+      '<button type="button" class="btn btn-sm btn-link" data-github-workflow-close="' +
+      esc(workflowId) +
+      '">Close</button>' +
+      '</div>';
+    holder.classList.remove('d-none');
+    var saveButton = holder.querySelector('[data-github-workflow-save]');
+    githubRepoConfig.openWorkflow = workflowId;
+    githubRepoConfig.workflowSaved = workflow.content;
+    githubRepoConfig.workflowEditor = createSourceEditor(
+      sourceId,
+      workflow.content,
+      'yaml',
+      {
+        ariaLabel: workflow.path,
+        expressions: false,
+        onChange: function () {
+          if (saveButton) saveButton.disabled = !githubWorkflowEditorDirty();
+        },
+      },
+    );
+    var button = document.querySelector(
+      '[data-github-workflow-edit="' + workflowId + '"]',
+    );
+    if (button) button.setAttribute('aria-expanded', 'true');
+  }
+
+  function saveGithubWorkflowEditor() {
+    var workflowId = githubRepoConfig.openWorkflow;
+    if (!workflowId || !githubRepoConfig.workflowEditor)
+      return Promise.resolve(null);
+    return saveGithubRepositoryChange(
+      {
+        type: 'workflow',
+        id: workflowId,
+        content: githubRepoConfig.workflowEditor.getValue(),
+      },
+      'github-workflows-status',
+    );
+  }
+
+  function renderGithubDependencies(data, options) {
+    var list = document.getElementById('github-dependencies-list');
+    var missing = document.getElementById('github-dependencies-missing');
+    var custom = Boolean(data.pyproject && data.pyproject.custom);
+    if (list) {
+      var rows = (data.dependencies || []).map(function (dependency) {
+        var reason = 'You added it';
+        if (dependency.detected)
+          reason = dependency.user_set
+            ? 'Your interview uses it; you chose the version or source'
+            : 'Your interview uses it';
+        var source = dependency.github
+          ? ' <span class="badge text-bg-dark fw-normal">GitHub</span>'
+          : '';
+        return (
+          '<tr><td><code class="text-break">' +
+          esc(dependency.spec) +
+          '</code>' +
+          source +
+          '</td><td class="small text-muted">' +
+          esc(reason) +
+          '</td><td class="text-end">' +
+          (dependency.removable
+            ? '<button type="button" class="btn btn-sm btn-outline-danger" data-github-dependency-remove="' +
+              esc(dependency.spec) +
+              '" aria-label="Remove ' +
+              esc(dependency.spec) +
+              '">Remove</button>'
+            : '') +
+          '</td></tr>'
+        );
+      });
+      list.innerHTML = rows.length
+        ? rows.join('')
+        : '<tr><td colspan="3" class="small text-muted">No dependencies yet.</td></tr>';
+    }
+    if (missing) {
+      var names = data.missing_dependencies || [];
+      missing.innerHTML = names.length
+        ? '<div class="alert alert-warning py-2 d-flex gap-2 align-items-center justify-content-between">' +
+          '<span>Your interview uses ' +
+          names
+            .map(function (name) {
+              return '<code>' + esc(name) + '</code>';
+            })
+            .join(', ') +
+          ', but your <code>pyproject.toml</code> does not list ' +
+          (names.length === 1 ? 'it' : 'them') +
+          '.</span>' +
+          '<button type="button" class="btn btn-sm btn-outline-dark" data-github-dependency-add-missing>Add</button>' +
+          '</div>'
+        : '';
+    }
+    var mode = document.getElementById('github-pyproject-mode');
+    if (mode) mode.textContent = custom ? 'Edited by you' : 'Generated';
+    var help = document.getElementById('github-pyproject-help');
+    if (help) {
+      help.textContent = custom
+        ? 'Weaver publishes this file as you wrote it. Changing the list above rewrites it, which removes any comments.'
+        : 'Weaver writes this file from the package details and the list above. Edit it to add settings such as [tool.black]; after that, Weaver publishes your version.';
+    }
+    var reset = document.getElementById('github-pyproject-reset');
+    if (reset) reset.classList.toggle('d-none', !custom);
+    var text = (data.pyproject && data.pyproject.text) || '';
+    // Keep what the author is typing unless they asked for a fresh load.
+    if (
+      githubRepoConfig.pyprojectEditor &&
+      !options.resetEditors &&
+      githubPyprojectEditorDirty()
+    ) {
+      githubRepoConfig.pyprojectSaved = text;
+      updateGithubPyprojectSaveButton();
+      return;
+    }
+    githubRepoConfig.pyprojectSaved = text;
+    if (githubRepoConfig.pyprojectEditor) {
+      githubRepoConfig.pyprojectEditor.setValue(text);
+    } else {
+      githubRepoConfig.pyprojectEditor = createSourceEditor(
+        'github-pyproject-source',
+        text,
+        'text',
+        {
+          ariaLabel: 'pyproject.toml',
+          expressions: false,
+          onChange: updateGithubPyprojectSaveButton,
+        },
+      );
+    }
+    updateGithubPyprojectSaveButton();
+  }
+
+  function updateGithubPyprojectSaveButton() {
+    var save = document.getElementById('github-pyproject-save');
+    if (save) save.disabled = !githubPyprojectEditorDirty();
+  }
+
+  function saveGithubPyprojectEditor() {
+    if (!githubRepoConfig.pyprojectEditor) return Promise.resolve(null);
+    return saveGithubRepositoryChange(
+      { type: 'pyproject', text: githubRepoConfig.pyprojectEditor.getValue() },
+      'github-dependencies-status',
+    ).then(function (data) {
+      // The saved text is now the file, so drop the dirty copy.
+      githubRepoConfig.pyprojectEditor.setValue(data.pyproject.text);
+      githubRepoConfig.pyprojectSaved = data.pyproject.text;
+      updateGithubPyprojectSaveButton();
+      return data;
+    });
+  }
+
+  function saveGithubDependencyList(specs) {
+    return saveGithubRepositoryChange(
+      { type: 'dependencies', dependencies: specs },
+      'github-dependencies-status',
+    );
+  }
+
+  function currentGithubDependencySpecs() {
+    return ((githubRepoConfig.data || {}).dependencies || []).map(
+      function (dependency) {
+        return dependency.spec;
+      },
+    );
+  }
+
+  // Publishing with an editor still open would commit the old file, so the
+  // open edits are saved first.
+  function saveDirtyGithubEditors() {
+    var pending = Promise.resolve();
+    if (githubWorkflowEditorDirty())
+      pending = pending.then(saveGithubWorkflowEditor);
+    if (githubPyprojectEditorDirty())
+      pending = pending.then(saveGithubPyprojectEditor);
+    return pending;
+  }
+
+  function initGithubRepositorySettings() {
+    var workflows = document.getElementById('github-workflows-list');
+    if (workflows) {
+      workflows.addEventListener('change', function (event) {
+        var toggle = event.target.closest('[data-github-workflow-toggle]');
+        if (!toggle) return;
+        var workflowId = toggle.getAttribute('data-github-workflow-toggle');
+        var workflow = githubWorkflowById(workflowId);
+        var enabled = toggle.checked;
+        toggle.disabled = true;
+        saveGithubRepositoryChange(
+          { type: 'workflow', id: workflowId, enabled: enabled },
+          'github-workflows-status',
+        )
+          .then(function () {
+            if (!enabled || !workflow || !workflow.needs_editing) return;
+            // Opening this editor closes any other; ask before losing edits.
+            if (
+              githubWorkflowEditorDirty() &&
+              githubRepoConfig.openWorkflow !== workflowId &&
+              !window.confirm(
+                'Discard your changes to the open workflow to edit this one?',
+              )
+            )
+              return;
+            openGithubWorkflowEditor(workflowId);
+          })
+          .catch(function () {
+            toggle.checked = !enabled;
+            toggle.disabled = false;
+          });
+      });
+      workflows.addEventListener('click', function (event) {
+        var edit = event.target.closest('[data-github-workflow-edit]');
+        if (edit) {
+          var workflowId = edit.getAttribute('data-github-workflow-edit');
+          if (githubRepoConfig.openWorkflow === workflowId) {
+            if (
+              githubWorkflowEditorDirty() &&
+              !window.confirm('Discard your changes to this workflow?')
+            )
+              return;
+            closeGithubWorkflowEditor();
+          } else {
+            if (
+              githubWorkflowEditorDirty() &&
+              !window.confirm('Discard your changes to the open workflow?')
+            )
+              return;
+            openGithubWorkflowEditor(workflowId);
+          }
+          return;
+        }
+        if (event.target.closest('[data-github-workflow-save]')) {
+          saveGithubWorkflowEditor().catch(function () {});
+          return;
+        }
+        var reset = event.target.closest('[data-github-workflow-reset]');
+        if (reset) {
+          saveGithubRepositoryChange(
+            {
+              type: 'workflow',
+              id: reset.getAttribute('data-github-workflow-reset'),
+              content: null,
+            },
+            'github-workflows-status',
+          ).catch(function () {});
+          return;
+        }
+        if (event.target.closest('[data-github-workflow-close]')) {
+          if (
+            githubWorkflowEditorDirty() &&
+            !window.confirm('Discard your changes to this workflow?')
+          )
+            return;
+          closeGithubWorkflowEditor();
+        }
+      });
+    }
+
+    var dependencyForm = document.getElementById('github-dependency-form');
+    if (dependencyForm) {
+      dependencyForm.addEventListener('submit', function (event) {
+        event.preventDefault();
+        var input = document.getElementById('github-dependency-input');
+        var spec = input ? input.value.trim() : '';
+        if (!spec) return;
+        saveGithubDependencyList(currentGithubDependencySpecs().concat([spec]))
+          .then(function () {
+            if (input) input.value = '';
+          })
+          .catch(function () {});
+      });
+    }
+    var dependencyList = document.getElementById('github-dependencies-list');
+    if (dependencyList) {
+      dependencyList.addEventListener('click', function (event) {
+        var remove = event.target.closest('[data-github-dependency-remove]');
+        if (!remove) return;
+        var spec = remove.getAttribute('data-github-dependency-remove');
+        saveGithubDependencyList(
+          currentGithubDependencySpecs().filter(function (candidate) {
+            return candidate !== spec;
+          }),
+        ).catch(function () {});
+      });
+    }
+    var missing = document.getElementById('github-dependencies-missing');
+    if (missing) {
+      missing.addEventListener('click', function (event) {
+        if (!event.target.closest('[data-github-dependency-add-missing]'))
+          return;
+        saveGithubDependencyList(
+          currentGithubDependencySpecs().concat(
+            (githubRepoConfig.data || {}).missing_dependencies || [],
+          ),
+        ).catch(function () {});
+      });
+    }
+    var pyprojectSave = document.getElementById('github-pyproject-save');
+    if (pyprojectSave) {
+      pyprojectSave.addEventListener('click', function () {
+        saveGithubPyprojectEditor().catch(function () {});
+      });
+    }
+    var pyprojectReset = document.getElementById('github-pyproject-reset');
+    if (pyprojectReset) {
+      pyprojectReset.addEventListener('click', function () {
+        if (
+          !window.confirm(
+            'Replace your pyproject.toml with the generated file? Settings you added, such as [tool] sections, will be removed. Your dependencies are kept.',
+          )
+        )
+          return;
+        saveGithubRepositoryChange(
+          { type: 'pyproject', text: null },
+          'github-dependencies-status',
+        )
+          .then(function (data) {
+            githubRepoConfig.pyprojectEditor.setValue(data.pyproject.text);
+            githubRepoConfig.pyprojectSaved = data.pyproject.text;
+            updateGithubPyprojectSaveButton();
+          })
+          .catch(function () {});
+      });
+    }
+    // The package name is the project name in pyproject.toml.
+    var packageInput = document.getElementById('github-package-name');
+    if (packageInput) {
+      packageInput.addEventListener('change', function () {
+        if (githubPyprojectEditorDirty()) return;
+        loadGithubRepositoryConfig();
+      });
+    }
+    var modal = document.getElementById('github-publish-modal');
+    if (modal) {
+      modal.addEventListener('hide.bs.modal', function (event) {
+        if (
+          (githubWorkflowEditorDirty() || githubPyprojectEditorDirty()) &&
+          !window.confirm(
+            'You have unsaved changes to a workflow or pyproject.toml. Close without saving them?',
+          )
+        ) {
+          event.preventDefault();
+        }
+      });
+      modal.addEventListener('hidden.bs.modal', disposeGithubRepoEditors);
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -3282,12 +4854,16 @@
         ' will change' +
         (blocking ? '; ' + blocking + ' need manual review' : '') +
         (skipped ? '; ' + skipped + ' file(s) could not be inspected' : '') +
+        ((_projectSearchData.warnings || []).length
+          ? '; template references need manual review'
+          : '') +
         (dirty ? '; save editor changes first' : '') +
         (replacementChanged ? '; run Find again for the new name' : '');
       replaceButton.disabled =
         safe === 0 ||
         blocking > 0 ||
         skipped > 0 ||
+        (_projectSearchData.warnings || []).length > 0 ||
         dirty ||
         replacementChanged ||
         Boolean(_projectSearchData.truncated);
@@ -3362,12 +4938,29 @@
             ' Results were capped; narrow the search before replacing.';
         if ((_projectSearchData.skipped || []).length)
           message +=
-            ' ' +
-            _projectSearchData.skipped.length +
-            ' oversized text file(s) were skipped.';
+            ' Skipped: ' +
+            _projectSearchData.skipped
+              .map(function (file) {
+                return (
+                  file.section +
+                  '/' +
+                  file.filename +
+                  (file.reason === 'too_large'
+                    ? ' (too large)'
+                    : ' (binary or unsupported format)')
+                );
+              })
+              .join(', ') +
+            '.';
+        if ((_projectSearchData.warnings || []).length)
+          message += ' ' + _projectSearchData.warnings.join(' ');
         setProjectSearchStatus(
           message,
-          _projectSearchData.truncated ? 'warning' : 'secondary',
+          _projectSearchData.truncated ||
+            (_projectSearchData.skipped || []).length ||
+            (_projectSearchData.warnings || []).length
+            ? 'warning'
+            : 'secondary',
         );
         updateProjectSearchSelection();
       })
@@ -3415,6 +5008,40 @@
       }
     });
     return selections;
+  }
+
+  function showProjectReplacementRecovery(error) {
+    var files = error && error.details && error.details.recovery_files;
+    var status = projectSearchElement('project-search-status');
+    if (!status || !Array.isArray(files) || !files.length) return;
+    var names = document.createElement('p');
+    names.textContent =
+      'Inspect and restore: ' +
+      files
+        .map(function (file) {
+          return file.section + '/' + file.filename;
+        })
+        .join(', ');
+    status.appendChild(names);
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'btn btn-sm btn-outline-danger';
+    button.textContent = 'Download recovery JSON';
+    button.addEventListener('click', function () {
+      var url = URL.createObjectURL(
+        new Blob([JSON.stringify(files, null, 2)], {
+          type: 'application/json',
+        }),
+      );
+      var link = document.createElement('a');
+      link.href = url;
+      link.download = 'project-replacement-recovery.json';
+      link.click();
+      setTimeout(function () {
+        URL.revokeObjectURL(url);
+      }, 1000);
+    });
+    status.appendChild(button);
   }
 
   function applyProjectReplacement() {
@@ -3500,6 +5127,7 @@
           (error && error.message) || 'Replacement failed.',
           'danger',
         );
+        showProjectReplacementRecovery(error);
         updateProjectSearchSelection();
       });
   }
@@ -3772,6 +5400,7 @@
             }
           );
         },
+        privacy: (BOOT.features && BOOT.features.assistant_privacy) || {},
         onApply: function (data) {
           applyAgentCandidate(data);
         },
@@ -3806,18 +5435,20 @@
     state.assistantOpen = Boolean(open);
     var panel = document.getElementById('editor-assistant');
     var layout = document.getElementById('editor-layout');
-    var toggle = document.getElementById('btn-toggle-assistant');
     if (panel) panel.classList.toggle('d-none', !state.assistantOpen);
     if (layout)
       layout.classList.toggle(
         'editor-layout-assistant-open',
         state.assistantOpen,
       );
-    if (toggle)
-      toggle.setAttribute(
-        'aria-expanded',
-        state.assistantOpen ? 'true' : 'false',
-      );
+    document
+      .querySelectorAll('.js-assistant-toggle')
+      .forEach(function (toggle) {
+        toggle.setAttribute(
+          'aria-expanded',
+          state.assistantOpen ? 'true' : 'false',
+        );
+      });
     if (!state.assistantOpen) return;
     agentChat.render(document.getElementById('editor-assistant-body'));
     var input = document.getElementById('editor-agent-input');
@@ -4303,23 +5934,23 @@
     html +=
       '<button type="button" class="editor-md-btn" data-md-insert="bold" data-target-id="' +
       esc(targetId) +
-      '" title="Bold"><i class="fa-solid fa-bold" aria-hidden="true"></i></button>';
+      '" title="Bold" aria-label="Bold"><i class="fa-solid fa-bold" aria-hidden="true"></i><span class="editor-md-fallback">Bold</span></button>';
     html +=
       '<button type="button" class="editor-md-btn" data-md-insert="italic" data-target-id="' +
       esc(targetId) +
-      '" title="Italic"><i class="fa-solid fa-italic" aria-hidden="true"></i></button>';
+      '" title="Italic" aria-label="Italic"><i class="fa-solid fa-italic" aria-hidden="true"></i><span class="editor-md-fallback">Italic</span></button>';
     html +=
       '<button type="button" class="editor-md-btn" data-md-insert="link" data-target-id="' +
       esc(targetId) +
-      '" title="Link"><i class="fa-solid fa-link" aria-hidden="true"></i></button>';
+      '" title="Link" aria-label="Link"><i class="fa-solid fa-link" aria-hidden="true"></i><span class="editor-md-fallback">Link</span></button>';
     html +=
       '<button type="button" class="editor-md-btn" data-md-insert="mako" data-target-id="' +
       esc(targetId) +
-      '" title="Insert Mako variable"><i class="fa-solid fa-code" aria-hidden="true"></i></button>';
+      '" title="Insert Mako variable" aria-label="Insert Mako variable"><i class="fa-solid fa-code" aria-hidden="true"></i><span class="editor-md-fallback">Variable</span></button>';
     // Heading dropdown
     html += '<div class="dropdown d-inline-block">';
     html +=
-      '<button type="button" class="editor-md-btn dropdown-toggle editor-md-dropdown-toggle" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="Heading"><i class="fa-solid fa-heading" aria-hidden="true"></i></button>';
+      '<button type="button" class="editor-md-btn dropdown-toggle editor-md-dropdown-toggle" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="Heading" aria-label="Heading"><i class="fa-solid fa-heading" aria-hidden="true"></i><span class="editor-md-fallback">Heading</span></button>';
     html += '<ul class="dropdown-menu editor-md-overflow-menu">';
     html +=
       '<li><button type="button" class="dropdown-item" data-md-insert="heading1" data-target-id="' +
@@ -4341,7 +5972,7 @@
     // List dropdown
     html += '<div class="dropdown d-inline-block">';
     html +=
-      '<button type="button" class="editor-md-btn dropdown-toggle editor-md-dropdown-toggle" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="List"><i class="fa-solid fa-list" aria-hidden="true"></i></button>';
+      '<button type="button" class="editor-md-btn dropdown-toggle editor-md-dropdown-toggle" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="List" aria-label="List"><i class="fa-solid fa-list" aria-hidden="true"></i><span class="editor-md-fallback">List</span></button>';
     html += '<ul class="dropdown-menu editor-md-overflow-menu">';
     html +=
       '<li><button type="button" class="dropdown-item" data-md-insert="list-bullet" data-target-id="' +
@@ -4355,8 +5986,9 @@
     // Kebab overflow menu — mako items first, then media/layout
     html += '<div class="dropdown d-inline-block">';
     html +=
-      '<button type="button" class="editor-md-btn dropdown-toggle editor-md-kebab" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="More formatting"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>';
-    html += '<ul class="dropdown-menu editor-md-overflow-menu">';
+      '<button type="button" class="editor-md-btn dropdown-toggle editor-md-kebab" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="More formatting" aria-label="More formatting"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i><span class="editor-md-fallback">More</span></button>';
+    html +=
+      '<ul class="dropdown-menu editor-md-overflow-menu" data-md-more-menu>';
     html +=
       '<li><button type="button" class="dropdown-item" data-md-insert="symbol-raw" data-target-id="' +
       esc(targetId) +
@@ -4435,6 +6067,7 @@
         block.data &&
         typeof block.data.template === 'string' &&
         window.ALWeaverSerializers.isPythonIdentifier(block.data.template) &&
+        isTemplateEditorBlock(block) &&
         String(block.data.subject || '').trim(),
       );
     });
@@ -4502,7 +6135,7 @@
         if (!Array.isArray(includes)) includes = [includes];
         if (
           includes.some(function (value) {
-            return /(?:AssemblyLine|ALToolbox.*collapse_template)/.test(
+            return /^(?:docassemble\.AssemblyLine:assembly_line\.yml|docassemble\.ALToolbox:collapse_template\.yml)$/.test(
               String(value || ''),
             );
           })
@@ -4512,7 +6145,7 @@
       var modules = data.modules;
       if (!Array.isArray(modules)) modules = modules ? [modules] : [];
       return modules.some(function (value) {
-        return String(value || '').indexOf('docassemble.ALToolbox') !== -1;
+        return String(value || '') === 'docassemble.ALToolbox.misc';
       });
     });
   }
@@ -4570,7 +6203,16 @@
     replaceInputRange(targetEl, start, end, prefix + expression + suffix);
   }
 
+  function setTemplateInsertBusy(busy) {
+    _templateInsertBusy = busy;
+    ['template-insert-apply', 'template-insert-create'].forEach(function (id) {
+      var button = document.getElementById(id);
+      if (button) button.disabled = busy;
+    });
+  }
+
   function applyExistingTemplateReference() {
+    if (_templateInsertBusy) return;
     var select = document.getElementById('template-insert-existing');
     var name = select ? String(select.value || '').trim() : '';
     if (!name) {
@@ -4579,6 +6221,7 @@
       );
       return;
     }
+    setTemplateInsertBusy(true);
     saveCurrentBlockIfDirty()
       .then(function (saved) {
         if (!saved)
@@ -4594,10 +6237,14 @@
       })
       .catch(function (error) {
         setTemplateInsertError(String(error.message || error));
+      })
+      .finally(function () {
+        setTemplateInsertBusy(false);
       });
   }
 
   function createAndInsertHelpTemplate() {
+    if (_templateInsertBusy) return;
     var nameEl = document.getElementById('template-insert-name');
     var subjectEl = document.getElementById('template-insert-subject');
     var contentEl = document.getElementById('template-insert-content');
@@ -4627,6 +6274,7 @@
       setTemplateInsertError(String(error.message || error));
       return;
     }
+    setTemplateInsertBusy(true);
     saveCurrentBlockIfDirty()
       .then(function (saved) {
         if (!saved)
@@ -4653,6 +6301,9 @@
       })
       .catch(function (error) {
         setTemplateInsertError(String(error.message || error));
+      })
+      .finally(function () {
+        setTemplateInsertBusy(false);
       });
   }
 
@@ -5283,6 +6934,16 @@
     });
   }
 
+  function getRequestedOrderBlockId() {
+    // When an author explicitly selects a code block before opening Interview
+    // Order, honor that selection even if the file also has a mandatory
+    // initializer. The order target remains that source block; save preserves
+    // its existing mandatory/initial metadata.
+    var selectedBlock = getSelectedBlock();
+    if (selectedBlock && selectedBlock.type === 'code') return selectedBlock.id;
+    return state.activeOrderBlockId || getDefaultOrderBlockId();
+  }
+
   function getDefaultOrderBlockId() {
     if (
       state.activeOrderBlockId &&
@@ -5319,6 +6980,7 @@
     if (!_inlineEditStepId) return false;
     var stepRecord = findStepRecord(state.orderSteps, _inlineEditStepId, null);
     if (!stepRecord) return false;
+    readOrderStructuredFields(stepRecord.step, 'order-inline-edit');
     var inlineInvoke = document.getElementById('order-inline-edit-invoke');
     var inlineCondition = document.getElementById(
       'order-inline-edit-condition',
@@ -5339,7 +7001,12 @@
       if (stepRecord.step.kind === 'progress')
         stepRecord.step.summary = 'Progress: ' + inlineValue.value + '%';
     }
-    return Boolean(inlineInvoke || inlineCondition || inlineValue);
+    return Boolean(
+      inlineInvoke ||
+      inlineCondition ||
+      inlineValue ||
+      document.querySelector('.editor-order-inline-edit [data-order-field]'),
+    );
   }
 
   function markInterviewDirty(commandId) {
@@ -5364,6 +7031,9 @@
   }
 
   function stashCurrentEditorState() {
+    // Hydration temporarily replaces the form with a loading message. Reading
+    // that DOM as a question would mistake absent field rows for deleted fields.
+    if (routeApplying) return;
     _stashFullYamlContent();
     if (!isInterviewView()) return;
     if (state.canvasMode === 'order-builder') {
@@ -5371,10 +7041,25 @@
       syncActiveOrderStepMap();
       return;
     }
+    if (state.canvasMode !== 'question') return;
     var block = getSelectedBlock();
     if (!block || state.questionEditMode !== 'preview') return;
-    if (block.type === 'question') {
-      syncFieldsToData(block);
+    if (isQuestionEditorBlock(block)) {
+      if (syncFieldsToData(block) === false) return false;
+    } else if (isTemplateEditorBlock(block)) {
+      try {
+        serializeTemplateBlockToYaml(block);
+      } catch (error) {
+        window.alert(String(error.message || error));
+        return false;
+      }
+      ['name', 'subject', 'content'].forEach(function (part) {
+        var input = document.getElementById('template-' + part);
+        if (input)
+          block.data[part === 'name' ? 'template' : part] = input.value;
+      });
+    } else if (block.type === 'code') {
+      syncMandatoryToData(block);
     }
   }
 
@@ -5480,7 +7165,11 @@
   function getOrderStepTypeLabel(step) {
     if (!step) return '';
     if (step.kind === 'screen') return '';
-    if (step.kind === 'gather') return 'loop';
+    if (step.kind === 'gather') return 'gather';
+    if (step.kind === 'loop') return 'for each';
+    if (step.kind === 'assignment') return 'set variable';
+    if (['comment', 'break', 'continue'].indexOf(step.kind) !== -1)
+      return step.kind;
     if (step.kind === 'condition') return 'condition';
     if (step.kind === 'section') return 'section';
     if (step.kind === 'progress') return 'progress';
@@ -5581,6 +7270,13 @@
 
   function getOrderStepHeading(step) {
     if (!step) return '';
+    if (step.kind === 'loop')
+      return 'for ' + step.target + ' in ' + step.iterable;
+    if (step.kind === 'assignment')
+      return step.target + ' = ' + step.expression;
+    if (step.kind === 'comment') return step.code || 'Comment';
+    if (step.kind === 'break') return 'Break out of loop';
+    if (step.kind === 'continue') return 'Continue with next item';
     if (step.kind === 'screen') {
       var screenBlock = findBlockByInvoke(step);
       return screenBlock
@@ -5632,6 +7328,27 @@
   function createOrderStep(kind) {
     var uniqueId =
       'step-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+    if (kind === 'loop')
+      return {
+        id: uniqueId,
+        kind: kind,
+        label: 'For each',
+        target: 'item',
+        iterable: '',
+        children: [],
+      };
+    if (kind === 'assignment')
+      return {
+        id: uniqueId,
+        kind: kind,
+        label: 'Set variable',
+        target: '',
+        expression: '',
+      };
+    if (kind === 'comment')
+      return { id: uniqueId, kind: kind, label: 'Comment', code: '# ' };
+    if (kind === 'break' || kind === 'continue')
+      return { id: uniqueId, kind: kind, label: kind };
     if (kind === 'screen')
       return {
         id: uniqueId,
@@ -5695,7 +7412,12 @@
   function _normalizeObjectClassName(classText) {
     var raw = String(classText || '').trim();
     if (!raw) return '';
-    return raw.split('.', 1)[0].split('(', 1)[0].trim();
+    return raw
+      .split('(', 1)[0]
+      .trim()
+      .replace(/\.using$/, '')
+      .split('.')
+      .pop();
   }
 
   function _isDaListLikeClass(className) {
@@ -5741,13 +7463,7 @@
     listLikeGroupKeys.forEach(function (key) {
       (state.symbolCatalog.groups[key] || []).forEach(function (name) {
         var cleanName = String(name || '').trim();
-        if (
-          !cleanName ||
-          cleanName.indexOf('.') !== -1 ||
-          cleanName.indexOf('[') !== -1 ||
-          seen[cleanName]
-        )
-          return;
+        if (!cleanName || seen[cleanName]) return;
         seen[cleanName] = true;
         out.push({
           variable: cleanName,
@@ -5761,13 +7477,141 @@
     });
   }
 
+  function renderOrderStructuredFields(step, prefix) {
+    var html = '';
+    function field(key, label, value, expression) {
+      var id = prefix + '-' + key;
+      var labelHtml =
+        '<label class="editor-tiny" for="' + id + '">' + label + '</label>';
+      if (expression)
+        return (
+          labelHtml +
+          '<textarea rows="2" class="form-control form-control-sm mt-1 mb-2 font-monospace" id="' +
+          id +
+          '" data-order-field="' +
+          key +
+          '" data-expression-context="value">' +
+          esc(value || '') +
+          '</textarea>'
+        );
+      return (
+        labelHtml +
+        '<input class="form-control form-control-sm mt-1 mb-2 font-monospace" id="' +
+        id +
+        '" data-order-field="' +
+        key +
+        '" data-symbol-role="variable" value="' +
+        esc(value || '') +
+        '">'
+      );
+    }
+    if (step.kind === 'loop' || step.kind === 'assignment') {
+      html += field(
+        'target',
+        step.kind === 'loop' ? 'Item name' : 'Variable to set',
+        step.target,
+        false,
+      );
+      if (step.kind === 'loop') {
+        html += field(
+          'iterable',
+          'List or iterable expression',
+          step.iterable,
+          true,
+        );
+        html +=
+          '<label class="editor-tiny" for="' +
+          prefix +
+          '-list-choice">Use a known list</label><select class="form-select form-select-sm mb-2" id="' +
+          prefix +
+          '-list-choice" data-order-list-for="' +
+          prefix +
+          '-iterable"><option value="">Choose a list or enter an expression above</option>' +
+          getGatherListCandidates()
+            .map(function (item) {
+              return (
+                '<option value="' +
+                esc(item.variable) +
+                '">' +
+                esc(item.variable) +
+                '</option>'
+              );
+            })
+            .join('') +
+          '</select>';
+      } else
+        html += field('expression', 'Value expression', step.expression, true);
+    } else if (step.kind === 'comment') {
+      html +=
+        '<label class="editor-tiny" for="' +
+        prefix +
+        '-code">Comment</label><textarea class="form-control form-control-sm" data-order-field="code" id="' +
+        prefix +
+        '-code">' +
+        esc(step.code || '# ') +
+        '</textarea>';
+    } else if (step.kind === 'break' || step.kind === 'continue') {
+      html +=
+        '<p class="editor-tiny">' +
+        (step.kind === 'break'
+          ? 'Exit the nearest enclosing loop.'
+          : 'Skip the remaining steps for this item and start the next iteration.') +
+        '</p>';
+    }
+    return html;
+  }
+
+  function readOrderStructuredFields(step, prefix) {
+    ['target', 'iterable', 'expression', 'code'].forEach(function (key) {
+      var input = document.getElementById(prefix + '-' + key);
+      if (!input || !input.hasAttribute('data-order-field')) return;
+      step[key] = key === 'code' ? input.value : input.value.trim();
+      if (step.kind === 'comment' && key === 'code') {
+        step.code = input.value
+          .split('\n')
+          .map(function (line) {
+            return !line.trim() || /^\s*#/.test(line) ? line : '# ' + line;
+          })
+          .join('\n');
+      }
+    });
+  }
+
+  function orderLocationInsideLoop(parentId) {
+    while (parentId) {
+      var record = findStepRecord(state.orderSteps, parentId, null);
+      if (!record) return false;
+      if (record.step.kind === 'loop') return true;
+      parentId = record.parent && record.parent.id;
+    }
+    return false;
+  }
+
+  function orderStepFitsLoopContext(step, insideLoop) {
+    if (step.kind === 'break' || step.kind === 'continue') return insideLoop;
+    var childContext = insideLoop || step.kind === 'loop';
+    return (
+      (step.children || []).every(function (child) {
+        return orderStepFitsLoopContext(child, childContext);
+      }) &&
+      (step.else_children || []).every(function (child) {
+        return orderStepFitsLoopContext(child, insideLoop);
+      })
+    );
+  }
+
   function renderOrderAddBody(kind) {
     var bodyEl = document.getElementById('order-add-body');
     if (!bodyEl) return;
     var saveBtn = document.getElementById('order-add-save');
 
     var html = '';
-    if (kind === 'screen') {
+    if (
+      ['loop', 'assignment', 'comment', 'break', 'continue'].indexOf(kind) !==
+      -1
+    ) {
+      html += renderOrderStructuredFields(createOrderStep(kind), 'order-add');
+    } else if (kind === 'screen') {
       html +=
         '<div class="mb-2"><label class="editor-tiny">Screen variable / expression</label>';
       html +=
@@ -5775,27 +7619,21 @@
     } else if (kind === 'gather') {
       var gatherChoices = getGatherListCandidates();
       html +=
-        '<div class="mb-2"><label class="editor-tiny">List to gather</label>';
-      if (gatherChoices.length) {
+        '<div class="mb-2"><label class="editor-tiny" for="order-add-gather-list">List to gather</label>';
+      html +=
+        '<input class="form-control form-control-sm mt-1 font-monospace" id="order-add-gather-list" list="order-gather-candidates" aria-describedby="order-gather-help">' +
+        '<datalist id="order-gather-candidates">';
+      gatherChoices.forEach(function (entry) {
         html +=
-          '<select class="form-select form-select-sm mt-1 font-monospace" id="order-add-gather-list">';
-        gatherChoices.forEach(function (entry) {
-          html +=
-            '<option value="' +
-            esc(entry.variable) +
-            '">' +
-            esc(entry.variable + ' (' + entry.className + ')') +
-            '</option>';
-        });
-        html += '</select>';
-        html +=
-          '<div class="editor-tiny mt-2">Only DA/AL list-style objects are shown.</div>';
-      } else {
-        html +=
-          '<div class="editor-info-box mt-1">No DAList-style objects found in this file yet. Add an objects block first.</div>';
-      }
-      html += '</div>';
-      if (saveBtn) saveBtn.disabled = gatherChoices.length === 0;
+          '<option value="' +
+          esc(entry.variable) +
+          '">' +
+          esc(entry.className) +
+          '</option>';
+      });
+      html +=
+        '</datalist><div class="editor-tiny mt-2" id="order-gather-help">Select a known list or enter a custom or nested list variable, for example <code>household[i].jobs</code>. Indexed and generic targets require a matching loop or generic context in Python.</div></div>';
+      if (saveBtn) saveBtn.disabled = false;
     } else if (kind === 'condition') {
       html +=
         '<div class="mb-2"><label class="editor-tiny">Condition expression</label>';
@@ -5835,6 +7673,10 @@
     };
     var kindSelect = document.getElementById('order-add-kind');
     if (kindSelect) {
+      ['break', 'continue'].forEach(function (kind) {
+        var option = kindSelect.querySelector('option[value="' + kind + '"]');
+        if (option) option.disabled = !orderLocationInsideLoop(parentStepId);
+      });
       kindSelect.value = 'screen';
       renderOrderAddBody(kindSelect.value);
     }
@@ -5913,7 +7755,12 @@
       var prefix = new Array(indent + 1).join(' ');
       if (step.kind === 'section')
         lines.push(
-          prefix + "nav.set_section('" + String(step.value || '') + "')",
+          prefix +
+            (step.call === 'set_parts'
+              ? 'set_parts(subtitle='
+              : 'nav.set_section(') +
+            JSON.stringify(String(step.value || '')) +
+            ')',
         );
       else if (step.kind === 'progress')
         lines.push(prefix + 'set_progress(' + String(step.value || '0') + ')');
@@ -5923,7 +7770,31 @@
         step.kind === 'function'
       )
         lines.push(prefix + String(step.invoke || ''));
-      else if (step.kind === 'condition') {
+      else if (step.kind === 'loop') {
+        lines.push(
+          prefix +
+            'for ' +
+            step.target +
+            ' in ' +
+            step.iterable +
+            ':' +
+            (step._order_header_comment
+              ? '  ' + step._order_header_comment
+              : ''),
+        );
+        if ((step.children || []).length)
+          lines.push(renderOrderCodePreview(step.children, indent + 2));
+        if (
+          !(step.children || []).some(function (child) {
+            return child.kind !== 'comment';
+          })
+        )
+          lines.push(prefix + '  pass');
+      } else if (step.kind === 'assignment') {
+        lines.push(prefix + step.target + ' = ' + step.expression);
+      } else if (step.kind === 'break' || step.kind === 'continue') {
+        lines.push(prefix + step.kind);
+      } else if (step.kind === 'condition') {
         // Walk the chain so the preview shows the `elif` the server will
         // actually write, rather than a ladder of nested `if`.
         var chainLinks = getConditionChain(step);
@@ -5933,17 +7804,31 @@
             prefix +
               keyword +
               String(link.condition || link.summary || 'True') +
-              ':',
+              ':' +
+              (link._order_header_comment
+                ? '  ' + link._order_header_comment
+                : ''),
           );
           if (Array.isArray(link.children) && link.children.length) {
             lines.push(renderOrderCodePreview(link.children, indent + 2));
-          } else {
+          }
+          if (
+            !(link.children || []).some(function (child) {
+              return child.kind !== 'comment';
+            })
+          ) {
             lines.push(new Array(indent + 3).join(' ') + 'pass');
           }
         });
         var previewTail = chainLinks[chainLinks.length - 1];
         if (previewTail.has_else) {
-          lines.push(prefix + 'else:');
+          lines.push(
+            prefix +
+              'else:' +
+              (previewTail._order_else_comment
+                ? '  ' + previewTail._order_else_comment
+                : ''),
+          );
           if (
             Array.isArray(previewTail.else_children) &&
             previewTail.else_children.length
@@ -5951,7 +7836,12 @@
             lines.push(
               renderOrderCodePreview(previewTail.else_children, indent + 2),
             );
-          } else {
+          }
+          if (
+            !(previewTail.else_children || []).some(function (child) {
+              return child.kind !== 'comment';
+            })
+          ) {
             lines.push(new Array(indent + 3).join(' ') + 'pass');
           }
         }
@@ -5962,6 +7852,8 @@
             lines.push(prefix + line);
           });
       }
+      if (step._order_inline_comment && lines.length)
+        lines[lines.length - 1] += '  ' + step._order_inline_comment;
     });
     return lines.join('\n');
   }
@@ -6032,13 +7924,46 @@
     'object_multiselect',
   ];
 
+  function fieldChoiceEditorValue(choices) {
+    if (typeof choices === 'string') return choices;
+    return Array.isArray(choices)
+      ? window.ALWeaverSerializers.fieldChoicesText(choices)
+      : '';
+  }
+
+  function fieldChoicesAreExpression(choices) {
+    return typeof choices === 'string';
+  }
+
   var escapeYamlStr = window.ALWeaverSerializers.escapeYamlStr;
+
+  function appendYamlText(yaml, key, value) {
+    return window.ALWeaverSerializers.appendYamlText(yaml, key, value);
+  }
 
   function appendYamlValue(yaml, key, value) {
     if (value === undefined || value === null) return yaml;
     var text = String(value).trim();
     if (!text) return yaml;
-    return yaml + key + ': ' + escapeYamlStr(text) + '\n';
+    var typed = text;
+    if (
+      ['progress', 'reload'].indexOf(key) !== -1 &&
+      Number.isFinite(Number(text))
+    )
+      typed = Number(text);
+    if (
+      [
+        'hide continue button',
+        'disable continue button',
+        'prevent going back',
+        'back button',
+        'scan for variables',
+        'skip undefined',
+      ].indexOf(key) !== -1 &&
+      /^(true|false)$/i.test(text)
+    )
+      typed = text.toLowerCase() === 'true';
+    return yaml + key + ': ' + escapeYamlStr(typed) + '\n';
   }
 
   function appendYamlListValue(yaml, key, value) {
@@ -6450,8 +8375,10 @@
     }
 
     var helpValue = _textValue('adv-help', 'help');
-    if (helpValue.trim()) {
-      yaml = appendYamlValue(yaml, 'help', helpValue);
+    if (data.help && typeof data.help === 'object') {
+      yaml += 'help: ' + JSON.stringify(data.help) + '\n';
+    } else if (helpValue.trim()) {
+      yaml = appendYamlText(yaml, 'help', helpValue);
     }
 
     var audioValue = _textValue('adv-audio', 'audio');
@@ -6471,12 +8398,12 @@
 
     var scriptValue = _textValue('adv-script', 'script');
     if (scriptValue.trim()) {
-      yaml = appendYamlValue(yaml, 'script', scriptValue);
+      yaml = appendYamlText(yaml, 'script', scriptValue);
     }
 
     var cssValue = _textValue('adv-css', 'css');
     if (cssValue.trim()) {
-      yaml = appendYamlValue(yaml, 'css', cssValue);
+      yaml = appendYamlText(yaml, 'css', cssValue);
     }
 
     var languageValue = _textValue('adv-language', 'language');
@@ -6546,7 +8473,7 @@
       'validation code',
     );
     if (validationCodeValue.trim()) {
-      yaml = appendYamlValue(yaml, 'validation code', validationCodeValue);
+      yaml = appendYamlText(yaml, 'validation code', validationCodeValue);
     }
 
     var commentValue = _textValue('adv-comment', 'comment');
@@ -6560,7 +8487,7 @@
   function serializeQuestionBlockToYaml(block) {
     // Keep generated ALIndividual helper calls and their question-level sets
     // modifier in sync immediately before serialization.
-    syncFieldsToData(block);
+    if (syncFieldsToData(block) === false) return '';
     return window.ALWeaverSerializers.serializeQuestionToYaml(block, {
       document: document,
       appendYamlValue: appendYamlValue,
@@ -6571,6 +8498,22 @@
       state: state,
       serializeQuestionFieldFromData: _serializeQuestionFieldFromData,
       appendQuestionAdvancedYaml: _appendQuestionAdvancedYaml,
+      questionModifierKeys: QUESTION_MODIFIER_KEYS.filter(function (key) {
+        return (
+          [
+            'terms',
+            'auto terms',
+            'segment',
+            'breadcrumb',
+            'supersedes',
+            'action buttons',
+            'tabular',
+          ].indexOf(key) === -1
+        );
+      }),
+      generateId: function (questionText) {
+        return generateBlockId(questionText, state.blocks, block.id);
+      },
     });
   }
 
@@ -6578,10 +8521,7 @@
     var data = (block && block.data) || {};
     var yaml = '';
     var blockIdEl = document.getElementById('review-block-id');
-    var blockId = blockIdEl
-      ? blockIdEl.value.trim()
-      : String(data.id || (block && block.id) || 'review_screen');
-    yaml = appendYamlValue(yaml, 'id', blockId || 'review_screen');
+    var blockId = blockIdEl ? blockIdEl.value.trim() : _explicitBlockId(block);
 
     var eventEl = document.getElementById('review-event');
     var eventText = eventEl
@@ -6598,6 +8538,19 @@
       'question',
       questionText || 'Review your answers',
     );
+    // Like any question, a review screen saved without an id gets one from
+    // its text; an id the author wrote is kept.
+    yaml =
+      appendYamlValue(
+        '',
+        'id',
+        blockId ||
+          generateBlockId(
+            questionText || 'Review your answers',
+            state.blocks,
+            block && block.id,
+          ),
+      ) + yaml;
 
     var subEl = document.getElementById('review-subquestion');
     var subText = subEl ? subEl.value : String(data.subquestion || '');
@@ -6741,11 +8694,12 @@
         ': ' +
         escapeYamlStr(String(field[standaloneType] || '')) +
         '\n';
-      if (Array.isArray(field.choices) && field.choices.length) {
+      if (fieldChoicesAreExpression(field.choices) && field.choices.trim()) {
+        yaml += '    choices: ' + JSON.stringify(field.choices.trim()) + '\n';
+      } else if (Array.isArray(field.choices) && field.choices.length) {
         yaml += '    choices:\n';
         field.choices.forEach(function (choice) {
-          var choiceText = String(choice || '').trim();
-          if (choiceText) yaml += '      - ' + escapeYamlStr(choiceText) + '\n';
+          yaml += '      - ' + JSON.stringify(choice) + '\n';
         });
       }
       if (field.code) {
@@ -6786,7 +8740,10 @@
     var variable = String(field.field || field.variable || '').trim();
     var datatype =
       String(field.datatype || field.type || 'text').trim() || 'text';
-    var hasChoices = Array.isArray(field.choices) && field.choices.length > 0;
+    var hasChoices =
+      (Array.isArray(field.choices) && field.choices.length > 0) ||
+      (fieldChoicesAreExpression(field.choices) &&
+        Boolean(field.choices.trim()));
     var hasCode = Boolean(field.code && String(field.code).trim());
     var isRequired = !(field.required === false || field.required === 'False');
     var extraMods = [];
@@ -6826,11 +8783,14 @@
     if (datatype && datatype !== 'text')
       yaml += '    datatype: ' + datatype + '\n';
     if (hasChoices) {
-      yaml += '    choices:\n';
-      field.choices.forEach(function (choice) {
-        var choiceText = String(choice || '').trim();
-        if (choiceText) yaml += '      - ' + escapeYamlStr(choiceText) + '\n';
-      });
+      if (fieldChoicesAreExpression(field.choices)) {
+        yaml += '    choices: ' + JSON.stringify(field.choices.trim()) + '\n';
+      } else {
+        yaml += '    choices:\n';
+        field.choices.forEach(function (choice) {
+          yaml += '      - ' + JSON.stringify(choice) + '\n';
+        });
+      }
     }
     if (hasCode) {
       var codeText = String(field.code);
@@ -6865,12 +8825,9 @@
     var yaml = '';
     var data = (block && block.data) || {};
     var idInput = document.getElementById('adv-id');
-    var blockId =
-      idInput && idInput.value
-        ? idInput.value
-        : block && block.id
-          ? block.id
-          : 'code_block';
+    var blockId = String(
+      idInput ? idInput.value : _explicitBlockId(block),
+    ).trim();
     yaml = appendYamlValue(yaml, 'id', blockId);
 
     var codeText = getSourceEditorValue('code-source-editor');
@@ -6884,7 +8841,18 @@
         yaml += '  ' + line + '\n';
       });
 
-    return _appendQuestionAdvancedYaml(yaml, block);
+    yaml = _appendQuestionAdvancedYaml(yaml, block);
+    // docassemble tracks a mandatory block by its id, so one the author left
+    // without an id gets one; any other code block's id is decoration.
+    if (!blockId && /^mandatory:/m.test(yaml)) {
+      yaml =
+        appendYamlValue(
+          '',
+          'id',
+          generateBlockId('mandatory code', state.blocks, block.id),
+        ) + yaml;
+    }
+    return yaml;
   }
 
   function _parseObjectEditorExpression(expression) {
@@ -7137,12 +9105,7 @@
     var yaml = '';
     var data = (block && block.data) || {};
     var idInput = document.getElementById('adv-id');
-    var blockId =
-      idInput && idInput.value
-        ? idInput.value
-        : block && block.id
-          ? block.id
-          : 'objects_block';
+    var blockId = idInput ? idInput.value : _explicitBlockId(block);
     yaml = appendYamlValue(yaml, 'id', blockId);
 
     yaml += 'objects:\n';
@@ -7193,14 +9156,38 @@
     return _appendQuestionAdvancedYaml(yaml, block);
   }
 
+  /* The id the author wrote in the block's YAML, or '' when there is none.
+     `block.id` is not that: for a block without an `id:` the parser invents
+     one (`block-3-1a2b3c4d`) so the editor can address it, and showing or
+     saving that would write an id the author never chose. */
+  function _explicitBlockId(block) {
+    var id = block && block.data ? block.data.id : undefined;
+    return id === undefined || id === null ? '' : String(id);
+  }
+
+  var _screenValidationMessage = '';
+
   function syncQuestionMetaToData(blk) {
-    if (!blk || blk.type !== 'question') return;
-    if (!blk.data) blk.data = {};
+    if (!isQuestionEditorBlock(blk)) return;
+    try {
+      var screenData = window.ALWeaverSerializers.readScreenControls(
+        blk.data || {},
+        document,
+      );
+    } catch (error) {
+      _screenValidationMessage =
+        error.message || 'Check the screen settings before continuing.';
+      window.alert(_screenValidationMessage);
+      return false;
+    }
+    _screenValidationMessage = '';
+    blk.data = screenData;
 
     var idInput = document.getElementById('adv-id');
     if (idInput) {
       var nextId = idInput.value.trim();
       if (nextId) blk.data.id = nextId;
+      else delete blk.data.id;
     }
 
     var qTitle = document.getElementById('q-title');
@@ -7245,19 +9232,7 @@
       delete blk.data['if'];
     }
 
-    var mandatorySwitch = document.getElementById('adv-mandatory-switch');
-    var mandatoryBtn = document.getElementById('adv-mandatory-toggle');
-    if (mandatorySwitch || mandatoryBtn) {
-      if (
-        (mandatorySwitch && mandatorySwitch.checked) ||
-        (mandatoryBtn && mandatoryBtn.getAttribute('data-enabled') === 'true')
-      )
-        blk.data.mandatory = window.ALWeaverSerializers.enabledExpressionValue(
-          blk.data.mandatory,
-          true,
-        );
-      else delete blk.data.mandatory;
-    }
+    syncMandatoryToData(blk);
 
     var setsInput = document.getElementById('adv-sets');
     if (setsInput) {
@@ -7310,9 +9285,16 @@
     // Extended advanced fields (show more)
     function _syncSimple(id, key) {
       var el = document.getElementById(id);
-      if (!el) return;
-      var v = String(el.value || '').trim();
-      if (v) blk.data[key] = v;
+      if (!el || el.readOnly) return;
+      var raw = String(el.value || '');
+      var v = raw.trim();
+      if (v)
+        blk.data[key] =
+          ['help', 'script', 'css', 'comment', 'validation code'].indexOf(
+            key,
+          ) !== -1
+            ? raw
+            : v;
       else delete blk.data[key];
     }
     function _syncList(id, key) {
@@ -7358,22 +9340,123 @@
     _syncList('adv-reconsider', 'reconsider');
   }
 
+  function syncMandatoryToData(blk) {
+    if (!blk) return;
+    if (!blk.data) blk.data = {};
+    var mandatorySwitch = document.getElementById('adv-mandatory-switch');
+    var mandatoryBtn = document.getElementById('adv-mandatory-toggle');
+    if (mandatorySwitch || mandatoryBtn) {
+      if (
+        (mandatorySwitch && mandatorySwitch.checked) ||
+        (mandatoryBtn && mandatoryBtn.getAttribute('data-enabled') === 'true')
+      )
+        blk.data.mandatory = window.ALWeaverSerializers.enabledExpressionValue(
+          blk.data.mandatory,
+          true,
+        );
+      else delete blk.data.mandatory;
+    }
+  }
+
   function syncFieldsToData(blk) {
-    if (!blk || blk.type !== 'question') return;
+    if (!isQuestionEditorBlock(blk)) return;
     var rows = document.querySelectorAll('.editor-field-row');
+    var previousFields = blk.data.fields || [];
     var previousGeneratedSets =
       (blk.data && blk.data._editor_al_generated_sets) ||
       _generatedALFieldSets((blk.data && blk.data.fields) || []);
-    syncQuestionMetaToData(blk);
+    if (syncQuestionMetaToData(blk) === false) return false;
+    if (window.ALWeaverSerializers.questionScreenType(blk.data) !== 'fields')
+      return;
     if (rows.length === 0) {
-      if (state.questionBlockTab === 'screen') {
+      if (
+        state.questionBlockTab === 'screen' &&
+        window.ALWeaverSerializers.questionScreenType(blk.data) === 'fields'
+      ) {
         blk.data.fields = [];
       }
       _syncGeneratedALFieldSets(blk, previousGeneratedSets);
       return;
     }
-    var previousFields = blk.data.fields || [];
+    // Validate all structured options before changing the in-memory fields.
+    try {
+      rows.forEach(function (row, index) {
+        var idx = row.getAttribute('data-field-idx') || String(index);
+        var choices = document.getElementById('field-choices-' + idx);
+        if (
+          choices &&
+          CHOICE_TYPES.indexOf(
+            row.querySelector('[data-field-prop="type"]').value,
+          ) !== -1
+        ) {
+          var originalChoices = (previousFields[Number(idx)] || {}).choices;
+          var expressionChoices =
+            choices.dataset.choiceExpression === 'true' ||
+            choices.dataset.expressionApplied === 'true' ||
+            fieldChoicesAreExpression(originalChoices);
+          if (!expressionChoices)
+            window.ALWeaverSerializers.readFieldChoices(choices.value);
+        }
+      });
+    } catch (error) {
+      window.alert(error.message);
+      return false;
+    }
     blk.data.fields = [];
+
+    function preserveUnmodeledFieldProperties(
+      target,
+      original,
+      row,
+      extraHandled,
+    ) {
+      if (!original || typeof original !== 'object' || Array.isArray(original))
+        return false;
+      var handled = [
+        'label',
+        'question',
+        'field',
+        'variable',
+        'datatype',
+        'type',
+        'choices',
+        'code',
+        'required',
+      ];
+      var controls = row ? row.querySelectorAll('[data-fmod]') : [];
+      controls.forEach(function (control) {
+        var key = control.getAttribute('data-fmod');
+        if (key) handled.push(key);
+      });
+      (extraHandled || []).forEach(function (key) {
+        if (key) handled.push(key);
+      });
+      var variableName = original.field || original.variable;
+      var copied = false;
+      Object.keys(original).forEach(function (key) {
+        if (
+          Object.prototype.hasOwnProperty.call(target, key) ||
+          handled.indexOf(key) !== -1
+        )
+          return;
+        if (key === 'input type' && original.datatype !== target.datatype)
+          return;
+        // A shorthand field such as `- Age: age` is parsed as a property
+        // named `Age` alongside its normalized field binding.  It is syntax,
+        // not an unmodeled modifier; preserving it after the label control
+        // writes `label: ...` creates a duplicate label in Docassemble.
+        if (
+          typeof variableName === 'string' &&
+          typeof original[key] === 'string' &&
+          original[key] === variableName
+        )
+          return;
+        target[key] = cloneData(original[key]);
+        copied = true;
+      });
+      return copied;
+    }
+
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i];
       var rowIdx =
@@ -7429,6 +9512,13 @@
         !isRequired ||
         (requiredExpression && requiredExpression.value.trim()) ||
         Object.keys(syncFmods).length > 0;
+      var hiddenFieldProperties = {};
+      var hasUnmodeledFieldProperties = preserveUnmodeledFieldProperties(
+        hiddenFieldProperties,
+        previousFields[Number(rowIdx)],
+        row,
+        ['show if', 'hide if'],
+      );
       if (isALMethodType) {
         var methodArgsEl = row.querySelector('[data-field-method-args]');
         var methodCall = _methodCallFromParts(
@@ -7455,10 +9545,21 @@
         Object.keys(syncFmods).forEach(function (k) {
           standaloneObj[k] = syncFmods[k];
         });
+        preserveUnmodeledFieldProperties(
+          standaloneObj,
+          previousFields[Number(rowIdx)],
+          row,
+          ['show if', 'hide if'],
+        );
         blk.data.fields.push(standaloneObj);
         continue;
       }
-      if (!variable && type === 'text' && !hasMods) {
+      if (
+        !variable &&
+        type === 'text' &&
+        !hasMods &&
+        !hasUnmodeledFieldProperties
+      ) {
         blk.data.fields.push(label);
         continue;
       }
@@ -7467,12 +9568,14 @@
       if (variable) fieldObj.field = variable;
       if (type && type !== 'text') fieldObj.datatype = type;
       if (hasChoices) {
-        fieldObj.choices = choicesEl.value
-          .split('\n')
-          .map(function (c) {
-            return c.trim();
-          })
-          .filter(Boolean);
+        var originalChoices = (previousFields[rowIdx] || {}).choices;
+        var expressionChoices =
+          choicesEl.dataset.choiceExpression === 'true' ||
+          choicesEl.dataset.expressionApplied === 'true' ||
+          fieldChoicesAreExpression(originalChoices);
+        fieldObj.choices = expressionChoices
+          ? choicesEl.value.trim()
+          : window.ALWeaverSerializers.readFieldChoices(choicesEl.value);
       }
       if (hasCodeExpr) fieldObj.code = codeEl.value.trim();
       var fieldRequired = serializedRequiredValue(requiredExpression);
@@ -7486,6 +9589,12 @@
       Object.keys(syncFmods).forEach(function (k) {
         fieldObj[k] = syncFmods[k];
       });
+      preserveUnmodeledFieldProperties(
+        fieldObj,
+        previousFields[Number(rowIdx)],
+        row,
+        ['show if', 'hide if'],
+      );
       blk.data.fields.push(fieldObj);
     }
     _syncGeneratedALFieldSets(blk, previousGeneratedSets);
@@ -7695,10 +9804,12 @@
     return files.length ? files[0] : null;
   }
 
-  function loadSectionFiles(view) {
+  function loadSectionFiles(view, requestedFilename) {
     if (view === 'templates') loadDocuments();
     var section = getSectionFromView(view);
-    if (!section || !state.project) {
+    var project = state.project;
+    var sequence = routeSequence;
+    if (!section || !project) {
       if (section) {
         state.sectionFiles[view] = [];
         state.sectionSelectedFile[view] = null;
@@ -7709,106 +9820,170 @@
     }
     return apiGet(
       '/api/section-files?project=' +
-        encodeURIComponent(state.project) +
+        encodeURIComponent(project) +
         '&section=' +
         encodeURIComponent(section),
+      { staleKey: 'section-files:' + view },
     )
       .then(function (res) {
+        if (project !== state.project || sequence !== routeSequence) return;
         if (!res.success || !res.data) return;
         var files = Array.isArray(res.data.files) ? res.data.files : [];
         state.sectionFiles[view] = files;
-        var selected = state.sectionSelectedFile[view];
-        var stillExists = false;
-        for (var i = 0; i < files.length; i++) {
-          if (files[i].filename === selected) {
-            stillExists = true;
-            break;
-          }
-        }
-        if (!stillExists) {
+        var selected = requestedFilename || state.sectionSelectedFile[view];
+        var stillExists = files.some(function (file) {
+          return file.filename === selected;
+        });
+        if (requestedFilename && !stillExists) {
+          state.sectionSelectedFile[view] = requestedFilename;
+          routeFailure(
+            'File "' + requestedFilename + '" was not found in this section.',
+          );
+        } else if (!stillExists) {
           state.sectionSelectedFile[view] = files.length
             ? files[0].filename
             : null;
         }
-        if (!isInterviewView()) {
+        if (state.currentView === view) {
           renderOutline();
           renderCanvas();
         }
       })
-      .catch(swallowNavigationLoadError);
+      .catch(function (error) {
+        if (
+          project !== state.project ||
+          sequence !== routeSequence ||
+          isSupersededRequest(error)
+        )
+          return;
+        if (requestedFilename)
+          routeFailure(error.message || 'Unable to open this file.');
+        swallowNavigationLoadError(error);
+      });
   }
 
-  function loadFiles() {
+  function cancelRouteHydration() {
+    loadingFilesProject = null;
+    routeSequence += 1;
+    routeApplying = false;
+    routeError = null;
+  }
+
+  function loadFiles(requestedRoute) {
+    if (!requestedRoute) cancelRouteHydration();
+    var project = state.project;
+    var sequence = routeSequence;
+    loadingFilesProject = project;
     refreshGithubSyncAction();
     if (moduleRestart) moduleRestart.refresh();
-    if (!state.project) {
+    if (!project) {
       state.files = [];
       state.filename = null;
       state.blocks = [];
+      loadingFilesProject = null;
       populateFiles();
       renderOutline();
       renderCanvas();
       return Promise.resolve();
     }
-    return apiGet('/api/files?project=' + encodeURIComponent(state.project))
+    return apiGet('/api/files?project=' + encodeURIComponent(project))
       .then(function (res) {
+        if (project !== state.project || sequence !== routeSequence) return;
         if (!res.success) return;
-        rememberRecentProject(state.project);
+        rememberRecentProject(project);
         state.files = res.data.files || [];
         var currentStillExists =
           state.filename &&
           state.files.some(function (f) {
             return f.filename === state.filename;
           });
+        if (requestedRoute && requestedRoute.filename && !currentStillExists) {
+          state.blocks = [];
+          state.rawYaml = '';
+          routeFailure(
+            'Interview "' +
+              requestedRoute.filename +
+              '" was not found in this project.',
+          );
+          return;
+        }
         if (!currentStillExists) {
           state.filename = state.files.length ? state.files[0].filename : null;
+          state.selectedBlockId = null;
         }
         populateFiles();
-        if (state.files.length === 0) {
+        if (!state.filename) {
           state.blocks = [];
           renderOutline();
           renderCanvas();
-          loadSectionFiles('templates');
-          loadSectionFiles('modules');
-          loadSectionFiles('static');
-          loadSectionFiles('data');
           return;
         }
-        return loadFile().then(function () {
-          loadSectionFiles('templates');
-          loadSectionFiles('modules');
-          loadSectionFiles('static');
-          loadSectionFiles('data');
-        });
+        return loadFile(requestedRoute || {});
       })
-      .catch(swallowNavigationLoadError);
+      .then(function () {
+        if (project !== state.project || sequence !== routeSequence) return;
+        // Route hydration loads its requested section explicitly. Normal project
+        // navigation also warms the other file lists, with independent request keys.
+        if (!requestedRoute) {
+          ['templates', 'modules', 'static', 'data'].forEach(function (view) {
+            loadSectionFiles(view);
+          });
+        }
+      })
+      .catch(function (error) {
+        if (
+          project !== state.project ||
+          sequence !== routeSequence ||
+          isSupersededRequest(error)
+        )
+          return;
+        routeFailure(error.message || 'Unable to open this project.');
+        swallowNavigationLoadError(error);
+      })
+      .finally(function () {
+        if (project !== state.project || sequence !== routeSequence) return;
+        loadingFilesProject = null;
+        renderOutline();
+        renderCanvas();
+      });
   }
 
-  function loadFile() {
+  function loadFile(requestedRoute) {
+    if (!requestedRoute) cancelRouteHydration();
     if (!state.filename) return Promise.resolve();
+    var project = state.project;
+    var filename = state.filename;
+    var sequence = routeSequence;
+    var loadSequence = ++fileLoadSequence;
+    var selectedBlockId =
+      (requestedRoute && requestedRoute.blockId) || state.selectedBlockId;
+    function isCurrentLoad() {
+      return (
+        project === state.project &&
+        filename === state.filename &&
+        sequence === routeSequence &&
+        loadSequence === fileLoadSequence
+      );
+    }
+    loadedInterviewKey = null;
     var runtimeSession = runtimeInspector.getSession();
     if (
       runtimeSession &&
-      (runtimeSession.project !== state.project ||
-        runtimeSession.filename !== state.filename)
+      (runtimeSession.project !== project ||
+        runtimeSession.filename !== filename)
     ) {
       runtimeInspector.releaseSession();
     }
     endAssistantSessionForFileChange();
     return apiGet(
       '/api/file?project=' +
-        encodeURIComponent(state.project) +
+        encodeURIComponent(project) +
         '&filename=' +
-        encodeURIComponent(state.filename),
+        encodeURIComponent(filename),
     )
       .then(function (res) {
-        if (!res.success) {
-          state.blocks = [];
-          state.rawYaml = '';
-          renderOutline();
-          renderCanvas();
-          return;
-        }
+        if (!isCurrentLoad()) return;
+        if (!res.success) throw new Error('Unable to open this interview.');
         var d = res.data;
         state.blocks = d.blocks || [];
         state.metadataIndices = d.metadata_blocks || [];
@@ -7820,26 +9995,28 @@
         state.revision = d.revision || null;
         state.metadataRawYaml = d.metadata_raw_yaml || '';
         state.fullYamlStash = {};
-        state.selectedBlockId = getDefaultVisibleBlockId();
+        state.selectedBlockId = getBlockById(selectedBlockId)
+          ? selectedBlockId
+          : getDefaultVisibleBlockId();
         setActiveOrderBlock(getDefaultOrderBlockId(), d.order_steps || []);
+        loadedInterviewKey = interviewKey();
         dirtyState.setFileSaved(
-          state.filename,
+          filename,
           state.revision,
           captureInterviewModel(),
         );
-        dirtyState.activate(state.filename, state.selectedBlockId);
+        dirtyState.activate(filename, state.selectedBlockId);
         loadAvailableSymbols(true);
-        // Which documents exist, and which templates are still orphans, are
-        // facts about *this* file. Reading it is the one moment both can change.
         loadDocuments();
         renderOutline();
         renderCanvas();
         runValidation();
       })
       .catch(function (error) {
-        if (isSupersededRequest(error)) return;
+        if (!isCurrentLoad() || isSupersededRequest(error)) return;
         state.blocks = [];
         state.rawYaml = '';
+        routeFailure(error.message || 'Unable to open this interview.');
         renderOutline();
         renderCanvas();
       });
@@ -7847,7 +10024,9 @@
 
   function openProject(projectName) {
     if (!projectName) return;
+    if (projectName !== state.project) resetProjectNavigation();
     state.project = projectName;
+    state.currentView = 'interview';
     state.selectedBlockId = null;
     state.canvasMode = 'question';
     populateProjects();
@@ -8042,6 +10221,9 @@
   }
 
   function getProjectCardMenuHtml(projectName) {
+    // Docassemble reserves this project; its API rejects rename and delete.
+    if (projectName === 'default' && !state.projectSyncs[projectName])
+      return '';
     var projectId = esc(projectName);
     var html = '';
     html += '<div class="dropdown editor-project-card-actions">';
@@ -8056,14 +10238,16 @@
         '"><i class="fa-solid fa-code-pull-request me-2" aria-hidden="true"></i>Pull changes from GitHub</button></li>';
       html += '<li><hr class="dropdown-divider"></li>';
     }
-    html +=
-      '<li><button type="button" class="dropdown-item" data-project-action="rename" data-project-name="' +
-      projectId +
-      '"><i class="fa-solid fa-pen me-2" aria-hidden="true"></i>Rename project</button></li>';
-    html +=
-      '<li><button type="button" class="dropdown-item text-danger" data-project-action="delete" data-project-name="' +
-      projectId +
-      '"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Delete project</button></li>';
+    if (projectName !== 'default') {
+      html +=
+        '<li><button type="button" class="dropdown-item" data-project-action="rename" data-project-name="' +
+        projectId +
+        '"><i class="fa-solid fa-pen me-2" aria-hidden="true"></i>Rename project</button></li>';
+      html +=
+        '<li><button type="button" class="dropdown-item text-danger" data-project-action="delete" data-project-name="' +
+        projectId +
+        '"><i class="fa-solid fa-trash-can me-2" aria-hidden="true"></i>Delete project</button></li>';
+    }
     html += '</ul></div>';
     return html;
   }
@@ -8073,9 +10257,12 @@
       if (replacementName) {
         state.project = replacementName;
       } else if (projectName && state.project === projectName) {
+        cancelRouteHydration();
+        resetProjectNavigation();
         state.project = null;
-        state.filename = null;
-        state.blocks = [];
+        state.currentView = 'interview';
+        state.canvasMode = 'project-selector';
+        dirtyState.activate(null, null);
       }
       if (replacementName) {
         loadFiles();
@@ -8256,16 +10443,9 @@
   }
 
   function typeLabel(type) {
-    if (type === 'commented') return 'Off';
-    if (type === 'question') return 'Q';
-    if (type === 'review') return 'Rev';
-    if (type === 'code') return 'Py';
-    if (type === 'objects') return 'Obj';
-    if (type === 'metadata') return 'Meta';
-    if (type === 'includes') return 'Inc';
-    if (type === 'default_screen_parts') return 'Def';
-    if (type === 'comment') return 'Comment';
-    return type.charAt(0).toUpperCase() + type.slice(1, 3);
+    if (type === 'commented') return 'disabled';
+    if (type === 'default_screen_parts') return 'defaults';
+    return String(type).replace(/_/g, ' ').toLowerCase();
   }
 
   function _lintFindingLevel(finding) {
@@ -8324,8 +10504,8 @@
     return false;
   }
 
-  function getBlockLintFindings(blockId) {
-    var block = getBlockById(blockId);
+  function getBlockLintFindings(blockId, block) {
+    block = block || getBlockById(blockId);
     if (!block) return [];
     return (state.validationErrors || []).filter(function (finding) {
       return _findingsMatchBlock(finding, block);
@@ -8363,6 +10543,10 @@
   }
 
   function renderOutline() {
+    if (routeApplying) {
+      outlineList.innerHTML = '';
+      return;
+    }
     updateOutlineHeader();
     updateOutlineFilterSummary();
     if (!isInterviewView()) {
@@ -8373,12 +10557,19 @@
     var html = '';
     html +=
       '<div class="editor-outline-insert"><button type="button" class="editor-outline-insert-btn" data-insert-after-id=""><span class="editor-outline-insert-line" aria-hidden="true"></span><span class="editor-outline-insert-icon"><i class="fa-solid fa-plus" aria-hidden="true"></i></span><span class="visually-hidden">Insert block at top</span></button></div>';
-    blocks.forEach(function (block) {
+    for (var blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
+      var block = blocks[blockIndex];
       var active = state.selectedBlockId === block.id;
       var displayType = getBlockDisplayType(block);
       var tl = typeLabel(displayType);
+      if (
+        displayType === 'question' &&
+        Object.prototype.hasOwnProperty.call(block.data || {}, 'signature')
+      ) {
+        tl = 'signature';
+      }
       var tc = typeClass(displayType);
-      var lintFindings = getBlockLintFindings(block.id);
+      var lintFindings = getBlockLintFindings(block.id, block);
       var lintClass = lintFindings.length
         ? ' ' + getBlockLintFeedbackClass(lintFindings)
         : '';
@@ -8436,7 +10627,7 @@
       html += '</div>';
       html +=
         '<div class="editor-outline-type ' + tc + '">' + esc(tl) + '</div>';
-      html += getBlockMenuHtml(block, blocks.indexOf(block), blocks.length);
+      html += getBlockMenuHtml(block, blockIndex, blocks.length);
       html += '</div></div>';
       html +=
         '<div class="editor-outline-insert"><button type="button" class="editor-outline-insert-btn" data-insert-after-id="' +
@@ -8444,7 +10635,7 @@
         '"><span class="editor-outline-insert-line" aria-hidden="true"></span><span class="editor-outline-insert-icon"><i class="fa-solid fa-plus" aria-hidden="true"></i></span><span class="visually-hidden">Insert block after ' +
         esc(block.title) +
         '</span></button></div>';
-    });
+    }
     outlineList.innerHTML = html;
     initOutlineSortable();
   }
@@ -8604,7 +10795,7 @@
       block.type === 'template' &&
       block.data &&
       typeof block.data.template === 'string' &&
-      /^[A-Za-z_][A-Za-z0-9_]*$/.test(block.data.template) &&
+      window.ALWeaverSerializers.isPythonIdentifier(block.data.template) &&
       typeof block.data.content === 'string' &&
       (block.data.subject === undefined ||
         typeof block.data.subject === 'string') &&
@@ -8653,6 +10844,24 @@
   }
 
   function saveCurrentBlockIfDirty() {
+    if (blankQuestionNeedsDecision()) {
+      var missingQuestionInput = document.getElementById('q-title');
+      if (!missingQuestionInput && state.questionEditMode === 'preview') {
+        state.questionBlockTab = 'screen';
+        renderCanvas();
+        missingQuestionInput = document.getElementById('q-title');
+      }
+      if (missingQuestionInput) {
+        missingQuestionInput.setCustomValidity(
+          'Add a question label before saving.',
+        );
+        missingQuestionInput.focus();
+        missingQuestionInput.reportValidity();
+      } else {
+        window.alert('Add a question label before saving.');
+      }
+      return Promise.resolve(false);
+    }
     if (!dirtyState.hasDirty(state.filename) || !state.filename)
       return Promise.resolve(true);
     var fileDirtyState = dirtyState.getFileState(state.filename);
@@ -8745,15 +10954,24 @@
     if (!block) return Promise.resolve(true);
     var originalBlockId = block.id;
     if (editingRawOrder) _stashFullYamlContent();
-    var yamlVal = editingRawOrder
-      ? state.fullYamlStash.order
-      : getBlockYamlForSave(block);
+    var yamlVal;
+    try {
+      yamlVal = editingRawOrder
+        ? state.fullYamlStash.order
+        : getBlockYamlForSave(block);
+    } catch (error) {
+      window.alert(error.message || 'Check the screen settings before saving.');
+      return Promise.resolve(false);
+    }
     if (!yamlVal) return Promise.resolve(false);
     return apiPost('/api/block', {
       project: state.project,
       filename: state.filename,
       block_id: originalBlockId,
       block_yaml: yamlVal,
+      allow_empty_question: Boolean(
+        state.blankQuestionAllowed[blankQuestionKey(block)],
+      ),
       edit_mode:
         editingRawOrder || state.questionEditMode !== 'preview'
           ? 'source'
@@ -8767,14 +10985,24 @@
           return false;
         }
         var keepBlockId = res.data.saved_block_id || originalBlockId;
-        refreshFromFileResponse(res.data, { savedBlockId: originalBlockId });
-        state.selectedBlockId = keepBlockId;
-        renderOutline();
-        renderCanvas();
+        refreshAfterBlockSave(res.data, originalBlockId, keepBlockId);
         return !dirtyState.hasDirty(state.filename);
       })
       .catch(function (error) {
         if (isSupersededRequest(error)) return false;
+        // The YAML editor has no label checkbox, so a blank `question:` typed
+        // there is confirmed here instead.
+        if (
+          error &&
+          error.code === 'empty_question' &&
+          !state.blankQuestionAllowed[blankQuestionKey(block)] &&
+          window.confirm(
+            'This question has no label. Save it with the label left blank?',
+          )
+        ) {
+          state.blankQuestionAllowed[blankQuestionKey(block)] = true;
+          return saveCurrentBlockIfDirty();
+        }
         window.alert(
           'Unable to save block: ' +
             String((error && error.message) || error || 'Unknown error'),
@@ -8795,6 +11023,10 @@
       section: sectionForSave,
       filename: sectionFileMeta.filename,
       content: contentVal,
+      expected_revision: sectionRevisionFor(
+        state.currentView,
+        sectionFileMeta.filename,
+      ),
     })
       .then(function (res) {
         if (!res.success) {
@@ -8806,6 +11038,9 @@
         state.sectionDirty = false;
         noteModuleSaveResult(res.data);
         state.sectionSavedContent[sectionSnapshotKey()] = contentVal;
+        if (res.data && res.data.revision) {
+          state.sectionFileRevisions[sectionSnapshotKey()] = res.data.revision;
+        }
         updateTopbarSaveState();
         var saveSectionBtn = document.getElementById('save-section-file');
         if (saveSectionBtn) saveSectionBtn.disabled = true;
@@ -8845,7 +11080,7 @@
   }
 
   function promptAndSaveUnsavedChanges(actionLabel) {
-    stashCurrentEditorState();
+    if (stashCurrentEditorState() === false) return Promise.resolve(false);
     if (!hasUnsavedChanges()) return Promise.resolve(true);
     var modalElement = document.getElementById('unsaved-changes-modal');
     var modal = getOrCreateBootstrapModal('unsaved-changes-modal');
@@ -8855,11 +11090,29 @@
     var priorFocus = document.activeElement;
     var message = modalElement.querySelector('#unsaved-changes-message');
     var errorBox = modalElement.querySelector('#unsaved-changes-error');
+    var blankQuestionPrompt = blankQuestionNeedsDecision();
+    var blankQuestionWrap = modalElement.querySelector(
+      '#blank-question-prompt-wrap',
+    );
+    var blankQuestionCheckbox = modalElement.querySelector(
+      '#blank-question-prompt',
+    );
+    var discardButton = modalElement.querySelector(
+      '[data-unsaved-choice="discard"]',
+    );
+    if (blankQuestionWrap)
+      blankQuestionWrap.classList.toggle('d-none', !blankQuestionPrompt);
+    if (blankQuestionCheckbox) blankQuestionCheckbox.checked = false;
+    if (discardButton)
+      discardButton.classList.toggle('d-none', blankQuestionPrompt);
     if (message) {
-      message.textContent =
-        'You have unsaved changes. Save or discard them before you ' +
-        (actionLabel || 'continue') +
-        '.';
+      message.textContent = blankQuestionPrompt
+        ? 'Add a question label before you ' +
+          (actionLabel || 'continue') +
+          ', or check the box to leave it blank.'
+        : 'You have unsaved changes. Save or discard them before you ' +
+          (actionLabel || 'continue') +
+          '.';
     }
     if (errorBox) {
       errorBox.textContent = '';
@@ -8915,6 +11168,16 @@
               settingsDiscarded &&
               documentsDiscarded
             ) {
+              if (blankQuestionNeedsDecision()) {
+                blankQuestionPrompt = true;
+                if (blankQuestionWrap)
+                  blankQuestionWrap.classList.remove('d-none');
+                if (discardButton) discardButton.classList.add('d-none');
+                if (message)
+                  message.textContent =
+                    'Add a question label, or check the box to leave it blank.';
+                return;
+              }
               finish(true);
             } else if (errorBox) {
               errorBox.textContent =
@@ -8923,6 +11186,16 @@
             }
             return;
           }
+
+          if (blankQuestionPrompt && !blankQuestionCheckbox.checked) {
+            if (errorBox) {
+              errorBox.textContent =
+                'Add a question label, or check Leave this question label blank.';
+              errorBox.classList.remove('d-none');
+            }
+            return;
+          }
+          if (blankQuestionPrompt) setBlankQuestionAllowed(true);
 
           setButtonsDisabled(true);
           saveCurrentSectionFileIfDirty()
@@ -8976,7 +11249,7 @@
   var _pendingNavigationDismissal = null;
 
   function deferNavigationForUnsavedChanges(actionLabel, action) {
-    stashCurrentEditorState();
+    if (stashCurrentEditorState() === false) return true;
     if (!hasUnsavedChanges()) return false;
     // Clicking through tabs quickly stacks several navigations behind one
     // prompt. Keep only the most recent one: it is the tab the user actually
@@ -9088,7 +11361,8 @@
   // consume this; neither may fall back to the saved file behind the
   // developer's back, so an unmappable buffer throws instead.
   function describeWorkingSource(orderDirtyMessage) {
-    stashCurrentEditorState();
+    if (stashCurrentEditorState() === false)
+      throw new Error(_screenValidationMessage);
     var fileState = dirtyState.getFileState(state.filename);
     var hasDirtySource = Boolean(fileState && fileState.sourceDirty);
     var hasDirtyBlocks = Boolean(
@@ -9134,6 +11408,10 @@
         options.blockReplacements[blockId] = isActiveBlock
           ? getBlockYamlForSave(block)
           : block.yaml;
+        if (!options.blockReplacements[blockId])
+          throw new Error(
+            _screenValidationMessage || 'Could not prepare the screen source.',
+          );
       });
     }
 
@@ -9330,24 +11608,17 @@
       },
     );
 
-    Array.prototype.forEach.call(
-      document.querySelectorAll('.js-check-errors-btn'),
-      function (btn) {
-        btn.classList.toggle('editor-validation-has-issues', hasProblems);
-        btn.classList.toggle(
-          'editor-validation-has-info',
-          !hasProblems && summary.info > 0,
-        );
-      },
-    );
-
-    // Show/hide the alert icon — only visible when there are actual errors
-    Array.prototype.forEach.call(
-      document.querySelectorAll('.js-check-errors-icon'),
-      function (icon) {
-        icon.classList.toggle('d-none', isStyleMode || count === 0);
-      },
-    );
+    var errorBadge = document.getElementById('editor-error-count');
+    if (errorBadge) {
+      var errorCount = isStyleMode ? 0 : summary.error;
+      var errorLabel = errorCount + (errorCount === 1 ? ' error' : ' errors');
+      errorBadge.textContent = errorCount > 0 ? String(errorCount) : '';
+      errorBadge.classList.toggle('d-none', errorCount === 0);
+      var errorStatus = document.getElementById('editor-error-status');
+      if (errorStatus && errorStatus.textContent !== errorLabel)
+        errorStatus.textContent = errorLabel;
+      errorBadge.setAttribute('title', errorLabel);
+    }
 
     applyValidationDock();
     drawer.setAttribute('aria-busy', state.validationBusy ? 'true' : 'false');
@@ -9477,6 +11748,16 @@
 
   function loadAssemblyLineSettings() {
     if (!state.project || !state.filename) return Promise.resolve(false);
+    var requestedKey = interviewKey();
+    var sequence = routeSequence;
+    function isCurrentSettings() {
+      return (
+        requestedKey === interviewKey() &&
+        sequence === routeSequence &&
+        state.currentView === 'interview' &&
+        state.canvasMode === 'assemblyline-settings'
+      );
+    }
     state.assemblyLineSettings = null;
     state.assemblyLineSettingsDirty = false;
     renderAssemblyLineSettings();
@@ -9487,6 +11768,7 @@
         encodeURIComponent(state.filename),
     )
       .then(function (res) {
+        if (!isCurrentSettings()) return false;
         if (!res.success || !res.data)
           throw new Error(
             (res.error && res.error.message) || 'Unable to load settings.',
@@ -9498,6 +11780,7 @@
         return true;
       })
       .catch(function (error) {
+        if (!isCurrentSettings() || isSupersededRequest(error)) return false;
         canvasContent.innerHTML =
           '<div class="alert alert-danger">' +
           esc(error.message || 'Unable to load AssemblyLine settings.') +
@@ -9791,7 +12074,7 @@
     var html =
       '<div class="editor-new-project-shell"><div class="editor-card"><div class="editor-card-body d-flex justify-content-between align-items-start gap-3 flex-wrap">';
     html +=
-      '<div><h2 style="font-weight:700;font-size:18px;margin:0 0 6px">AssemblyLine settings ';
+      '<div><h2 style="font-weight:700;font-size:1.125rem;margin:0 0 6px">AssemblyLine settings ';
     html +=
       '<button type="button" class="btn btn-sm btn-link p-0 align-baseline editor-al-settings-explainer" data-al-settings-explainer data-bs-toggle="popover" data-bs-trigger="focus" data-bs-placement="bottom" data-bs-html="true" data-bs-title="What is this page?" data-bs-content="' +
       esc(_settingsExplainerHtml(data)) +
@@ -9945,6 +12228,7 @@
   }
 
   function renderCanvas() {
+    scheduleEditorRoute();
     disposeSourceEditors();
     // Runtime observations finish asynchronously. Every non-debugger render
     // must first invalidate the debugger's canvas ownership so a late response
@@ -9963,10 +12247,43 @@
           state.canvasMode === 'runtime-inspector',
       );
     }
+    var currentTab = document.querySelector(
+      '.editor-top-tab[data-view="' + state.currentView + '"]',
+    );
+    if (currentTab) setActiveTopTab(currentTab);
     updateLeftRailMode();
     updateLeftSearchPlaceholder();
     updateTopbarProject();
     updateTopbarSaveState();
+    if (routeApplying) {
+      canvasContent.innerHTML =
+        '<p class="text-muted p-4" role="status">Loading editor location…</p>';
+      return;
+    }
+    if (routeError) {
+      if (routeError.path === router.routeForState(editorRoute())) {
+        canvasContent.innerHTML =
+          '<div class="alert alert-warning" role="alert">' +
+          esc(routeError.message) +
+          ' <a href="' +
+          esc(
+            state.project && state.projects.indexOf(state.project) !== -1
+              ? router.routeForState({
+                  project: state.project,
+                  view: 'interview',
+                  mode: 'question',
+                })
+              : '/al/editor',
+          ) +
+          '">Return to ' +
+          (state.project && state.projects.indexOf(state.project) !== -1
+            ? 'project'
+            : 'projects') +
+          '</a></div>';
+        return;
+      }
+      routeError = null;
+    }
     if (state.currentView !== 'interview') {
       renderSecondaryView();
       renderValidationDrawer();
@@ -10053,14 +12370,7 @@
     } else if (block.type === 'objects') {
       renderObjectsBlock(block);
     } else if (
-      block.type === 'template' &&
-      block.data &&
-      typeof block.data.template === 'string' &&
-      /^[A-Za-z_][A-Za-z0-9_]*$/.test(block.data.template) &&
-      typeof block.data.content === 'string' &&
-      (block.data.subject === undefined ||
-        typeof block.data.subject === 'string') &&
-      block.data['content file'] === undefined &&
+      isTemplateEditorBlock(block) &&
       state.questionEditMode === 'preview'
     ) {
       renderTemplateBlock(block);
@@ -10084,11 +12394,11 @@
     var html = '<div class="editor-center-bar"><div>';
     html += '<span class="editor-pill editor-pill-muted">Text template</span>';
     html +=
-      '<div style="font-weight:600;font-size:16px;margin-top:6px">' +
+      '<div style="font-weight:600;font-size:1rem;margin-top:6px">' +
       esc(String(data.template || 'Template')) +
       '</div></div>';
     html +=
-      '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode"><i class="fa-solid fa-code me-1" aria-hidden="true"></i>YAML</button></div>';
+      '<button class="btn btn-sm btn-outline-primary editor-template-action" id="toggle-edit-mode"><i class="fa-solid fa-code me-1" aria-hidden="true"></i>YAML</button></div>';
     html +=
       '<div class="editor-shell"><div class="editor-card"><div class="editor-card-body">';
     html += '<div class="editor-form-group">';
@@ -10113,7 +12423,7 @@
         '<div class="form-text">Required only when this template is inserted as collapsible help.</div></div>';
     } else {
       html +=
-        '<div class="editor-form-group"><button type="button" class="btn btn-sm btn-outline-secondary" id="add-template-subject"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Add subject</button></div>';
+        '<div class="editor-form-group"><button type="button" class="btn btn-sm btn-outline-primary editor-template-action" id="add-template-subject"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Add subject</button></div>';
     }
     html += '<div class="editor-form-group">';
     html += '<label class="editor-tiny" for="template-content">Content</label>';
@@ -10151,9 +12461,10 @@
         : [{ label: 'Sign Out', url: authState.logoutUrl || '/user/sign-out' }];
     var html = '<li class="nav-item dropdown">';
     html +=
-      '<a href="#" class="nav-link dropdown-toggle" id="editor-account-menu" role="button" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false">' +
+      '<a href="#" class="nav-link dropdown-toggle" id="editor-account-menu" aria-label="Account menu" title="Account menu" role="button" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false">' +
+      '<i class="fa-solid fa-user-circle" aria-hidden="true"></i><span class="editor-account-name">' +
       esc(designator) +
-      '</a>';
+      '</span></a>';
     // The navbar is dark, but its menus should read like every other menu in
     // the editor (and like docassemble's own), so pin them to the light theme.
     html +=
@@ -10188,13 +12499,21 @@
   }
 
   function renderProjectSelector() {
-    var globalPullItem = document.getElementById('github-pull-menu-item');
-    if (globalPullItem) globalPullItem.classList.add('d-none');
+    document
+      .querySelectorAll('.js-github-pull-menu-item')
+      .forEach(function (item) {
+        item.classList.add('d-none');
+      });
     var query = state.projectSearchQuery.toLowerCase().trim();
-    var recent = getRecentProjectsInWorkspace();
+    // A small workspace needs one list. In larger workspaces, each project
+    // still appears only once, and search always covers the whole workspace.
+    var recent =
+      !query && state.projects.length > MAX_RECENT_PROJECTS
+        ? getRecentProjectsInWorkspace()
+        : [];
     var filteredProjects = state.projects.filter(function (name) {
-      if (!query) return true;
-      return name.toLowerCase().indexOf(query) !== -1;
+      if (recent.indexOf(name) !== -1) return false;
+      return !query || name.toLowerCase().indexOf(query) !== -1;
     });
 
     var html = '';
@@ -10254,7 +12573,10 @@
     }
 
     html += '<div class="editor-project-section">';
-    html += '<div class="editor-project-section-title">All projects</div>';
+    html +=
+      '<div class="editor-project-section-title">' +
+      (recent.length ? 'Other projects' : 'All projects') +
+      '</div>';
     if (filteredProjects.length === 0) {
       html +=
         '<div class="editor-card"><div class="editor-card-body text-muted">No projects matched your search.</div></div>';
@@ -10284,8 +12606,8 @@
   // Screen preview modal
   //
   // The preview lives in an iframe so Docassemble's own stylesheets can be
-  // loaded whole — the same bundle.css, labelauty and Bootstrap theme the
-  // running interview uses — without any of it leaking into the editor chrome.
+  // loaded whole — the same bundle.css and Bootstrap theme the running
+  // interview uses — without any of it leaking into the editor chrome.
   // -------------------------------------------------------------------------
 
   var _screenPreviewWidth = 'desktop';
@@ -10425,7 +12747,11 @@
    * author has typed into the editor but not yet saved. */
   function _screenPreviewData(block, notes) {
     if (block.type === 'question') {
-      if (state.questionEditMode === 'preview') syncFieldsToData(block);
+      if (
+        state.questionEditMode === 'preview' &&
+        syncFieldsToData(block) === false
+      )
+        return null;
       return block.data || {};
     }
     if (block.type === 'review') {
@@ -10469,6 +12795,7 @@
       );
     }
     var previewData = _screenPreviewData(block, notes);
+    if (previewData === null) return;
 
     var resolved = _screenPreviewContext();
     // Docassemble puts labels to the left of fields unless the interview's
@@ -10485,6 +12812,7 @@
 
     var doc = ALWeaverScreenPreview.buildDocument(previewData, {
       assets: resolved.assets,
+      widgetStyle: BOOT.previewWidgetStyle,
       extraCss: resolved.extraCss,
       theme: _screenPreviewDark ? 'dark' : 'light',
       labelLayout: labelLayout,
@@ -10573,9 +12901,76 @@
     var packageQueue = firstPass.packages.slice();
     var projectBlocks = [];
     var packageBlocks = [];
+    var namedOrders = Object.create(null);
+    var openNames = Object.create(null);
+
+    function hasScreenStep(steps) {
+      return (steps || []).some(function (step) {
+        return (
+          step.kind === 'screen' ||
+          step.kind === 'gather' ||
+          hasScreenStep(step.children) ||
+          hasScreenStep(step.else_children)
+        );
+      });
+    }
+
+    function addNamedOrders(orders) {
+      Object.keys(orders || {}).forEach(function (name) {
+        if (!Object.prototype.hasOwnProperty.call(namedOrders, name)) {
+          namedOrders[name] = orders[name];
+        }
+      });
+    }
+
+    // The open file is the editor's current buffer, which may have unsaved
+    // changes. Parse its named blocks from that buffer instead of rereading it.
+    function readOpenFileOrders() {
+      var pending = (state.blocks || [])
+        .map(function (block) {
+          var code =
+            block && block.type === 'code' && block.data
+              ? block.data.code
+              : null;
+          if (typeof code !== 'string') return null;
+          var match = code
+            .trim()
+            .match(/(?:^|\n)\s*([A-Za-z_]\w*)\s*=\s*True\s*(?:#.*)?$/);
+          if (!match || openNames[match[1]]) return null;
+          var name = match[1];
+          openNames[name] = true;
+          var saved =
+            block.id === state.activeOrderBlockId
+              ? state.orderSteps
+              : state.orderStepMap && state.orderStepMap[block.id];
+          var parsed = Array.isArray(saved)
+            ? Promise.resolve(saved)
+            : apiGet('/api/parse-order?code=' + encodeURIComponent(code)).then(
+                function (res) {
+                  return res && res.success && res.data
+                    ? res.data.steps || []
+                    : [];
+                },
+              );
+          return parsed
+            .then(function (steps) {
+              if (hasScreenStep(steps)) {
+                addNamedOrders({ [name]: steps });
+              }
+            })
+            .catch(function () {
+              return null;
+            });
+        })
+        .filter(Boolean);
+      return Promise.all(pending);
+    }
 
     function done() {
-      return [].concat(state.blocks || [], projectBlocks, packageBlocks);
+      return {
+        blocks: [].concat(state.blocks || [], projectBlocks, packageBlocks),
+        namedOrders: namedOrders,
+      };
     }
 
     function readPackages() {
@@ -10592,6 +12987,7 @@
           .then(function (res) {
             var blocks =
               res && res.success && res.data ? res.data.blocks || [] : [];
+            addNamedOrders(res && res.data && res.data.named_order_steps);
             blocks.forEach(function (block) {
               block.sourceFile = reference;
               // "AssemblyLine" reads better on a screen than the whole path.
@@ -10631,6 +13027,7 @@
         .then(function (res) {
           var blocks =
             res && res.success && res.data ? res.data.blocks || [] : [];
+          addNamedOrders(res && res.data && res.data.named_order_steps);
           blocks.forEach(function (block) {
             block.sourceFile = filename;
             block.sourceLabel = filename;
@@ -10652,7 +13049,7 @@
         .then(readProjectFiles);
     }
 
-    return readProjectFiles();
+    return readOpenFileOrders().then(readProjectFiles);
   }
 
   /**
@@ -10687,36 +13084,38 @@
     win.document.close();
 
     _collectInterviewBlocks()
-      .then(function (blocks) {
+      .then(function (collected) {
+        var blocks = collected.blocks;
+        var steps = ALWeaverInterviewReport.expandNamedOrders(
+          state.orderSteps || [],
+          collected.namedOrders,
+        );
         var resolved = _screenPreviewContext();
         var interviewName = state.filename
           ? state.filename.replace(/\.ya?ml$/, '')
           : '';
-        var html = ALWeaverInterviewReport.buildReport(
-          state.orderSteps || [],
-          blocks,
-          {
-            assets: resolved.assets,
-            extraCss: resolved.extraCss,
-            theme: _screenPreviewDark ? 'dark' : 'light',
-            // Draw the screens the way the preview modal is currently drawing
-            // them, falling back to whatever the interview itself declares.
-            labelLayout: _screenPreviewLabelLayout || resolved.declaredLayout,
-            continueLabel: resolved.continueLabel,
-            backButtonLabel: _screenPreviewBackLabel || resolved.backLabel,
-            interview:
-              typeof ALWeaverScreenPreview !== 'undefined'
-                ? ALWeaverScreenPreview.buildInterviewContext(blocks)
-                : null,
-            title:
-              (interviewName ? interviewName + ' \u2014 ' : '') +
-              'Interview flow report',
-            subtitle: state.filename || '',
-            // The report is served from a blob: URL, which cannot resolve a
-            // root-relative stylesheet path on its own.
-            origin: window.location.origin,
-          },
-        );
+        var html = ALWeaverInterviewReport.buildReport(steps, blocks, {
+          assets: resolved.assets,
+          widgetStyle: BOOT.previewWidgetStyle,
+          extraCss: resolved.extraCss,
+          theme: _screenPreviewDark ? 'dark' : 'light',
+          // Draw the screens the way the preview modal is currently drawing
+          // them, falling back to whatever the interview itself declares.
+          labelLayout: _screenPreviewLabelLayout || resolved.declaredLayout,
+          continueLabel: resolved.continueLabel,
+          backButtonLabel: _screenPreviewBackLabel || resolved.backLabel,
+          interview:
+            typeof ALWeaverScreenPreview !== 'undefined'
+              ? ALWeaverScreenPreview.buildInterviewContext(blocks)
+              : null,
+          title:
+            (interviewName ? interviewName + ' \u2014 ' : '') +
+            'Interview flow report',
+          subtitle: state.filename || '',
+          // The report is served from a blob: URL, which cannot resolve a
+          // root-relative stylesheet path on its own.
+          origin: window.location.origin,
+        });
 
         if (win.closed) return;
         var url = URL.createObjectURL(
@@ -10738,11 +13137,208 @@
   }
 
   // --- Question block: rich field editor ---
+  function renderMandatorySwitch(data) {
+    var html = '';
+    html +=
+      '<div class="form-check form-switch editor-question-mandatory-switch">';
+    html +=
+      '<input class="form-check-input" type="checkbox" role="switch" id="adv-mandatory-switch"' +
+      (Boolean(data.mandatory) ? ' checked' : '') +
+      '>';
+    html +=
+      '<label class="form-check-label" for="adv-mandatory-switch">Mandatory</label>';
+    html += '</div>';
+    return html;
+  }
+
+  function renderScreenControls(data, kind) {
+    var html =
+      '<div class="editor-section-legend mt-3">' +
+      (kind === 'signature' ? 'Signature' : 'Other screen: ' + esc(kind)) +
+      '</div>';
+    function textControl(key, label, multiline, hint) {
+      var id = 'screen-' + key.replace(/ /g, '-');
+      html +=
+        '<div class="editor-form-group"><label class="editor-tiny" for="' +
+        id +
+        '">' +
+        esc(label) +
+        '</label>';
+      if (multiline) html += renderMarkdownToolbar(id, false);
+      html +=
+        '<textarea class="form-control editor-form-control" data-screen-control id="' +
+        id +
+        '" rows="' +
+        (multiline ? 3 : 1) +
+        '">' +
+        esc(data[key] == null ? '' : String(data[key])) +
+        '</textarea>';
+      if (hint) html += '<div class="text-muted small">' + esc(hint) + '</div>';
+      html += '</div>';
+    }
+    if (kind === 'signature') {
+      textControl(
+        'signature',
+        'Signature variable',
+        false,
+        'The DAFile variable that stores the signature, such as users[0].signature or x.signature.',
+      );
+      textControl('under', 'Text below the signature', true);
+      textControl(
+        'pen color',
+        'Pen color',
+        false,
+        'Optional CSS color or Mako expression. Defaults to black.',
+      );
+      var computed =
+        typeof data.required !== 'undefined' &&
+        typeof data.required !== 'boolean';
+      html +=
+        '<div class="editor-form-group"><label class="editor-tiny" for="screen-required">Require a signature</label>';
+      html +=
+        '<select class="form-select editor-form-control" data-screen-control id="screen-required"' +
+        (computed ? ' disabled' : '') +
+        '>';
+      [
+        ['', 'Default (required)'],
+        ['true', 'Required'],
+        ['false', 'Allow a blank signature'],
+      ].forEach(function (entry) {
+        html +=
+          '<option value="' +
+          entry[0] +
+          '"' +
+          (String(data.required === undefined ? '' : data.required) === entry[0]
+            ? ' selected'
+            : '') +
+          '>' +
+          entry[1] +
+          '</option>';
+      });
+      if (computed)
+        html +=
+          '<option selected>Expression: ' +
+          esc(String(data.required)) +
+          '</option>';
+      html += '</select>';
+      if (computed)
+        html +=
+          '<div class="text-muted small">Edit this expression in YAML.</div>';
+      html += '</div>';
+      html +=
+        '<p class="text-muted small">AssemblyLine already provides a generic signature screen. Use a custom screen when you need different wording or behavior.</p>';
+      return html;
+    }
+    if (['yesno', 'noyes', 'yesnomaybe', 'noyesmaybe'].indexOf(kind) !== -1) {
+      textControl(kind, 'Answer variable', false);
+      html +=
+        '<p class="text-muted small">These standalone buttons use a different layout. For new screens, we recommend a regular question with a yes/no field.</p>';
+    } else {
+      textControl(
+        'field',
+        kind === 'field' ? 'Continue variable' : 'Answer variable',
+        false,
+        kind === 'buttons'
+          ? 'Leave empty for buttons that run actions, such as restart or exit.'
+          : '',
+      );
+      if (Array.isArray(data[kind])) {
+        data[kind].forEach(function (item, index) {
+          var desc = window.ALWeaverSerializers.screenChoice(item);
+          html += '<div class="border rounded p-2 mb-2">';
+          if (desc.computed) {
+            html +=
+              '<p class="small mb-0">Choices generated by code. Edit the expression in YAML.</p>';
+          } else {
+            var complex = desc.value !== null && typeof desc.value === 'object';
+            var type = desc.value === null ? 'null' : typeof desc.value;
+            html +=
+              '<label class="editor-tiny" for="screen-choice-label-' +
+              index +
+              '">Label</label>';
+            html +=
+              '<textarea class="form-control editor-form-control" data-screen-control rows="1" id="screen-choice-label-' +
+              index +
+              '">' +
+              esc(desc.label) +
+              '</textarea>';
+            html +=
+              '<label class="editor-tiny" for="screen-choice-value-' +
+              index +
+              '">Value or action</label>';
+            html +=
+              '<textarea class="form-control editor-form-control" data-screen-control rows="1" id="screen-choice-value-' +
+              index +
+              '"' +
+              (complex ? ' readonly' : '') +
+              '>' +
+              esc(complex ? JSON.stringify(desc.value) : String(desc.value)) +
+              '</textarea>';
+            html +=
+              '<label class="editor-tiny" for="screen-choice-type-' +
+              index +
+              '">Value type</label>';
+            html +=
+              '<select class="form-select editor-form-control" data-screen-control id="screen-choice-type-' +
+              index +
+              '"' +
+              (complex ? ' disabled' : '') +
+              '>';
+            [
+              ['string', 'Text'],
+              ['boolean', 'Boolean (true or false)'],
+              ['number', 'Number'],
+              ['null', 'None'],
+              ['object', 'Action (edit in YAML)'],
+            ].forEach(function (entry) {
+              if (entry[0] === 'object' && !complex) return;
+              html +=
+                '<option value="' +
+                entry[0] +
+                '"' +
+                (type === entry[0] ? ' selected' : '') +
+                '>' +
+                entry[1] +
+                '</option>';
+            });
+            html += '</select>';
+            if (complex)
+              html +=
+                '<div class="text-muted small">Edit nested actions in YAML. Label edits preserve the action.</div>';
+          }
+          html +=
+            '<button type="button" class="btn btn-sm btn-outline-danger mt-2" data-screen-remove-choice="' +
+            index +
+            '">Remove choice</button></div>';
+        });
+        html +=
+          '<button type="button" class="btn btn-sm btn-outline-primary" id="screen-add-choice">Add choice</button>';
+      } else if (kind !== 'field') {
+        html +=
+          '<p class="text-muted small">Choices generated by code. Edit the expression in YAML.</p>';
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(data, 'under'))
+      textControl('under', 'Text below the controls', true);
+    return html;
+  }
+
   function renderQuestionBlock(block) {
-    var data = block.data || {};
+    var data = window.ALWeaverSerializers.normalizeQuestionData(
+      block.data || {},
+    );
+    block.data = data;
     var fields = data.fields || [];
+    var screenType = window.ALWeaverSerializers.questionScreenType(data);
     var questionHelpTypes = [];
     var isPreview = state.questionEditMode === 'preview';
+    var blankLabelAllowed = Boolean(
+      state.blankQuestionAllowed[blankQuestionKey(block)],
+    );
+    if (String(data.question || '').trim() && blankLabelAllowed) {
+      delete state.blankQuestionAllowed[blankQuestionKey(block)];
+      blankLabelAllowed = false;
+    }
     var html = '';
 
     // Header bar — matches Code / Objects pattern
@@ -10756,7 +13352,7 @@
         esc(String(data.event)) +
         '</span>';
     html +=
-      '<div style="font-weight:600;font-size:16px;margin-top:6px">' +
+      '<div style="font-weight:600;font-size:1rem;margin-top:6px">' +
       esc(block.title) +
       '</div>';
     html += '</div>';
@@ -10786,19 +13382,27 @@
       (state.questionEditMode === 'yaml' ? 'true' : 'false') +
       '" data-question-mode="yaml"><i class="fa-solid fa-code me-1" aria-hidden="true"></i>YAML</button></li>';
     html += '</ul>';
+    if (isPreview && state.questionBlockTab === 'screen') {
+      // Keep the editable ID beside the tabs, without a separate form row.
+      html += '<div class="editor-block-id-row">';
+      html += '<label class="editor-block-id-label" for="adv-id">ID</label>';
+      html +=
+        '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="adv-id" value="' +
+        esc(_explicitBlockId(block)) +
+        '" autocomplete="off" aria-describedby="adv-id-hint">';
+      html +=
+        '<button type="button" class="btn btn-sm btn-link p-0 ms-1 text-muted" id="gen-block-id" title="Auto-generate from question text" aria-label="Auto-generate ID"><i class="fa-solid fa-rotate" aria-hidden="true"></i></button>';
+      if (!_explicitBlockId(block)) {
+        html +=
+          '<span class="editor-block-id-hint" id="adv-id-hint">Saving adds one from the question</span>';
+      }
+      html += '</div>';
+    }
     html += '<div class="editor-question-tabs-actions">';
     html +=
       '<button type="button" class="btn btn-sm btn-outline-primary" id="question-preview-tab" data-action="open-screen-preview" title="See this screen the way Docassemble will draw it"><i class="fa-regular fa-eye me-1" aria-hidden="true"></i>Preview</button>';
     if (isPreview) {
-      html +=
-        '<div class="form-check form-switch editor-question-mandatory-switch">';
-      html +=
-        '<input class="form-check-input" type="checkbox" role="switch" id="adv-mandatory-switch"' +
-        (Boolean(data.mandatory) ? ' checked' : '') +
-        '>';
-      html +=
-        '<label class="form-check-label" for="adv-mandatory-switch">Mandatory</label>';
-      html += '</div>';
+      html += renderMandatorySwitch(data);
     }
     html += '</div>';
     html += '</div>';
@@ -10808,22 +13412,13 @@
         html +=
           '<div class="editor-card editor-question-main-card" id="question-screen-panel" role="tabpanel" aria-labelledby="question-screen-tab" tabindex="0"><div class="editor-card-body editor-card-body-compact">';
 
-        // Block ID — always visible at top
-        html += '<div class="editor-block-id-row">';
-        html += '<span class="editor-block-id-label">ID</span>';
-        html +=
-          '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="adv-id" value="' +
-          esc(block.id) +
-          '" placeholder="block_id" autocomplete="off">';
-        html +=
-          '<button type="button" class="btn btn-sm btn-link p-0 ms-1 text-muted" id="gen-block-id" title="Auto-generate from question text" aria-label="Auto-generate ID"><i class="fa-solid fa-rotate" aria-hidden="true"></i></button>';
-        html += '</div>';
         var eventFieldOpen = Boolean(
           data.event || _questionEventFieldOpen[block.id],
         );
         if (eventFieldOpen) {
           html += '<div class="editor-block-id-row editor-question-event-row">';
-          html += '<span class="editor-block-id-label">Event</span>';
+          html +=
+            '<label class="editor-block-id-label" for="adv-event">Event</label>';
           html +=
             '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="adv-event" value="' +
             esc(String(data.event || '')) +
@@ -10838,44 +13433,64 @@
 
         // Question
         html += '<div class="editor-form-group mt-2">';
-        html += '<label class="editor-tiny" for="q-title">Question</label>';
-        html += renderMarkdownToolbar('q-title', false);
+        html += '<div class="editor-form-label-row">';
         html +=
-          '<textarea class="form-control editor-form-control" id="q-title" rows="1">' +
+          '<label class="editor-content-label" for="q-title">Question</label>';
+        html += renderMarkdownToolbar('q-title', false);
+        html += '</div>';
+        html +=
+          '<textarea class="form-control editor-form-control" id="q-title" rows="1" data-block-id="' +
+          esc(block.id) +
+          '"' +
+          (blankLabelAllowed ? '' : ' required') +
+          '>' +
           esc(data.question || '') +
           '</textarea>';
+        html += '<div class="form-check mt-1">';
+        html +=
+          '<input class="form-check-input" type="checkbox" id="q-allow-blank"' +
+          (blankLabelAllowed ? ' checked' : '') +
+          (String(data.question || '').trim() ? ' disabled' : '') +
+          '>';
+        html +=
+          '<label class="form-check-label editor-tiny" for="q-allow-blank">Leave this question label blank</label>';
+        html += '</div>';
         html += '</div>';
 
         // Subquestion — always shown
         html += '<div class="editor-form-group">';
+        html += '<div class="editor-form-label-row">';
         html +=
-          '<label class="editor-tiny" for="q-subquestion">Subquestion</label>';
+          '<label class="editor-content-label" for="q-subquestion">Subquestion</label>';
         html += renderMarkdownToolbar('q-subquestion', false);
+        html += '</div>';
         html +=
-          '<textarea class="form-control editor-form-control" id="q-subquestion" rows="5">' +
+          '<textarea class="form-control editor-form-control" id="q-subquestion" rows="2">' +
           esc(String(data.subquestion || '')) +
           '</textarea>';
         html += '</div>';
 
         if (data['continue button field'] || data['continue button label']) {
-          html += '<div class="editor-info-box mt-2">';
+          html += '<dl class="editor-question-button-summary">';
           if (data['continue button field']) {
             html +=
-              '<div><strong>Continue button field:</strong> ' +
+              '<div><dt>Continue button field</dt><dd><code>' +
               esc(String(data['continue button field'])) +
-              '</div>';
+              '</code></dd></div>';
           }
           if (data['continue button label']) {
             html +=
-              '<div><strong>Continue button label:</strong> ' +
+              '<div><dt>Continue button label</dt><dd>' +
               esc(String(data['continue button label'])) +
-              '</div>';
+              '</dd></div>';
           }
-          html += '</div>';
+          html += '</dl>';
         }
 
-        // Fields section — merged into same card
-        if (fields.length > 0) {
+        // A standalone screen has its own answer controls.
+        if (screenType !== 'fields') {
+          html += renderScreenControls(data, screenType);
+        } else if (fields.length > 0) {
           html += '<div class="editor-section-legend mt-3">Fields</div>';
           html += '<div class="editor-field-grid-header">';
           html +=
@@ -10886,6 +13501,7 @@
               varName = '',
               dtype = 'text',
               choices = '',
+              choicesExpression = false,
               codeExpr = '';
             var contentText = '';
             var methodArgs = '';
@@ -10911,16 +13527,9 @@
                 label = String(f.label || '');
                 varName = String(f.field || '');
                 dtype = f.datatype || f.input_type || 'text';
-                if (f.choices && Array.isArray(f.choices)) {
-                  choices = f.choices
-                    .map(function (c) {
-                      if (typeof c === 'object') {
-                        var ck = Object.keys(c);
-                        return ck[0] + ': ' + c[ck[0]];
-                      }
-                      return String(c);
-                    })
-                    .join('\n');
+                if (f.choices !== undefined) {
+                  choices = fieldChoiceEditorValue(f.choices);
+                  choicesExpression = fieldChoicesAreExpression(f.choices);
                 }
                 if (f.code)
                   codeExpr =
@@ -10969,31 +13578,19 @@
                     } else if (typeof val === 'object' && val !== null) {
                       varName = val.variable || val.name || firstKey;
                       dtype = val.datatype || val.input_type || 'text';
-                      if (val.choices && Array.isArray(val.choices)) {
-                        choices = val.choices
-                          .map(function (c) {
-                            if (typeof c === 'object') {
-                              var ck = Object.keys(c);
-                              return ck[0] + ': ' + c[ck[0]];
-                            }
-                            return String(c);
-                          })
-                          .join('\n');
+                      if (val.choices !== undefined) {
+                        choices = fieldChoiceEditorValue(val.choices);
+                        choicesExpression = fieldChoicesAreExpression(
+                          val.choices,
+                        );
                       }
                     }
                   }
                   if (f.datatype && !_isTypeShorthand) dtype = f.datatype;
                   if (f.input_type && dtype === 'text') dtype = f.input_type;
-                  if (!choices && f.choices && Array.isArray(f.choices)) {
-                    choices = f.choices
-                      .map(function (c) {
-                        if (typeof c === 'object') {
-                          var ck = Object.keys(c);
-                          return ck[0] + ': ' + c[ck[0]];
-                        }
-                        return String(c);
-                      })
-                      .join('\n');
+                  if (!choices && f.choices !== undefined) {
+                    choices = fieldChoiceEditorValue(f.choices);
+                    choicesExpression = fieldChoicesAreExpression(f.choices);
                   }
                   var _codeSource =
                     f.code ||
@@ -11055,9 +13652,9 @@
                 '</textarea>';
             } else {
               html +=
-                '<input class="form-control editor-form-control" data-field-prop="label" data-label-field="true" placeholder="Field label" title="Right-click for insert tools" value="' +
+                '<textarea class="form-control editor-form-control" data-field-prop="label" data-label-field="true" placeholder="Field label" aria-label="Field label" title="Right-click for insert tools" rows="1">' +
                 esc(label) +
-                '">';
+                '</textarea>';
             }
             html += _renderFieldTypeDropdown(fi, dtype);
             if (isALMethodType)
@@ -11144,6 +13741,14 @@
             html += '</div>';
             html +=
               '<select class="form-select editor-form-control d-none" data-field-prop="type">';
+            if (FIELD_TYPES.indexOf(dtype) === -1) {
+              html +=
+                '<option value="' +
+                esc(dtype) +
+                '" selected>Unknown datatype (source-only): ' +
+                esc(dtype) +
+                '</option>';
+            }
             FIELD_TYPES.forEach(function (t) {
               html +=
                 '<option value="' +
@@ -11161,11 +13766,13 @@
               html +=
                 '<label class="editor-tiny" for="field-choices-' +
                 fi +
-                '">Options (one per line)</label>';
+                '">Options (one per line, or JSON array for labels and typed values)</label>';
               html +=
                 '<textarea class="form-control editor-form-control editor-field-choices" id="field-choices-' +
                 fi +
-                '" rows="3">' +
+                '"' +
+                (choicesExpression ? ' data-choice-expression="true"' : '') +
+                ' rows="3">' +
                 esc(String(choices || '')) +
                 '</textarea>';
               html += '</div>';
@@ -11247,7 +13854,13 @@
       var qTitle = document.getElementById('q-title');
       if (qTitle) _initAutoResize(qTitle, 36);
       var qSub = document.getElementById('q-subquestion');
-      if (qSub) _initAutoResize(qSub, 120);
+      if (qSub) _initAutoResize(qSub, 0);
+      var helpInput = document.getElementById('adv-help');
+      if (helpInput && data.help && typeof data.help === 'object') {
+        helpInput.value = JSON.stringify(data.help, null, 2);
+        helpInput.readOnly = true;
+        helpInput.title = 'Edit structured help in YAML.';
+      }
       document
         .querySelectorAll('[data-field-prop="label"]')
         .forEach(function (ta) {
@@ -11347,7 +13960,7 @@
     if (data['continue button field'] || data.field)
       html += ' <span class="editor-pill">continue field</span>';
     html +=
-      '<div style="font-weight:600;font-size:16px;margin-top:6px">' +
+      '<div style="font-weight:600;font-size:1rem;margin-top:6px">' +
       esc(block.title || 'Review') +
       '</div>';
     html += '</div>';
@@ -11386,7 +13999,7 @@
     html += '<span class="editor-block-id-label">ID</span>';
     html +=
       '<input class="form-control editor-form-control editor-block-id-input font-monospace" id="review-block-id" value="' +
-      esc(data.id || block.id || '') +
+      esc(_explicitBlockId(block)) +
       '" autocomplete="off">';
     html += '</div>';
 
@@ -11446,11 +14059,11 @@
     }
 
     html +=
-      '<div class="editor-form-group mt-3"><label class="editor-tiny" for="review-question">Question</label><input class="form-control editor-form-control" id="review-question" value="' +
+      '<div class="editor-form-group mt-3"><label class="editor-content-label" for="review-question">Question</label><input class="form-control editor-form-control" id="review-question" value="' +
       esc(String(data.question || 'Review your answers')) +
       '"></div>';
     html +=
-      '<div class="editor-form-group"><label class="editor-tiny" for="review-subquestion">Subquestion</label><textarea class="form-control editor-form-control" id="review-subquestion" rows="3">' +
+      '<div class="editor-form-group"><label class="editor-content-label" for="review-subquestion">Subquestion</label><textarea class="form-control editor-form-control" id="review-subquestion" rows="2">' +
       esc(String(data.subquestion || '')) +
       '</textarea></div>';
     html += '</div></div>';
@@ -11637,7 +14250,7 @@
 
     ['review-subquestion'].forEach(function (id) {
       var el = document.getElementById(id);
-      if (el) _initAutoResize(el, 80);
+      if (el) _initAutoResize(el, 0);
     });
     document
       .querySelectorAll(
@@ -11660,11 +14273,14 @@
     if (block.tags && block.tags.indexOf('mandatory') !== -1)
       html += ' <span class="editor-pill">mandatory</span>';
     html +=
-      '<div style="font-weight:600;font-size:16px;margin-top:6px">' +
+      '<div style="font-weight:600;font-size:1rem;margin-top:6px">' +
       esc(block.title) +
       '</div>';
     html += '</div>';
     html += '<div class="d-flex gap-2">';
+    if (state.questionEditMode === 'preview') {
+      html += renderMandatorySwitch(data);
+    }
     html +=
       '<button class="btn btn-sm btn-outline-secondary" id="code-to-order-builder">Interview order mode</button>';
     html +=
@@ -11748,7 +14364,7 @@
     html +=
       '<span class="editor-pill" style="background:#d1fae5;color:#065f46">Objects</span>';
     html +=
-      '<div style="font-weight:600;font-size:16px;margin-top:6px">' +
+      '<div style="font-weight:600;font-size:1rem;margin-top:6px">' +
       esc(block.title) +
       '</div>';
     html += '</div>';
@@ -11915,10 +14531,14 @@
       esc(block.type) +
       '</span>';
     html +=
-      '<div style="font-weight:600;font-size:16px;margin-top:6px">' +
+      '<div style="font-weight:600;font-size:1rem;margin-top:6px">' +
       esc(block.title) +
       '</div>';
     html += '</div>';
+    if (isTemplateEditorBlock(block)) {
+      html +=
+        '<button type="button" class="btn btn-sm btn-outline-primary editor-template-action" id="toggle-edit-mode">Structured view</button>';
+    }
     if (block.type === 'attachment') {
       html +=
         '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">Field mappings</button>';
@@ -11955,7 +14575,7 @@
     html += '<div>';
     html += '<span class="editor-pill editor-pill-muted">Disabled</span>';
     html +=
-      '<div style="font-weight:600;font-size:16px;margin-top:6px">' +
+      '<div style="font-weight:600;font-size:1rem;margin-top:6px">' +
       esc(block.title || block.id) +
       '</div>';
     html += '</div>';
@@ -12212,7 +14832,7 @@
       if (CHOICE_TYPES.indexOf(dtype) === -1) {
         out += row(
           'field-choices-' + fi,
-          'choices (one per line)',
+          'choices (one per line, or JSON array)',
           '<textarea class="form-control editor-form-control editor-field-choices" id="field-choices-' +
             fi +
             '" rows="3">' +
@@ -12286,6 +14906,91 @@
     function renderLogicTab() {
       var out = '';
       var requiredExpression = requiredExpressionValue(fmods.required);
+      var normalizedDatatype = String(dtype || 'text').toLowerCase();
+      var yesNoModifierTypes = ['yesno', 'yesnowide', 'noyes', 'noyeswide'];
+      var disableOthersUnsupportedTypes = [
+        'file',
+        'files',
+        'range',
+        'multiselect',
+        'checkboxes',
+        'camera',
+        'user',
+        'environment',
+        'camcorder',
+        'microphone',
+        'object_multiselect',
+        'object_checkboxes',
+      ];
+
+      function sourceOnlyModifierNotice(key, note) {
+        var value = fmods[key];
+        if (value === undefined) return '';
+        var renderedValue =
+          typeof value === 'string' ? value : JSON.stringify(value);
+        var message = note
+          ? esc(note) + ': <code>' + esc(renderedValue) + '</code>.'
+          : 'is not supported for ' +
+            esc(String(dtype || 'text').replace(/_/g, ' ')) +
+            '; the source value <code>' +
+            esc(renderedValue) +
+            '</code> is preserved.';
+        return (
+          '<div class="editor-tiny text-warning-emphasis mt-1" data-source-only-fmod="' +
+          esc(key) +
+          '">' +
+          esc(key) +
+          ' ' +
+          message +
+          ' Edit it in Full YAML.' +
+          '</div>'
+        );
+      }
+
+      function isBooleanModifierValue(value) {
+        return (
+          typeof value === 'boolean' ||
+          (typeof value === 'string' && /^(true|false)$/i.test(value.trim()))
+        );
+      }
+
+      function isDisableOthersList(value) {
+        if (Array.isArray(value)) return true;
+        if (typeof value !== 'string') return false;
+        try {
+          return Array.isArray(JSON.parse(value));
+        } catch (_) {
+          return false;
+        }
+      }
+
+      function modifierOrNotice(key, id, supported) {
+        var value = fmods[key];
+        if (!supported) return sourceOnlyModifierNotice(key);
+        if (value !== undefined && !isBooleanModifierValue(value))
+          return sourceOnlyModifierNotice(key, 'list value is preserved');
+        return choiceBooleanModifier(key, id);
+      }
+
+      function choiceBooleanModifier(key, id) {
+        var current = String(fmods[key]).toLowerCase();
+        return row(
+          id,
+          key,
+          '<select class="form-select editor-form-control" id="' +
+            id +
+            '" data-fmod="' +
+            esc(key) +
+            '" data-field-idx="' +
+            fi +
+            '"><option value="">(default)</option><option value="True"' +
+            (current === 'true' ? ' selected' : '') +
+            '>Yes</option><option value="False"' +
+            (current === 'false' ? ' selected' : '') +
+            '>No</option></select>',
+        );
+      }
+
       out += row(
         'field-required-expression-' + fi,
         'Required when (Python; leave blank to use Required toggle)',
@@ -12351,7 +15056,7 @@
           '">',
       );
       out +=
-        '<div class="editor-tiny mt-2 mb-1" style="color:#6b7280;letter-spacing:0.04em;text-transform:uppercase;font-size:10px;">JavaScript conditions</div>';
+        '<div class="editor-tiny mt-2 mb-1" style="color:#6b7280;letter-spacing:0.04em;text-transform:uppercase;font-size:0.8125rem;">JavaScript conditions</div>';
       out += row(
         'fmod-jsshowif-' + fi,
         'js show if',
@@ -12407,38 +15112,42 @@
           esc(String(fmods.exclude || '')) +
           '">',
       );
-      out += pairRow(
-        '<div><label class="editor-tiny" for="fmod-nota-' +
-          fi +
-          '">none of the above</label><input class="form-control editor-form-control" id="fmod-nota-' +
-          fi +
-          '" data-fmod="none of the above" data-field-idx="' +
-          fi +
-          '" value="' +
-          esc(
-            String(
-              fmods['none of the above'] !== undefined
-                ? fmods['none of the above']
-                : '',
-            ),
-          ) +
-          '"></div>',
-        '<div><label class="editor-tiny" for="fmod-aota-' +
-          fi +
-          '">all of the above</label><input class="form-control editor-form-control" id="fmod-aota-' +
-          fi +
-          '" data-fmod="all of the above" data-field-idx="' +
+      var supportsNoneOfAbove =
+        ['checkboxes', 'object_checkboxes', 'object_radio'].indexOf(
+          normalizedDatatype,
+        ) !== -1;
+      var supportsAllOfAbove =
+        ['checkboxes', 'object_checkboxes'].indexOf(normalizedDatatype) !== -1;
+      function choiceLabelModifier(key, id, supported) {
+        if (!supported) return sourceOnlyModifierNotice(key);
+        return (
+          '<div><label class="editor-tiny" for="' +
+          id +
+          '">' +
+          esc(key) +
+          '</label><input class="form-control editor-form-control" id="' +
+          id +
+          '" data-fmod="' +
+          esc(key) +
+          '" data-field-idx="' +
           fi +
           '" value="' +
-          esc(
-            String(
-              fmods['all of the above'] !== undefined
-                ? fmods['all of the above']
-                : '',
-            ),
-          ) +
-          '"></div>',
+          esc(String(fmods[key] !== undefined ? fmods[key] : '')) +
+          '"></div>'
+        );
+      }
+      var noneOfAboveControl = choiceLabelModifier(
+        'none of the above',
+        'fmod-nota-' + fi,
+        supportsNoneOfAbove,
       );
+      var allOfAboveControl = choiceLabelModifier(
+        'all of the above',
+        'fmod-aota-' + fi,
+        supportsAllOfAbove,
+      );
+      if (noneOfAboveControl || allOfAboveControl)
+        out += pairRow(noneOfAboveControl, allOfAboveControl);
       out += row(
         'fmod-shuffle-' + fi,
         'shuffle',
@@ -12447,26 +15156,54 @@
           '" data-fmod="shuffle" data-field-idx="' +
           fi +
           '"><option value="">(default)</option><option value="True"' +
-          (fmods.shuffle ? ' selected' : '') +
-          '>Yes</option></select>',
+          (String(fmods.shuffle).toLowerCase() === 'true' ? ' selected' : '') +
+          '>Yes</option><option value="False"' +
+          (String(fmods.shuffle).toLowerCase() === 'false' ? ' selected' : '') +
+          '>No</option></select>',
       );
-      out += row(
-        'fmod-disableothers-' + fi,
-        'disable others',
-        '<input class="form-control editor-form-control font-monospace" id="fmod-disableothers-' +
-          fi +
-          '" data-fmod="disable others" data-field-idx="' +
-          fi +
-          '" value="' +
-          esc(
-            typeof fmods['disable others'] === 'boolean'
-              ? String(fmods['disable others'])
-              : String(fmods['disable others'] || ''),
-          ) +
-          '">',
-        null,
-        'True, or a list of variable names.',
+      var uncheckOthersControl = modifierOrNotice(
+        'uncheck others',
+        'fmod-uncheckothers-' + fi,
+        yesNoModifierTypes.indexOf(normalizedDatatype) !== -1,
       );
+      var checkOthersControl = modifierOrNotice(
+        'check others',
+        'fmod-checkothers-' + fi,
+        yesNoModifierTypes.indexOf(normalizedDatatype) !== -1,
+      );
+      if (uncheckOthersControl || checkOthersControl)
+        out += pairRow(uncheckOthersControl, checkOthersControl);
+      if (disableOthersUnsupportedTypes.indexOf(normalizedDatatype) === -1) {
+        var disableOthersValue = fmods['disable others'];
+        if (
+          disableOthersValue === undefined ||
+          isBooleanModifierValue(disableOthersValue) ||
+          isDisableOthersList(disableOthersValue)
+        ) {
+          var disableOthersText = Array.isArray(disableOthersValue)
+            ? JSON.stringify(disableOthersValue)
+            : disableOthersValue === undefined || disableOthersValue === null
+              ? ''
+              : String(disableOthersValue);
+          out += row(
+            'fmod-disableothers-' + fi,
+            'disable others',
+            '<input class="form-control editor-form-control font-monospace" id="fmod-disableothers-' +
+              fi +
+              '" data-fmod="disable others" data-field-idx="' +
+              fi +
+              '" value="' +
+              esc(disableOthersText) +
+              '">',
+            null,
+            'True, or a list of variable names.',
+          );
+        } else {
+          out += sourceOnlyModifierNotice('disable others');
+        }
+      } else {
+        out += sourceOnlyModifierNotice('disable others');
+      }
       return out;
     }
 
@@ -12922,11 +15659,21 @@
       (isOpen ? '' : ' hidden') +
       '>';
     html +=
-      '<ul class="nav nav-tabs nav-tabs-sm editor-field-settings-tabs" role="tablist">';
+      '<ul class="nav nav-tabs nav-tabs-sm editor-field-settings-tabs" role="tablist" aria-label="Field settings">';
     availableTabs.forEach(function (tabKey) {
       html +=
         '<li class="nav-item" role="presentation"><button type="button" class="nav-link ' +
         (activeTab === tabKey ? 'active' : '') +
+        '" role="tab" id="field-settings-tab-' +
+        fi +
+        '-' +
+        tabKey +
+        '" aria-controls="field-settings-pane-' +
+        fi +
+        '-' +
+        tabKey +
+        '" aria-selected="' +
+        (activeTab === tabKey ? 'true' : 'false') +
         '" data-field-settings-tab="' +
         tabKey +
         '" data-field-idx="' +
@@ -12940,7 +15687,15 @@
 
     function pane(tabKey, bodyHtml) {
       return (
-        '<div class="editor-field-settings-tabpane" data-field-settings-pane="' +
+        '<div class="editor-field-settings-tabpane" role="tabpanel" id="field-settings-pane-' +
+        fi +
+        '-' +
+        tabKey +
+        '" aria-labelledby="field-settings-tab-' +
+        fi +
+        '-' +
+        tabKey +
+        '" data-field-settings-pane="' +
         tabKey +
         '"' +
         (activeTab === tabKey ? '' : ' hidden') +
@@ -12993,7 +15748,7 @@
           '<div class="editor-form-group"><label class="editor-tiny" for="adv-id">Block ID</label>';
         html +=
           '<input class="form-control editor-form-control font-monospace" id="adv-id" value="' +
-          esc(block.id) +
+          esc(_explicitBlockId(block)) +
           '"></div>';
       }
 
@@ -13048,9 +15803,9 @@
 
       // Show more toggle
       html +=
-        '<button type="button" class="btn btn-link btn-sm p-0 mt-1 mb-1" id="adv-show-more" style="font-size:12px"><i class="fa-solid ' +
+        '<button type="button" class="btn btn-link btn-sm p-0 mt-1 mb-1" id="adv-show-more" style="font-size:0.8125rem"><i class="fa-solid ' +
         (showMore ? 'fa-chevron-up' : 'fa-chevron-down') +
-        ' me-1" aria-hidden="true" style="font-size:10px"></i>' +
+        ' me-1" aria-hidden="true" style="font-size:0.8125rem"></i>' +
         (showMore ? 'Show fewer options' : 'Show more options') +
         '</button>';
 
@@ -13398,7 +16153,7 @@
     var html = '<div class="editor-full-yaml-shell">';
     html += '<div class="editor-full-yaml-header">';
     html +=
-      '<div><h2 style="font-weight:700;font-size:18px;margin:0">Full YAML</h2></div>';
+      '<div><h2 style="font-weight:700;font-size:1.125rem;margin:0">Full YAML</h2></div>';
     html += '<div class="d-flex gap-2">';
     var backLabel =
       state._prevCanvasMode === 'order-builder'
@@ -13680,7 +16435,7 @@
         '<li><button class="dropdown-item" type="button" data-step-action="edit" data-step-id="' +
         esc(step.id) +
         '"><i class="fa-solid fa-pen-to-square me-2" aria-hidden="true"></i>Edit</button></li>';
-      if (step.kind === 'condition') {
+      if (step.kind === 'condition' || step.kind === 'loop') {
         html +=
           '<li><button class="dropdown-item" type="button" data-step-action="toggle-collapse" data-step-id="' +
           esc(step.id) +
@@ -13738,6 +16493,14 @@
       // Inline edit row shown when this step is being edited
       if (_inlineEditStepId === step.id) {
         html += renderInlineEditRow(step);
+      }
+      if (step.kind === 'loop') {
+        html +=
+          '<div class="editor-order-children' +
+          (isCollapsed ? ' d-none' : '') +
+          '">';
+        html += renderOrderBranch(step, depth + 1, 'then', 'Body');
+        html += '</div>';
       }
       if (step.kind === 'condition') {
         // The whole chain is drawn flat inside this one collapsible region, so
@@ -13849,13 +16612,16 @@
   }
 
   function renderOrderBuilder() {
-    syncActiveOrderStepMap();
+    // enterOrderBuilder renders once before its async parse completes. Do not
+    // cache that temporary empty state under the newly selected block ID;
+    // loadOrderStepsForBlock uses the map to decide whether parsing is needed.
+    if (!state.orderBuilderLoading) syncActiveOrderStepMap();
     var activeOrderBlock = getBlockById(state.activeOrderBlockId);
     var orderTargets = getOrderTargets();
     var html = '<div class="editor-order-shell">';
     html += '<div class="editor-center-bar">';
     html +=
-      '<div><h2 style="font-weight:700;font-size:18px;margin:0">Interview Order</h2></div>';
+      '<div><h2 style="font-weight:700;font-size:1.125rem;margin:0">Interview Order</h2></div>';
     html += '<div class="d-flex gap-2">';
     html +=
       '<button class="btn btn-sm btn-outline-secondary" id="generate-draft-order">Auto-generate</button>';
@@ -13923,7 +16689,7 @@
           '<strong>No interview order block found.</strong> To use the order builder, add a mandatory code block with <code>id: interview_order</code> to your interview. ';
         html += 'For example:';
         html +=
-          '<pre class="mt-2 mb-0" style="font-size:12px">---\nid: interview_order\nmandatory: True\ncode: |\n  # Steps will go here\n  interview_order = True</pre>';
+          '<pre class="mt-2 mb-0" style="font-size:0.8125rem">---\nid: interview_order\nmandatory: True\ncode: |\n  # Steps will go here\n  interview_order = True</pre>';
         html += '</div>';
       }
       html +=
@@ -13989,6 +16755,18 @@
                   return;
                 }
 
+                if (
+                  !orderStepFitsLoopContext(
+                    sourceRecord.step,
+                    orderLocationInsideLoop(destinationParentId),
+                  )
+                ) {
+                  alert(
+                    'This step contains break or continue and must stay inside a loop.',
+                  );
+                  renderOrderBuilder();
+                  return;
+                }
                 var destinationList = state.orderSteps;
                 if (destinationParentId) {
                   var destinationParent = findStepRecord(
@@ -14077,7 +16855,7 @@
       '<div class="d-flex justify-content-between align-items-start flex-wrap gap-3">';
     html += '<div>';
     html +=
-      '<h2 style="font-weight:700;font-size:18px;margin:0 0 6px">Create a new project</h2>';
+      '<h2 style="font-weight:700;font-size:1.125rem;margin:0 0 6px">Create a new project</h2>';
     html +=
       '<p class="text-muted small mb-0" style="max-width:600px">Upload a PDF or DOCX template and Weaver will generate a scaffolded interview draft, or start with a blank project.</p>';
     html += '</div>';
@@ -14473,6 +17251,49 @@
     if (nodes.createButton) nodes.createButton.disabled = false;
   }
 
+  function _newProjectGenerationWarnings(jobData) {
+    var result = jobData.result || jobData;
+    return Array.isArray(result.warnings)
+      ? result.warnings.filter(function (warning) {
+          return typeof warning === 'string' && warning.trim();
+        })
+      : [];
+  }
+
+  function _newProjectJobFailureMessage(payload) {
+    var jobData = (payload && payload.data) || {};
+    var result = jobData.result || {};
+    var message =
+      (payload && payload.error && payload.error.message) ||
+      (jobData.error && jobData.error.message) ||
+      jobData.message ||
+      'Project creation failed.';
+    var partial = Array.isArray(jobData.partial_artifacts)
+      ? jobData.partial_artifacts
+      : Array.isArray(result.partial_artifacts)
+        ? result.partial_artifacts
+        : [];
+    var incomplete = Array.isArray(jobData.incomplete_artifacts)
+      ? jobData.incomplete_artifacts
+      : Array.isArray(result.incomplete_artifacts)
+        ? result.incomplete_artifacts
+        : [];
+    partial = partial.filter(function (name) {
+      return typeof name === 'string' && name.trim();
+    });
+    incomplete = incomplete.filter(function (name) {
+      return typeof name === 'string' && name.trim();
+    });
+    var stage = result.incomplete_stage || jobData.stage;
+    if (stage) message += ' Stopped during ' + String(stage) + '.';
+    if (partial.length)
+      message += ' Partial files saved: ' + partial.join(', ') + '.';
+    if (incomplete.length)
+      message +=
+        ' Outputs that may be incomplete: ' + incomplete.join(', ') + '.';
+    return message;
+  }
+
   function _pollNewProjectJob(jobUrl, projectName) {
     var attempts = 0;
 
@@ -14494,14 +17315,7 @@
               jobStatus === 'cancelled' ||
               jobStatus === 'expired'
             ) {
-              reject(
-                new Error(
-                  (payload.error && payload.error.message) ||
-                    (jobData.error && jobData.error.message) ||
-                    jobData.message ||
-                    'Project creation failed.',
-                ),
-              );
+              reject(new Error(_newProjectJobFailureMessage(payload)));
               return;
             }
             if (jobStatus === 'succeeded') {
@@ -14551,6 +17365,22 @@
     setTimeout(function () {
       if (banner.parentNode) banner.parentNode.removeChild(banner);
     }, 5000);
+  }
+
+  function _showWarningBanner(message) {
+    var banner = document.createElement('div');
+    banner.className =
+      'alert alert-warning alert-dismissible fade show position-fixed';
+    banner.style.cssText =
+      'top:5rem;left:50%;transform:translateX(-50%);z-index:9999;min-width:300px;max-width:700px;';
+    banner.innerHTML =
+      '<span>' +
+      message +
+      '</span><button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>';
+    document.body.appendChild(banner);
+    setTimeout(function () {
+      if (banner.parentNode) banner.parentNode.removeChild(banner);
+    }, 10000);
   }
 
   // -------------------------------------------------------------------------
@@ -14664,6 +17494,9 @@
             ' lines',
         );
       }
+      (data.warnings || []).forEach(function (warning) {
+        parts.push(String(warning));
+      });
       summary.textContent = parts.join(' \u00b7 ');
     }
     var apply = document.getElementById('review-sync-apply');
@@ -15054,6 +17887,7 @@
       test_filename: data.test_filename,
       mode: data.mode || 'it_runs',
       content: data.proposed_feature_text,
+      expected_revision: data.expected_revision,
     })
       .then(function (res) {
         if (!res.success)
@@ -15085,6 +17919,11 @@
 
   function loadKilnTestsOverview() {
     if (!state.project) return Promise.resolve();
+    var project = state.project;
+    var sequence = routeSequence;
+    function isCurrentTests() {
+      return project === state.project && sequence === routeSequence;
+    }
     state.kilnTestsLoading = true;
     state.kilnTestsError = '';
     renderTestsOverview();
@@ -15092,6 +17931,7 @@
       '/api/kiln-tests?project=' + encodeURIComponent(state.project),
     )
       .then(function (res) {
+        if (!isCurrentTests()) return;
         if (!res.success || !res.data) {
           throw new Error(
             (res.error && res.error.message) || 'Unable to list tests.',
@@ -15108,10 +17948,12 @@
         }
       })
       .catch(function (error) {
+        if (!isCurrentTests() || isSupersededRequest(error)) return;
         state.kilnTestsError =
           error && error.message ? error.message : 'Unable to list tests.';
       })
       .finally(function () {
+        if (!isCurrentTests()) return;
         state.kilnTestsLoading = false;
         if (
           state.currentView === 'interview' &&
@@ -15126,7 +17968,7 @@
     var html = '<div class="editor-full-yaml-shell">';
     html += '<div class="editor-full-yaml-header">';
     html +=
-      '<div><h2 style="font-weight:700;font-size:18px;margin:0">Tests</h2>';
+      '<div><h2 style="font-weight:700;font-size:1.125rem;margin:0">Tests</h2>';
     html +=
       '<p class="text-muted small mb-0 mt-1">Create and keep ALKiln tests in sync with the screens in this interview.</p></div>';
     html +=
@@ -15611,6 +18453,8 @@
       state.documents = null;
       return Promise.resolve();
     }
+    var requestedKey = interviewKey();
+    var sequence = routeSequence;
     return apiGet(
       '/api/documents?project=' +
         encodeURIComponent(state.project) +
@@ -15618,6 +18462,8 @@
         encodeURIComponent(state.filename),
     )
       .then(function (res) {
+        if (requestedKey !== interviewKey() || sequence !== routeSequence)
+          return;
         // An edit in progress outranks a background refresh. Nothing can reach
         // this while the pane is dirty without the author having been asked
         // first, so replacing what they typed would only ever be a surprise.
@@ -15635,7 +18481,12 @@
         }
       })
       .catch(function (error) {
-        if (isSupersededRequest(error)) return;
+        if (
+          requestedKey !== interviewKey() ||
+          sequence !== routeSequence ||
+          isSupersededRequest(error)
+        )
+          return;
         state.documents = null;
         state.documentsLoaded = null;
       });
@@ -16250,6 +19101,36 @@
         '</div>';
     });
 
+    var mappingChanges = analysis.mapping_changes || {};
+    var mappingLabels = {
+      added: 'Added template fields',
+      removed: 'Removed template fields',
+      retained: 'Retained template fields',
+    };
+    var hasMappingChanges = Object.keys(mappingLabels).some(function (key) {
+      return (mappingChanges[key] || []).length > 0;
+    });
+    if (analysis.already_imported && hasMappingChanges) {
+      html +=
+        '<div class="alert alert-info py-2 small" id="template-import-mapping-diff">' +
+        '<strong>Field mapping changes in the revised template</strong><ul class="mb-0 mt-1">';
+      Object.keys(mappingLabels).forEach(function (key) {
+        var fields = mappingChanges[key] || [];
+        if (!fields.length) return;
+        html +=
+          '<li><strong>' +
+          esc(mappingLabels[key]) +
+          ':</strong> ' +
+          fields
+            .map(function (name) {
+              return '<code>' + esc(name) + '</code>';
+            })
+            .join(', ') +
+          '</li>';
+      });
+      html += '</ul></div>';
+    }
+
     var candidates = templateImportCandidates(analysis);
     if (!candidates.length && !(analysis.bundle_additions || []).length) {
       html +=
@@ -16287,6 +19168,18 @@
         html +=
           '<div class="editor-tiny text-muted">' +
           esc(candidate.variables.join(', ')) +
+          '</div>';
+      }
+      if (candidate.supporting_blocks.length) {
+        html +=
+          '<div class="editor-tiny text-muted">Also adds required supporting template(s): ' +
+          esc(
+            candidate.supporting_blocks
+              .map(function (block) {
+                return block.title;
+              })
+              .join(', '),
+          ) +
           '</div>';
       }
       html +=
@@ -16350,6 +19243,7 @@
         variables: block.variables || [],
         replaces_block_id: block.replaces_block_id || null,
         recommended: block.recommended !== false,
+        supporting_blocks: block.supporting_blocks || [],
       });
     }
     push('document_object', analysis.document_object);
@@ -16482,6 +19376,9 @@
             }
           : candidate.yaml,
       );
+      candidate.supporting_blocks.forEach(function (supporting) {
+        blocks.push(supporting.yaml);
+      });
     });
     var bundles = [];
     (analysis.bundle_additions || []).forEach(function (addition, index) {
@@ -16584,6 +19481,75 @@
     removeDocumentFromBundles(name, null);
   }
 
+  function reviewDocumentRemoval(payload) {
+    return apiPost(
+      '/api/documents',
+      Object.assign({}, payload, { preview: true }),
+    ).then(function (res) {
+      if (!res.success || !res.data)
+        throw new Error('Unable to preview document removal.');
+      var plan = res.data;
+      return new Promise(function (resolve) {
+        var element = document.createElement('div');
+        element.id = 'document-removal-preview';
+        element.className = 'modal fade';
+        element.tabIndex = -1;
+        element.setAttribute(
+          'aria-labelledby',
+          'document-removal-preview-title',
+        );
+        element.innerHTML =
+          '<div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">' +
+          '<div class="modal-header"><h2 class="modal-title fs-5" id="document-removal-preview-title">Review document removal</h2>' +
+          '<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>' +
+          '<div class="modal-body"><p>Template files and questions will be kept.</p>' +
+          (plan.blocked
+            ? '<div class="alert alert-warning">Resolve these remaining references before removing the document:<ul>' +
+              (plan.references || [])
+                .map(function (item) {
+                  return (
+                    '<li>' +
+                    esc(item.filename) +
+                    ':' +
+                    esc(item.line) +
+                    ' — ' +
+                    esc(item.excerpt || item.document) +
+                    '</li>'
+                  );
+                })
+                .join('') +
+              '</ul></div>'
+            : '') +
+          '<pre class="editor-tiny border rounded p-2">' +
+          esc(plan.diff || '') +
+          '</pre></div>' +
+          '<div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>' +
+          '<button type="button" class="btn btn-danger" data-confirm-removal' +
+          (plan.blocked ? ' disabled' : '') +
+          '>Apply removal</button></div></div></div>';
+        document.body.appendChild(element);
+        var accepted = false;
+        var modal = getOrCreateBootstrapModal(element.id);
+        element
+          .querySelector('[data-confirm-removal]')
+          .addEventListener('click', function () {
+            accepted = true;
+            modal.hide();
+          });
+        element.addEventListener(
+          'hidden.bs.modal',
+          function () {
+            modal.dispose();
+            element.remove();
+            resolve(accepted);
+          },
+          { once: true },
+        );
+        modal.show();
+      });
+    });
+  }
+
   function saveDocumentChanges() {
     var model = state.documents;
     if (!model || state.documentsBusy) return Promise.resolve(true);
@@ -16628,17 +19594,28 @@
     state.documentsBusy = true;
     var status = document.getElementById('documents-status');
     if (status) status.textContent = 'Saving…';
-    return apiPost('/api/documents', {
+    var payload = {
       project: state.project,
       filename: state.filename,
       expected_revision: model.revision,
       bundles: bundles,
       enabled: enabled,
       remove: model.removed || [],
-    })
+    };
+    var reviewed = payload.remove.length
+      ? reviewDocumentRemoval(payload)
+      : Promise.resolve(true);
+    return reviewed
+      .then(function (accepted) {
+        return accepted ? apiPost('/api/documents', payload) : null;
+      })
       .then(function (res) {
         state.documentsBusy = false;
-        if (!res || !res.success) return false;
+        if (!res || !res.success) {
+          if (status)
+            status.textContent = 'Document changes have not been saved.';
+          return false;
+        }
         state.documents = res.data;
         state.documentsLoaded = JSON.parse(JSON.stringify(res.data));
         state.documentsDirty = false;
@@ -16667,7 +19644,7 @@
     var html = '<div class="editor-full-yaml-shell">';
     html += '<div class="editor-full-yaml-header">';
     html +=
-      '<div><h2 style="font-weight:700;font-size:18px;margin:0">Document setup</h2>';
+      '<div><h2 style="font-weight:700;font-size:1.125rem;margin:0">Document setup</h2>';
     html +=
       '<div class="editor-tiny text-muted mt-1">' +
       (state.filename ? esc(state.filename) : 'No interview file open') +
@@ -16748,7 +19725,7 @@
     html += '<div class="editor-full-yaml-shell">';
     html += '<div class="editor-full-yaml-header">';
     html +=
-      '<div><h2 style="font-weight:700;font-size:18px;margin:0">' +
+      '<div><h2 style="font-weight:700;font-size:1.125rem;margin:0">' +
       esc(sectionTitle(view)) +
       (fileMeta ? ' — ' + esc(fileMeta.filename) : '') +
       '</h2></div>';
@@ -16827,6 +19804,11 @@
             res && res.success && res.data
               ? String(res.data.content || '')
               : '';
+          if (res && res.success && res.data && res.data.revision) {
+            state.sectionFileRevisions[requestedSnapshotKey] =
+              res.data.revision;
+            fileMeta.revision = res.data.revision;
+          }
           var language = 'plaintext';
           var lowerName = String(fileMeta.filename || '').toLowerCase();
           if (lowerName.endsWith('.py')) language = 'python';
@@ -16998,6 +19980,18 @@
 
   function handleEditorClick(e) {
     var target = e.target;
+    var railToggle = target.closest('[data-action="toggle-rail"]');
+    if (railToggle) {
+      var layout = document.querySelector('.editor-layout');
+      var collapsed = layout.classList.toggle('editor-rail-collapsed');
+      railToggle.setAttribute('aria-expanded', String(!collapsed));
+      railToggle.setAttribute(
+        'aria-label',
+        collapsed ? 'Expand sidebar' : 'Collapse sidebar',
+      );
+      railToggle.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+      return;
+    }
     // Clicking a button whose visible content is a Font Awesome <i> (or a badge
     // <span>) makes that child the event target, so the many `target.id === ...`
     // branches below never match. Resolve to the control that carries the id.
@@ -17007,6 +20001,17 @@
       var controlHost = target.closest('button, a, [role="button"]');
       if (controlHost) target = controlHost;
     }
+    var sectionSubmenuToggle = target.closest('.editor-section-submenu-toggle');
+    if (sectionSubmenuToggle) {
+      var submenuId = sectionSubmenuToggle.getAttribute('data-section-submenu');
+      setSectionSubmenu(
+        sectionSubmenuToggle.getAttribute('aria-expanded') === 'true'
+          ? null
+          : submenuId,
+      );
+      return;
+    }
+    if (target.closest('.editor-section-menu-list')) hideSectionSwitcher();
     var actionControl = target.closest('[data-action]');
     var uiAction = actionControl
       ? actionControl.getAttribute('data-action')
@@ -17019,7 +20024,7 @@
       saveCeleryConfiguration();
       return;
     }
-    var topTab = target.closest('.editor-top-tab');
+    var topTab = target.closest('.editor-top-tab, .editor-view-switch');
     var outlineInsertBtn = target.closest('.editor-outline-insert-btn');
     var insertChoiceBtn = target.closest('[data-insert]');
     var mdInsertBtn = target.closest('[data-md-insert]');
@@ -17203,11 +20208,6 @@
       renderOutline();
       return;
     }
-    if (uiAction === 'check-errors') {
-      state.validationOpen = true;
-      runValidation();
-      return;
-    }
     if (
       target.id === 'btn-run-validation' ||
       target.closest('#btn-run-validation')
@@ -17235,6 +20235,7 @@
           // see. Move the findings beside the editor rather than jumping to a
           // block behind them.
           if (state.validationDock === 'full') setValidationDock('side');
+          state.canvasMode = 'question';
           state.selectedBlockId = validationBlockId;
           dirtyState.setActiveBlock(validationBlockId);
           var interviewTab = document.querySelector(
@@ -17262,7 +20263,7 @@
     if (topTab) {
       var nextView = topTab.getAttribute('data-view');
       function changeTopView() {
-        stashCurrentEditorState();
+        if (stashCurrentEditorState() === false) return;
         state.currentView = nextView;
         setActiveTopTab(topTab);
         if (state.currentView === 'interview') {
@@ -17294,7 +20295,7 @@
     if (projectCardBtn) {
       var cardProject = projectCardBtn.getAttribute('data-project-card');
       function openCardProject() {
-        stashCurrentEditorState();
+        if (stashCurrentEditorState() === false) return;
         openProject(cardProject);
       }
       if (
@@ -17411,7 +20412,7 @@
           })
         )
           return;
-        stashCurrentEditorState();
+        if (stashCurrentEditorState() === false) return;
         state.selectedBlockId = nextBlockId;
         dirtyState.setActiveBlock(nextBlockId);
         state.canvasMode = 'question';
@@ -17539,10 +20540,17 @@
 
     // Outline insert
     if (outlineInsertBtn) {
-      state.insertAfterBlockId =
-        outlineInsertBtn.getAttribute('data-insert-after-id') || '';
-      var insertModal = getOrCreateBootstrapModal('insert-modal');
-      if (insertModal) insertModal.show();
+      function openInsertModal() {
+        state.insertAfterBlockId =
+          outlineInsertBtn.getAttribute('data-insert-after-id') || '';
+        var insertModal = getOrCreateBootstrapModal('insert-modal');
+        if (insertModal) insertModal.show();
+      }
+      if (
+        deferNavigationForUnsavedChanges('add another block', openInsertModal)
+      )
+        return;
+      openInsertModal();
       return;
     }
 
@@ -17643,6 +20651,22 @@
       openTemplateInsertModal(
         helpTargetId ? document.getElementById(helpTargetId) : null,
       );
+      return;
+    }
+
+    if (target.id === 'add-template-subject') {
+      var templateBlock = getSelectedBlock();
+      if (!isTemplateEditorBlock(templateBlock)) return;
+      _templateSubjectOpen[templateBlock.id] = true;
+      var subjectGroup = target.closest('.editor-form-group');
+      subjectGroup.innerHTML =
+        '<label class="editor-tiny" for="template-subject">Subject (disclosure label)</label>' +
+        renderMarkdownToolbar('template-subject', false) +
+        '<textarea class="form-control editor-form-control" id="template-subject" rows="2"></textarea>' +
+        '<div class="form-text">Required only when this template is inserted as collapsible help.</div>';
+      var subjectInput = document.getElementById('template-subject');
+      _initAutoResize(subjectInput, 64);
+      subjectInput.focus();
       return;
     }
 
@@ -17791,7 +20815,7 @@
         )
       )
         return;
-      stashCurrentEditorState();
+      if (stashCurrentEditorState() === false) return;
       enterOrderBuilder(nextOrderBlockId, 'order-switcher');
       return;
     }
@@ -17799,7 +20823,7 @@
     // Top action buttons
     if (uiAction === 'open-project-selector') {
       function showProjectSelector() {
-        stashCurrentEditorState();
+        if (stashCurrentEditorState() === false) return;
         state.canvasMode = 'project-selector';
         state.currentView = 'interview';
         var interviewTab0 = document.querySelector(
@@ -17921,6 +20945,7 @@
         section: sfSection,
         filename: sfName,
         new_filename: sfNewName,
+        expected_revision: sectionRevisionFor(state.currentView, sfName),
       }).then(function (res) {
         if (!res.success) {
           window.alert(
@@ -17978,6 +21003,7 @@
         project: state.project,
         section: delSection,
         filename: delName,
+        expected_revision: sectionRevisionFor(state.currentView, delName),
       }).then(function (res) {
         if (!res.success) {
           window.alert(
@@ -18206,6 +21232,10 @@
         section: sectionForRename,
         filename: sectionFileMetaForRename.filename,
         new_filename: renamedSectionFile,
+        expected_revision: sectionRevisionFor(
+          state.currentView,
+          sectionFileMetaForRename.filename,
+        ),
       }).then(function (res) {
         if (!res.success) {
           window.alert(
@@ -18237,6 +21267,10 @@
         project: state.project,
         section: sectionForDelete,
         filename: sectionFileMetaForDelete.filename,
+        expected_revision: sectionRevisionFor(
+          state.currentView,
+          sectionFileMetaForDelete.filename,
+        ),
       }).then(function (res) {
         if (!res.success) {
           window.alert(
@@ -18261,7 +21295,7 @@
 
     if (target.id === 'btn-new-project') {
       function showNewProject() {
-        stashCurrentEditorState();
+        if (stashCurrentEditorState() === false) return;
         state.canvasMode = 'new-project';
         state.currentView = 'interview';
         var interviewTab1 = document.querySelector(
@@ -18282,7 +21316,7 @@
     }
     if (uiAction === 'open-full-yaml') {
       function toggleFullYaml() {
-        stashCurrentEditorState();
+        if (stashCurrentEditorState() === false) return;
         _stashFullYamlContent();
         state.canvasMode =
           state.canvasMode === 'full-yaml' ? 'question' : 'full-yaml';
@@ -18301,7 +21335,7 @@
     if (uiAction === 'open-assemblyline-settings') {
       if (!state.project || !state.filename) return;
       function openAssemblyLineSettings() {
-        stashCurrentEditorState();
+        if (stashCurrentEditorState() === false) return;
         state.canvasMode = 'assemblyline-settings';
         state.currentView = 'interview';
         renderCanvas();
@@ -18378,7 +21412,7 @@
     if (uiAction === 'open-runtime-inspector') {
       if (!state.project || !state.filename) return;
       function openRuntimeInspector() {
-        stashCurrentEditorState();
+        if (stashCurrentEditorState() === false) return;
         state.canvasMode = 'runtime-inspector';
         state.currentView = 'interview';
         renderCanvas();
@@ -18394,8 +21428,7 @@
       return;
     }
     if (uiAction === 'open-interview-order') {
-      var requestedMenuOrderBlock =
-        state.activeOrderBlockId || getDefaultOrderBlockId();
+      var requestedMenuOrderBlock = getRequestedOrderBlockId();
       if (
         deferNavigationForUnsavedChanges(
           'open the interview order',
@@ -18409,7 +21442,7 @@
       return;
     }
     if (uiAction === 'open-interview-flow-report') {
-      stashCurrentEditorState();
+      if (stashCurrentEditorState() === false) return;
       openInterviewFlowReport();
       return;
     }
@@ -18419,8 +21452,7 @@
       return;
     }
     if (orderBuilderBtn) {
-      var requestedOrderBlock =
-        state.activeOrderBlockId || getDefaultOrderBlockId();
+      var requestedOrderBlock = getRequestedOrderBlockId();
       if (
         deferNavigationForUnsavedChanges(
           'open the interview order',
@@ -18464,7 +21496,7 @@
     if (target.id === 'add-question-event') {
       var eventBlock = getSelectedBlock();
       if (eventBlock && eventBlock.type === 'question') {
-        syncFieldsToData(eventBlock);
+        if (syncFieldsToData(eventBlock) === false) return false;
         _questionEventFieldOpen[eventBlock.id] = true;
         markInterviewDirty();
         renderCanvas();
@@ -18480,7 +21512,7 @@
       if (removeEventBlock && removeEventBlock.type === 'question') {
         var eventInput = document.getElementById('adv-event');
         if (eventInput) eventInput.value = '';
-        syncFieldsToData(removeEventBlock);
+        if (syncFieldsToData(removeEventBlock) === false) return false;
         delete _questionEventFieldOpen[removeEventBlock.id];
         markInterviewDirty();
         renderCanvas();
@@ -18538,7 +21570,7 @@
         !state.filename
       )
         return;
-      syncFieldsToData(questionBlock);
+      if (syncFieldsToData(questionBlock) === false) return false;
       var screenInstruction = window.prompt(
         'Optional guidance for this screen (leave blank for auto-draft):',
         '',
@@ -18588,7 +21620,7 @@
         !state.filename
       )
         return;
-      syncFieldsToData(currentQuestionBlock);
+      if (syncFieldsToData(currentQuestionBlock) === false) return false;
       _setButtonLoading('ai-generate-fields', true, 'Generating...');
       apiPost('/api/ai/generate-fields', {
         project: state.project,
@@ -18703,7 +21735,12 @@
         return;
       }
       if (qMode === 'preview') {
-        stashCurrentEditorState();
+        try {
+          if (stashCurrentEditorState() === false) return;
+        } catch (error) {
+          window.alert(error.message);
+          return;
+        }
         if (qTab === 'screen' || qTab === 'options')
           state.questionBlockTab = qTab;
         renderCanvas();
@@ -18734,7 +21771,7 @@
       var tabFi = parseInt(target.getAttribute('data-field-idx'), 10);
       var tabBlock = getSelectedBlock();
       if (tabBlock && tabBlock.type === 'question') {
-        syncFieldsToData(tabBlock);
+        if (syncFieldsToData(tabBlock) === false) return false;
         markInterviewDirty();
       }
       _fieldSettingsTabs[tabFi] =
@@ -18748,7 +21785,7 @@
       var nextType = target.getAttribute('data-field-datatype') || 'text';
       var typeBlock = getSelectedBlock();
       if (typeBlock && typeBlock.type === 'question') {
-        syncFieldsToData(typeBlock);
+        if (syncFieldsToData(typeBlock) === false) return false;
         if (
           typeBlock.data &&
           Array.isArray(typeBlock.data.fields) &&
@@ -18795,6 +21832,10 @@
               datatype: nextType,
             };
           } else {
+            // An input type is a refinement of the current datatype. Carrying
+            // it across a datatype change can leave an invalid combination.
+            if (selectedField && typeof selectedField === 'object')
+              delete selectedField['input type'];
             selectedField.datatype = nextType;
           }
         }
@@ -18811,7 +21852,7 @@
     }
 
     if (target.id === 'toggle-advanced') {
-      stashCurrentEditorState();
+      if (stashCurrentEditorState() === false) return;
       state.advancedOpen = !state.advancedOpen;
       renderCanvas();
       return;
@@ -18819,7 +21860,7 @@
 
     // Advanced show more toggle
     if (target.id === 'adv-show-more') {
-      stashCurrentEditorState();
+      if (stashCurrentEditorState() === false) return;
       state.advancedShowMore = !state.advancedShowMore;
       renderCanvas();
       return;
@@ -18953,6 +21994,7 @@
       if (!block) return;
       var originalBlockId = block.id;
       var yamlVal = getBlockYamlForSave(block);
+      if (!yamlVal) return;
 
       apiPost('/api/block', {
         project: state.project,
@@ -18964,10 +22006,7 @@
       }).then(function (res) {
         if (res.success && res.data) {
           var keepBlockId = res.data.saved_block_id || originalBlockId;
-          refreshFromFileResponse(res.data, { savedBlockId: originalBlockId });
-          state.selectedBlockId = keepBlockId;
-          renderOutline();
-          renderCanvas();
+          refreshAfterBlockSave(res.data, originalBlockId, keepBlockId);
           return;
         }
         window.alert(
@@ -19106,7 +22145,7 @@
     }
     if (target.id === 'order-to-raw') {
       function openRawOrder() {
-        stashCurrentEditorState();
+        if (stashCurrentEditorState() === false) return;
         state._prevCanvasMode = 'order-builder';
         state.canvasMode = 'full-yaml';
         state.fullYamlTab = 'order';
@@ -19121,7 +22160,7 @@
     }
     if (target.id === 'order-back-to-code') {
       function returnToOrderCode() {
-        stashCurrentEditorState();
+        if (stashCurrentEditorState() === false) return;
         if (state.activeOrderBlockId)
           state.selectedBlockId = state.activeOrderBlockId;
         dirtyState.setActiveBlock(state.selectedBlockId);
@@ -19210,6 +22249,7 @@
         markOrderDirty();
         renderCanvas();
       } else if (action === 'inline-save') {
+        readOrderStructuredFields(stepRecord.step, 'order-inline-edit');
         var inlineInvoke = document.getElementById('order-inline-edit-invoke');
         var inlineCondition = document.getElementById(
           'order-inline-edit-condition',
@@ -19291,10 +22331,34 @@
     }
 
     // Add field
+    var screenRemove = target.closest('[data-screen-remove-choice]');
+    if (target.id === 'screen-add-choice' || screenRemove) {
+      var screenBlock = getSelectedBlock();
+      if (!screenBlock) return;
+      try {
+        if (syncQuestionMetaToData(screenBlock) === false) return false;
+      } catch (error) {
+        window.alert(error.message);
+        return;
+      }
+      var kind = window.ALWeaverSerializers.questionScreenType(
+        screenBlock.data,
+      );
+      if (!Array.isArray(screenBlock.data[kind])) return;
+      if (screenRemove)
+        screenBlock.data[kind].splice(
+          Number(screenRemove.getAttribute('data-screen-remove-choice')),
+          1,
+        );
+      else screenBlock.data[kind].push({ 'New choice': 'new_value' });
+      markInterviewDirty();
+      renderCanvas();
+      return;
+    }
     if (target.id === 'add-field-btn') {
       var blk = getSelectedBlock();
       if (blk && blk.data) {
-        syncFieldsToData(blk);
+        if (syncFieldsToData(blk) === false) return false;
         if (!blk.data.fields) blk.data.fields = [];
         blk.data.fields.push({ label: 'New field', field: 'new_variable' });
         _openFieldModsPanels = {};
@@ -19309,7 +22373,7 @@
       var fi = parseInt(removeFieldBtn.getAttribute('data-remove-field'), 10);
       var blk2 = getSelectedBlock();
       if (blk2 && blk2.data && blk2.data.fields) {
-        syncFieldsToData(blk2);
+        if (syncFieldsToData(blk2) === false) return false;
         blk2.data.fields.splice(fi, 1);
         _syncGeneratedALFieldSets(blk2);
         _openFieldModsPanels = {};
@@ -19642,6 +22706,14 @@
                       esc(state.project) +
                       '" created successfully.',
                   );
+                  var generationWarnings =
+                    _newProjectGenerationWarnings(jobData);
+                  if (generationWarnings.length) {
+                    _showWarningBanner(
+                      'Review generated interview: ' +
+                        generationWarnings.map(esc).join(' '),
+                    );
+                  }
                   // The generated YAML refers to each template by the name the
                   // project stores it under, which may not be the one uploaded.
                   reportRenamedFiles(
@@ -19794,6 +22866,7 @@
       target.id === 'template-name' ||
       target.id === 'template-subject' ||
       target.id === 'template-content' ||
+      target.matches('[data-screen-control]') ||
       target.id === 'adv-id' ||
       target.id === 'adv-if' ||
       target.id === 'adv-continue-field' ||
@@ -19815,6 +22888,7 @@
       target.matches('[data-fmod]') ||
       target.matches('.editor-field-showif-input') ||
       target.matches('.editor-field-showif-key') ||
+      target.matches('[data-order-field]') ||
       target.id === 'order-inline-edit-invoke' ||
       target.id === 'order-inline-edit-condition' ||
       target.id === 'order-inline-edit-value' ||
@@ -19823,6 +22897,13 @@
       target.id === 'order-add-value' ||
       target.id === 'order-add-code'
     ) {
+      if (target.id === 'q-title') {
+        target.setCustomValidity('');
+        var blankCheckbox = document.getElementById('q-allow-blank');
+        if (blankCheckbox)
+          blankCheckbox.disabled = Boolean(target.value.trim());
+        if (target.value.trim()) setBlankQuestionAllowed(false);
+      }
       markInterviewDirty();
       if (target.id && target.id.indexOf('order-') === 0)
         state.orderDirty = true;
@@ -19830,7 +22911,24 @@
   });
 
   document.addEventListener('change', function (e) {
+    if (e.target.matches('[data-order-list-for]') && e.target.value) {
+      var iterableInput = document.getElementById(
+        e.target.dataset.orderListFor,
+      );
+      if (iterableInput) {
+        iterableInput.value = e.target.value;
+        iterableInput.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    }
     var target = e.target;
+    if (target.matches('[data-screen-control]')) {
+      markInterviewDirty();
+      return;
+    }
+    if (target.id === 'q-allow-blank') {
+      setBlankQuestionAllowed(target.checked);
+      return;
+    }
     if (target.id === 'kiln-test-entrypoint') {
       renderKilnYamlFileControls(target.value, selectedKilnYamlFilenames());
       return;
@@ -19917,6 +23015,90 @@
         isInterviewView()
       )
         return;
+      if (state.currentView === 'templates') {
+        var selectedUploads = Array.prototype.slice.call(target.files);
+        var existingTemplate =
+          selectedUploads.length === 1
+            ? getSectionFiles('templates').find(function (item) {
+                return item.filename === selectedUploads[0].name;
+              })
+            : null;
+        if (existingTemplate) {
+          var templateFile = selectedUploads[0];
+          if (!existingTemplate.revision) {
+            window.alert(
+              'We could not verify the current template revision. Refresh the template list and try again.',
+            );
+            target.value = '';
+            return;
+          }
+          var replaceConfirmed = window.confirm(
+            'Replace the existing template file "' +
+              existingTemplate.filename +
+              '"? The interview YAML and authored questions stay as they are. After replacement, re-read the template to review mapping changes before applying them.',
+          );
+          if (!replaceConfirmed) {
+            target.value = '';
+            return;
+          }
+          var revisionForm = new FormData();
+          revisionForm.append('project', state.project);
+          revisionForm.append('filename', existingTemplate.filename);
+          revisionForm.append('expected_revision', existingTemplate.revision);
+          revisionForm.append('confirm_replace', 'true');
+          revisionForm.append('file', templateFile, templateFile.name);
+          apiUpload('/api/template/revise', revisionForm)
+            .then(function (res) {
+              if (!res.success) {
+                showApiError(
+                  res.error || { message: 'Template replacement failed.' },
+                );
+                return;
+              }
+              state.sectionSelectedFile.templates = existingTemplate.filename;
+              state.sectionDirty = false;
+              var backupName =
+                res.data && res.data.backup_filename
+                  ? res.data.backup_filename
+                  : 'the prior template backup';
+              var backupRevision =
+                res.data && res.data.backup_revision
+                  ? res.data.backup_revision
+                  : 'unavailable';
+              window.alert(
+                'Template replaced. The original bytes are preserved as "' +
+                  backupName +
+                  '" in this project’s Templates folder (SHA-256: ' +
+                  backupRevision +
+                  '). Re-read the template to review its mapping changes; to restore, download the backup and upload it as a confirmed replacement.',
+              );
+              loadSectionFiles('templates');
+            })
+            .catch(function (error) {
+              showApiError({
+                message: error.message || 'Template replacement failed.',
+              });
+            })
+            .finally(function () {
+              target.value = '';
+            });
+          return;
+        }
+        if (
+          selectedUploads.length > 1 &&
+          selectedUploads.some(function (file) {
+            return getSectionFiles('templates').some(function (item) {
+              return item.filename === file.name;
+            });
+          })
+        ) {
+          window.alert(
+            'Select a single existing template when replacing it. New templates can still be uploaded together.',
+          );
+          target.value = '';
+          return;
+        }
+      }
       var formData = new FormData();
       formData.append('project', state.project);
       formData.append('section', getSectionFromView(state.currentView));
@@ -19982,7 +23164,7 @@
     if (target.matches('[data-field-prop="type"]')) {
       var blk = getSelectedBlock();
       if (blk) {
-        syncFieldsToData(blk);
+        if (syncFieldsToData(blk) === false) return false;
         markInterviewDirty('set-field-type');
         renderCanvas();
       }
@@ -19991,7 +23173,7 @@
     if (target.id === 'adv-enable-if') {
       var blk2 = getSelectedBlock();
       if (blk2) {
-        syncFieldsToData(blk2);
+        if (syncFieldsToData(blk2) === false) return false;
         markInterviewDirty('set-enable-if');
         renderCanvas();
       }
@@ -20104,6 +23286,12 @@
   function renderInlineEditRow(step) {
     var html = '<div class="editor-order-inline-edit">';
     if (
+      ['loop', 'assignment', 'comment', 'break', 'continue'].indexOf(
+        step.kind,
+      ) !== -1
+    ) {
+      html += renderOrderStructuredFields(step, 'order-inline-edit');
+    } else if (
       step.kind === 'screen' ||
       step.kind === 'gather' ||
       step.kind === 'function'
@@ -20269,14 +23457,47 @@
       var valueEl = document.getElementById('order-add-value');
       var codeEl = document.getElementById('order-add-code');
 
-      if (kind === 'screen' || kind === 'function') {
+      if (
+        ['loop', 'assignment', 'comment', 'break', 'continue'].indexOf(kind) !==
+        -1
+      ) {
+        readOrderStructuredFields(newStep, 'order-add');
+        if (
+          (kind === 'loop' || kind === 'assignment') &&
+          (!newStep.target.trim() ||
+            !(kind === 'loop' ? newStep.iterable : newStep.expression).trim())
+        ) {
+          alert('Enter a target and an expression.');
+          return;
+        }
+        if (
+          !orderStepFitsLoopContext(
+            newStep,
+            orderLocationInsideLoop(_pendingOrderInsert.parentStepId),
+          )
+        ) {
+          alert('Break and continue must be inside a for loop.');
+          return;
+        }
+      } else if (kind === 'screen' || kind === 'function') {
         var invokeVal = invokeEl ? String(invokeEl.value || '').trim() : '';
         if (!invokeVal) return;
         newStep.invoke = invokeVal;
         newStep.summary = invokeVal;
       } else if (kind === 'gather') {
         var gatherVar = gatherEl ? String(gatherEl.value || '').trim() : '';
-        if (!gatherVar) return;
+        if (
+          !/^[A-Za-z_]\w*(?:(?:\.[A-Za-z_]\w*)|(?:\[(?:\d+|[A-Za-z_]\w*)\]))*$/.test(
+            gatherVar,
+          )
+        ) {
+          gatherEl.setCustomValidity(
+            'Enter a list variable such as household[i].jobs.',
+          );
+          gatherEl.reportValidity();
+          return;
+        }
+        gatherEl.setCustomValidity('');
         newStep.invoke = gatherVar + '.gather()';
         newStep.summary = 'Gather ' + gatherVar + ' list';
       } else if (kind === 'condition') {
@@ -20330,8 +23551,15 @@
     var nextProject = projectSelect.value;
     function changeProject() {
       projectSelect.value = nextProject;
-      stashCurrentEditorState();
+      var projectMenu = document.getElementById('editor-project-menu');
+      if (projectMenu && window.bootstrap && window.bootstrap.Dropdown) {
+        window.bootstrap.Dropdown.getOrCreateInstance(projectMenu).hide();
+      }
+      if (stashCurrentEditorState() === false) return;
+      cancelRouteHydration();
+      if (nextProject !== state.project) resetProjectNavigation();
       state.project = nextProject || null;
+      state.currentView = 'interview';
       state.selectedBlockId = null;
       dirtyState.activate(null, null);
       if (!state.project) {
@@ -20356,7 +23584,7 @@
     var nextFilename = fileSelect.value;
     function changeFile() {
       fileSelect.value = nextFilename;
-      stashCurrentEditorState();
+      if (stashCurrentEditorState() === false) return;
       state.filename = nextFilename;
       state.selectedBlockId = null;
       dirtyState.activate(state.filename, null);
@@ -20373,15 +23601,34 @@
   });
 
   searchInput.addEventListener('input', function () {
-    state.searchQuery = searchInput.value;
-    if (isInterviewView()) {
-      var selected = getBlockById(state.selectedBlockId);
-      if (!selected || !isBlockVisibleInOutline(selected)) {
-        state.selectedBlockId = getDefaultVisibleBlockId();
+    var nextQuery = searchInput.value;
+    var previousQuery = state.searchQuery;
+    state.searchQuery = nextQuery;
+    var selected = getBlockById(state.selectedBlockId);
+    var wouldLeaveBlock =
+      isInterviewView() && selected && !isBlockVisibleInOutline(selected);
+    state.searchQuery = previousQuery;
+    function applySearch() {
+      if (stashCurrentEditorState() === false) return;
+      state.searchQuery = nextQuery;
+      searchInput.value = nextQuery;
+      if (isInterviewView()) {
+        var current = getBlockById(state.selectedBlockId);
+        if (!current || !isBlockVisibleInOutline(current)) {
+          state.selectedBlockId = getDefaultVisibleBlockId();
+        }
+        renderCanvas();
       }
-      renderCanvas();
+      renderOutline();
     }
-    renderOutline();
+    if (
+      wouldLeaveBlock &&
+      deferNavigationForUnsavedChanges('search blocks', applySearch)
+    ) {
+      searchInput.value = previousQuery;
+      return;
+    }
+    applySearch();
   });
 
   // Both the "Show" control and the summary's "Show all" button move the
@@ -20392,7 +23639,7 @@
   function applyOutlineFilter(jump, keepSelection) {
     if (jump === state.jumpTarget) return;
     function changeJumpTarget() {
-      stashCurrentEditorState();
+      if (stashCurrentEditorState() === false) return;
       state.jumpTarget = jump;
       state.canvasMode = 'question';
       if (keepSelection) {
@@ -20471,6 +23718,11 @@
       authState.authenticated || BOOT.authenticated,
     );
     renderAccountMenu();
+    var sectionMenu = document.getElementById('editor-section-menu');
+    if (sectionMenu)
+      sectionMenu.addEventListener('hidden.bs.dropdown', function () {
+        setSectionSubmenu(null);
+      });
     if (!isAuthenticated) {
       renderLoginRequired();
       return;
@@ -20503,16 +23755,19 @@
     }
     initSourceEditor(function () {
       populateProjects();
-      state.canvasMode = 'project-selector';
-      renderCanvas();
+      startEditorRouter();
     });
   }
 
   window.addEventListener('resize', hideTypeaheadMenu);
   document.addEventListener('scroll', hideTypeaheadMenu, true);
   window.addEventListener('beforeunload', function (e) {
-    stashCurrentEditorState();
-    if (!dirtyState.hasDirty(state.filename) && !state.sectionDirty) return;
+    if (stashCurrentEditorState() === false) {
+      e.preventDefault();
+      e.returnValue = '';
+      return;
+    }
+    if (!hasUnsavedChanges()) return;
     e.preventDefault();
     e.returnValue = '';
   });

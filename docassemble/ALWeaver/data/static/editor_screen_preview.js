@@ -3,13 +3,11 @@
  * Renders a question block as the markup Docassemble's own
  * ``standardformatter`` would emit, so the preview can be styled with
  * Docassemble's real stylesheets (``/static/app/bundle.css``) and finished by
- * Docassemble's real labelauty plugin.  Everything here is deliberately
+ * Docassemble's own choice styling. Everything here is deliberately
  * framework-free so it can be unit-tested under Node.
  *
- * The markup mirrors docassemble.base.standardformatter as of 1.9.13 and
- * 1.10.7; the two versions emit identical field HTML (1.10 only renamed
- * internals), and ship byte-identical app.css / labelauty assets, so one
- * renderer serves both.
+ * Docassemble 1.10.8 added explicit choice labels and native file inputs.
+ * The widgetStyle option keeps markup for earlier versions available.
  */
 (function (root, factory) {
   'use strict';
@@ -44,17 +42,41 @@
 
   /* Docassemble's Markdown lets raw HTML through, and interviews lean on that
    * for Bootstrap alerts, cards and the like, so the preview passes it through
-   * too. Scripts and inline event handlers are the exception: the preview frame
-   * shares an origin with the editor, and an author debugging a screen should
-   * not be able to reach into their own unsaved work by accident. */
+   * too. Scripts, inline event handlers, and srcdoc attributes are the
+   * exception. The preview frame has an opaque origin, and an author debugging
+   * a screen should not be able to reach into their unsaved work. */
   var SCRIPT_PATTERNS = [
     /<script\b[\s\S]*?<\/script\s*>/gi,
     /<script\b[^>]*>/gi,
     /\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi,
+    /\ssrcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi,
   ];
 
   function sanitizeHtml(html, report) {
     var out = String(html === undefined || html === null ? '' : html);
+    // A sandboxed preview has an opaque origin, but its `allow-scripts` flag
+    // is needed by the formatter plugins. Raw HTML could therefore create a
+    // nested data/about iframe (or object/embed document) and run script in
+    // that child, or use CSS selectors and external URLs to leak rendered
+    // form values, even though the parent editor remains cross-origin
+    // isolated. Drop those active-content sources; Bootstrap classes and
+    // ordinary semantic markup remain available.
+    out = out.replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, function () {
+      if (report) report.scriptRemoved = true;
+      return '';
+    });
+    out = out.replace(/<style\b[^>]*>|<\/style\s*>/gi, function () {
+      if (report) report.scriptRemoved = true;
+      return '';
+    });
+    out = out.replace(/<\/?(?:iframe|object|embed|link|base)\b[^>]*>/gi, function () {
+      if (report) report.scriptRemoved = true;
+      return '';
+    });
+    out = out.replace(/\sstyle\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, function () {
+      if (report) report.scriptRemoved = true;
+      return '';
+    });
     SCRIPT_PATTERNS.forEach(function (pattern) {
       out = out.replace(pattern, function () {
         if (report) report.scriptRemoved = true;
@@ -815,13 +837,7 @@
 
   function normalizeChoiceList(raw, fallback) {
     if (!Array.isArray(raw)) return fallback;
-    return raw.map(function (item) {
-      if (item && typeof item === 'object') {
-        var key = Object.keys(item)[0];
-        return { label: String(key), value: String(item[key]) };
-      }
-      return { label: String(item), value: String(item) };
-    });
+    return choiceEntries(raw);
   }
 
   // -------------------------------------------------------------------------
@@ -1120,12 +1136,18 @@
     if (!Array.isArray(raw)) return null;
     return raw.map(function (item) {
       if (item && typeof item === 'object') {
-        // Already normalized — the AssemblyLine generators emit this shape.
+        // Docassemble accepts explicit label/key and label/value choices.
+        // The label is shown; the key (or value) is submitted.
         if (Object.prototype.hasOwnProperty.call(item, 'label') &&
-            Object.prototype.hasOwnProperty.call(item, 'value')) {
-          return { label: String(item.label), value: String(item.value) };
+            (Object.prototype.hasOwnProperty.call(item, 'key') ||
+             Object.prototype.hasOwnProperty.call(item, 'value'))) {
+          var choiceValue = Object.prototype.hasOwnProperty.call(item, 'key')
+            ? item.key : item.value;
+          return { label: String(item.label), value: String(choiceValue) };
         }
-        var key = Object.keys(item)[0];
+        var key = Object.keys(item).find(function (name) {
+          return ['url', 'image', 'help', 'default', 'color', 'css class', 'show if'].indexOf(name) === -1;
+        });
         var value = item[key];
         if (value && typeof value === 'object') return { label: String(key), value: String(key) };
         return { label: String(key), value: String(value) };
@@ -1324,6 +1346,14 @@
 
   function labelautyInput(options) {
     var label = options.label || '';
+    if (options.widgetStyle === 'native') {
+      return '<input type="' + options.type + '" class="' + attr(options.classes) +
+        '" id="' + attr(options.id) + '" name="' + attr(options.name) +
+        '" value="' + attr(options.value) + '"' +
+        (options.checked ? ' checked="checked"' : '') + ' />' +
+        '<label for="' + attr(options.id) + '" class="btn btn-' + LABELAUTY_COLOR +
+        ' text-start dalabelauty">' + renderInlineMarkdown(label) + '</label>';
+    }
     return '<input aria-label="' + attr(label) + '" alt="' + attr(label) + '" data-color="' +
       LABELAUTY_COLOR + '" data-labelauty="' + attr(label) + '|' + attr(label) + '" class="' +
       attr(options.classes) + '" id="' + attr(options.id) + '" name="' + attr(options.name) +
@@ -1406,7 +1436,7 @@
     return html;
   }
 
-  function renderChoiceGroup(desc, id, type) {
+  function renderChoiceGroup(desc, id, type, widgetStyle) {
     var entries = choicesFor(desc);
     var groupClass = type === 'radio' ? 'da-field-group da-field-radio' : 'da-field-group da-field-checkbox';
     var html = '<div class="' + groupClass + '">';
@@ -1420,6 +1450,7 @@
         value: choice.value,
         checked: desc.defaultValue !== null && desc.defaultValue !== undefined &&
           String(desc.defaultValue) === String(choice.value),
+        widgetStyle: widgetStyle,
       });
     });
     if (type === 'checkbox' && desc.noneOfTheAbove) {
@@ -1430,14 +1461,23 @@
         name: id + '_nota',
         type: 'checkbox',
         value: 'True',
+        widgetStyle: widgetStyle,
       });
     }
     html += '</div>';
     return html;
   }
 
-  function renderYesNoCheckbox(desc, id) {
+  function renderYesNoCheckbox(desc, id, widgetStyle) {
     var label = renderInlineMarkdown(desc.label) || esc(desc.variable);
+    if (widgetStyle === 'native') {
+      return '<div class="da-field-group da-field-checkbox">' +
+        '<input type="checkbox" class="da-to-labelauty checkbox-icon dauncheckable" value="' +
+        (desc.datatype.indexOf('noyes') === 0 ? 'False' : 'True') + '" name="' + attr(id) +
+        '" id="' + attr(id) + '" />' +
+        '<label for="' + attr(id) + '" class="btn btn-' + LABELAUTY_COLOR +
+        ' text-start dalabelauty">' + label + '</label></div>';
+    }
     return '<div class="da-field-group da-field-checkbox">' +
       '<input aria-label="' + attr(desc.label) + '" alt="' + attr(desc.label) +
       '" class="da-to-labelauty checkbox-icon dauncheckable" type="checkbox" value="' +
@@ -1446,7 +1486,7 @@
       '" id="' + attr(id) + '" /></div>';
   }
 
-  function renderYesNoRadio(desc, id) {
+  function renderYesNoRadio(desc, id, widgetStyle) {
     var order = desc.datatype.indexOf('noyes') === 0
       ? [{ label: 'No', value: 'False' }, { label: 'Yes', value: 'True' }]
       : [{ label: 'Yes', value: 'True' }, { label: 'No', value: 'False' }];
@@ -1462,14 +1502,16 @@
         name: id,
         type: 'radio',
         value: choice.value,
+        widgetStyle: widgetStyle,
       });
     });
     html += '</div>';
     return html;
   }
 
-  function renderFileInput(desc, id) {
-    return '<input alt="You can upload a file here" type="file" class="dafile" name="' + attr(id) +
+  function renderFileInput(desc, id, widgetStyle) {
+    return '<input alt="You can upload a file here" type="file" class="' +
+      (widgetStyle === 'native' ? 'form-control' : 'dafile') + '" name="' + attr(id) +
       '" id="' + attr(id) + '"' + (desc.datatype === 'files' ? ' multiple' : '') + ' />';
   }
 
@@ -1485,18 +1527,18 @@
   var YESNO_CHECKBOX_TYPES = ['yesno', 'noyes', 'yesnowide', 'noyeswide'];
   var YESNO_RADIO_TYPES = ['yesnoradio', 'noyesradio', 'yesnomaybe', 'noyesmaybe'];
 
-  function renderInput(desc, id) {
-    if (YESNO_CHECKBOX_TYPES.indexOf(desc.datatype) !== -1) return renderYesNoCheckbox(desc, id);
-    if (YESNO_RADIO_TYPES.indexOf(desc.datatype) !== -1) return renderYesNoRadio(desc, id);
+  function renderInput(desc, id, widgetStyle) {
+    if (YESNO_CHECKBOX_TYPES.indexOf(desc.datatype) !== -1) return renderYesNoCheckbox(desc, id, widgetStyle);
+    if (YESNO_RADIO_TYPES.indexOf(desc.datatype) !== -1) return renderYesNoRadio(desc, id, widgetStyle);
     if (desc.datatype === 'checkboxes' || desc.datatype === 'object_checkboxes') {
-      return renderChoiceGroup(desc, id, 'checkbox');
+      return renderChoiceGroup(desc, id, 'checkbox', widgetStyle);
     }
     if (desc.inputType === 'radio' || desc.datatype === 'radio' || desc.datatype === 'object_radio') {
-      return renderChoiceGroup(desc, id, 'radio');
+      return renderChoiceGroup(desc, id, 'radio', widgetStyle);
     }
     if (desc.datatype === 'area' || desc.datatype === 'mlarea') return renderTextarea(desc, id);
     if (desc.datatype === 'file' || desc.datatype === 'files' || desc.datatype === 'camera') {
-      return renderFileInput(desc, id);
+      return renderFileInput(desc, id, widgetStyle);
     }
     if (desc.choices || desc.choiceCode || desc.datatype === 'dropdown' ||
         desc.datatype === 'combobox' || desc.datatype === 'multiselect' ||
@@ -1660,7 +1702,7 @@
       useFieldset: useFieldset,
       labelId: 'da-label-' + index,
       labelFor: labelFor,
-      content: renderInput(desc, id),
+      content: renderInput(desc, id, opts.widgetStyle),
     };
 
     function build(extra) {
@@ -1709,7 +1751,7 @@
         floating: true,
         classes: [requiredClass, fieldClass],
         labelContent: labelContent,
-        content: renderInput(floatingDesc, id),
+        content: renderInput(floatingDesc, id, opts.widgetStyle),
       });
     }
 
@@ -2041,16 +2083,51 @@
       if (PLACEHOLDER_NOTES[kind]) notes.push(kind && PLACEHOLDER_NOTES[kind]);
     });
     if (report.scriptRemoved) {
-      notes.push('Your HTML is rendered as HTML, but <script> tags and inline event handlers were left out of the preview. The running interview still executes them.');
+      notes.push('Some active HTML was left out of the preview, including scripts, inline event handlers, embedded frames, or user-defined CSS. The running interview may render this content differently.');
     }
     (opts.notes || []).forEach(function (note) { notes.push(note); });
     return { html: html, notes: notes, itemCount: items.length };
   }
 
+  function renderSignature(block, opts) {
+    var report = {};
+    var context = opts.interview || null;
+    var notes = ['The signature pad is a visual preview. Signatures are collected in the running interview.'];
+    var color = String(block['pen color'] || 'black').trim();
+    if (!/^(#[\da-f]{3,8}|[a-z]+|(?:rgb|hsl)a?\([\d\s.,%+-]+\))$/i.test(color)) {
+      color = 'black';
+      notes.push('The pen color is evaluated in the running interview; this preview uses black.');
+    }
+    var title = renderInlineMarkdown(block.question || 'Sign your name', report, context);
+    var continueLabel = esc(block['continue button label'] || opts.continueButtonLabel || 'Continue');
+    var continueColor = esc(block['continue button color'] || opts.continueButtonColor || 'primary');
+    var html = '<div class="dasigpage" id="dasigpage">';
+    html += '<div class="d-block d-sm-none bg-body-tertiary p-2"><div class="d-flex justify-content-between align-items-center gap-2"><button type="button" class="btn btn-sm btn-warning dasigclear">Clear</button><div id="dasigtitle">' + title + '</div><button type="button" class="btn btn-sm btn-' + continueColor + ' dasigsave">' + continueLabel + '</button></div></div>';
+    html += '<div class="dasigtoppart"><div class="da-page-header d-none d-sm-block"><h1 class="h3" id="daMainQuestion">' + title + '</h1></div></div>';
+    if (block.subquestion) html += '<div class="dasigmidpart da-subquestion">' + renderMarkdown(block.subquestion, report, context) + '</div>';
+    html += '<div id="dasigcontent" role="img" aria-label="Signature pad' + (block.required === false ? ' (optional)' : '') + '" style="border:1px solid #aaa;min-height:180px;height:35vh;max-height:350px;position:relative;background:white">';
+    html += '<svg aria-hidden="true" viewBox="0 0 400 150" style="width:100%;height:100%;position:absolute"><path d="M60 110 C130 10 70 30 85 100 S120 80 130 100 Q150 50 145 105 Q180 60 173 103 Q230 55 210 100 Q245 70 260 92 L310 82" fill="none" stroke="' + esc(color) + '" stroke-width="2"/><path d="M30 130 H370" stroke="#aaa"/></svg></div>';
+    html += '<div class="dasigbottompart">' + (block.under ? renderMarkdown(block.under, report, context) : '') + '</div>';
+    html += '<div class="da-button-set d-none d-sm-block da-signature"><div class="dasigbuttons mt-3">';
+    if (opts.showBackButton !== false) html += '<button type="button" class="btn btn-link daquestionbackbutton">' + esc(opts.backButtonLabel || DEFAULT_BACK_BUTTON_LABEL) + '</button>';
+    html += '<button type="button" class="btn btn-' + continueColor + ' btn-da dasigsave">' + continueLabel + '</button> <button type="button" class="btn btn-warning btn-da dasigclear">Clear</button></div></div>';
+    if (block.help) html += '<div class="dahelp">' + renderMarkdown(block.help, report, context) + '</div>';
+    html += '</div>';
+    Object.keys(PLACEHOLDER_NOTES).forEach(function (key) {
+      if ((report.placeholders || []).indexOf(key) !== -1) notes.push(PLACEHOLDER_NOTES[key]);
+    });
+    return { html: html, notes: notes.concat(opts.notes || []), fieldCount: 1 };
+  }
+
   function renderQuestion(data, options) {
     var opts = options || {};
     var block = data || {};
-    var described = describeFields(block.fields);
+    if (Object.prototype.hasOwnProperty.call(block, 'signature')) return renderSignature(block, opts);
+    var choiceKind = ['choices', 'dropdown', 'combobox'].find(function (key) { return Object.prototype.hasOwnProperty.call(block, key); });
+    var booleanKind = ['yesno', 'noyes', 'yesnomaybe', 'noyesmaybe'].find(function (key) { return Object.prototype.hasOwnProperty.call(block, key); });
+    var previewFields = block.fields;
+    if (choiceKind) previewFields = [{ label: '', field: block.field || '', datatype: choiceKind === 'choices' ? 'radio' : choiceKind, choices: block[choiceKind] }];
+    var described = describeFields(previewFields);
     var notes = described.notes.slice();
     var buttonColor = opts.continueButtonColor || 'primary';
     var report = {};
@@ -2073,6 +2150,7 @@
         labelLayout: labelLayout,
         report: report,
         context: context,
+        widgetStyle: opts.widgetStyle,
       });
     });
 
@@ -2085,23 +2163,41 @@
         'title="Go back to the previous question"><i class="fa-solid fa-chevron-left me-1"></i>' +
         esc(opts.backButtonLabel || DEFAULT_BACK_BUTTON_LABEL) + '</button>';
     }
-    html += '<button class="btn btn-' + esc(buttonColor) + ' btn-da" type="submit">' +
-      esc(block['continue button label'] || opts.continueButtonLabel || 'Continue') + '</button>';
+    if (booleanKind) {
+      ['Yes', 'No'].concat(booleanKind.indexOf('maybe') !== -1 ? ["I don’t know"] : []).forEach(function (label) {
+        html += '<button type="button" class="btn btn-primary btn-da">' + esc(label) + '</button> ';
+      });
+    } else if (Object.prototype.hasOwnProperty.call(block, 'buttons')) {
+      if (Array.isArray(block.buttons)) block.buttons.forEach(function (item) {
+        if (item && typeof item === 'object' && Object.prototype.hasOwnProperty.call(item, 'code')) {
+          notes.push('Additional buttons are generated by code in the running interview.');
+          return;
+        }
+        var entry = choiceEntries([item])[0];
+        var color = item && typeof item === 'object' && /^(primary|secondary|success|danger|warning|info|light|dark|link)$/.test(item.color) ? item.color : 'primary';
+        html += '<button type="button" class="btn btn-' + color + ' btn-da">' + renderInlineMarkdown(entry.label, report, context) + '</button> ';
+      });
+      else notes.push('Buttons are generated by code in the running interview.');
+    } else {
+      html += '<button class="btn btn-' + esc(buttonColor) + ' btn-da" type="submit">' +
+        esc(block['continue button label'] || opts.continueButtonLabel || 'Continue') + '</button>';
+    }
     html += '</fieldset>';
     html += '</form>';
+    if (block.under) html += '<div class="daundertext">' + renderMarkdown(block.under, report, context) + '</div>';
     if (block.help) {
       html += '<div class="dahelp"><h2 class="h4">Help</h2>' + renderMarkdown(block.help, report, context) + '</div>';
     }
     html += '</div>';
 
-    if (!described.fields.length && !String(block.subquestion || '').trim()) {
+    if (!booleanKind && !Object.prototype.hasOwnProperty.call(block, 'buttons') && !described.fields.length && !String(block.subquestion || '').trim()) {
       notes.push('This screen has no fields, so only the question text and Continue button are shown.');
     }
     (report.placeholders || []).forEach(function (kind) {
       if (PLACEHOLDER_NOTES[kind]) notes.push(PLACEHOLDER_NOTES[kind]);
     });
     if (report.scriptRemoved) {
-      notes.push('Your HTML is rendered as HTML, but <script> tags and inline event handlers were left out of the preview. The running interview still executes them.');
+      notes.push('Some active HTML was left out of the preview, including scripts, inline event handlers, embedded frames, or user-defined CSS. The running interview may render this content differently.');
     }
     (opts.notes || []).forEach(function (note) { notes.push(note); });
     return {
@@ -2233,10 +2329,7 @@
   // The iframe document
   // -------------------------------------------------------------------------
 
-  /* Docassemble serves all of these from its own webapp static folder, at the
-   * same URLs on 1.9.x and 1.10.x — the 1.10 blueprint refactor renamed Flask
-   * endpoints but not the ``/static`` paths, and the asset files themselves are
-   * byte-identical between the two. */
+  /* The legacy plugin is loaded only for servers whose formatter uses it. */
   var DEFAULT_ASSETS = {
     bootstrapCss: '/static/bootstrap/css/bootstrap.min.css',
     bundleCss: '/static/app/bundle.css',
@@ -2301,16 +2394,17 @@
     body += '</div></div>';
 
     var script = '';
-    if (assets.jquery && assets.labelauty) {
+    if (opts.widgetStyle !== 'native' && assets.jquery && assets.labelauty) {
       script += '<script src="' + attr(assets.jquery) + '"></script>';
       script += '<script src="' + attr(assets.labelauty) + '"></script>';
     }
     if (assets.bootstrapJs) script += '<script src="' + attr(assets.bootstrapJs) + '"></script>';
     script += '<script>(function(){' +
-      'if (window.jQuery && jQuery.fn.labelauty) {' +
-      'jQuery(".da-to-labelauty").labelauty({class: "labelauty da-active-invisible dafullwidth"});' +
-      'jQuery(".da-to-labelauty-icon").labelauty({label: false});' +
-      '}' +
+      (opts.widgetStyle === 'native' ? '' :
+        'if (window.jQuery && jQuery.fn.labelauty) {' +
+        'jQuery(".da-to-labelauty").labelauty({class: "labelauty da-active-invisible dafullwidth"});' +
+        'jQuery(".da-to-labelauty-icon").labelauty({label: false});' +
+        '}') +
       'if (window.bootstrap && bootstrap.Popover) {' +
       'Array.prototype.forEach.call(document.querySelectorAll(\'[data-bs-toggle="popover"]\'), function (el) { new bootstrap.Popover(el, {html: true}); });' +
       '}' +

@@ -13,7 +13,7 @@ import types
 import unittest
 from unittest.mock import patch
 
-from flask import Flask
+from flask import Flask, session
 from jinja2 import DebugUndefined
 
 from . import docassemble_compat
@@ -355,6 +355,64 @@ class TestWebappAccessors(unittest.TestCase):
 
 
 class TestNativeGithubCompatibility(unittest.TestCase):
+    def test_existing_repository_missing_branch_422_is_missing_ref(self):
+        class FakeHttp:
+            def __init__(self):
+                self.calls = []
+
+            def request(self, url, method, headers=None, body=None):
+                self.calls.append(url)
+                if url.endswith("/commits/weaver-new-branch"):
+                    return {
+                        "status": "422"
+                    }, b'{"message":"No commit found for SHA: weaver-new-branch"}'
+                return {"status": "200"}, b'{"default_branch":"main","private":true}'
+
+        http = FakeHttp()
+        with patch.object(
+            docassemble_compat, "_github_authorized_http", return_value=http
+        ):
+            result = docassemble_compat.get_github_repository_snapshot(
+                repository_url=(
+                    "https://github.com/Example/docassemble-MatrixAcceptance"
+                ),
+                user_id=7,
+                ref="weaver-new-branch",
+                allow_missing=True,
+            )
+
+        self.assertTrue(result["missing"])
+        self.assertTrue(result["repository_exists"])
+        self.assertEqual(result["branch"], "weaver-new-branch")
+        self.assertEqual(result["default_branch"], "main")
+        self.assertEqual(result["files"], {})
+        self.assertEqual(len(http.calls), 2)
+
+    def test_unrelated_github_422_is_not_treated_as_missing_branch(self):
+        class FakeHttp:
+            def request(self, url, method, headers=None, body=None):
+                if "/commits/weaver-new-branch" in url:
+                    return {"status": "422"}, b'{"message":"Invalid request"}'
+                return {"status": "200"}, b'{"default_branch":"main","private":true}'
+
+        with patch.object(
+            docassemble_compat,
+            "_github_authorized_http",
+            return_value=FakeHttp(),
+        ):
+            with self.assertRaisesRegex(
+                docassemble_compat.DocassembleCompatibilityError,
+                "could not read weaver-new-branch",
+            ):
+                docassemble_compat.get_github_repository_snapshot(
+                    repository_url=(
+                        "https://github.com/Example/docassemble-MatrixAcceptance"
+                    ),
+                    user_id=7,
+                    ref="weaver-new-branch",
+                    allow_missing=True,
+                )
+
     def test_repository_snapshot_uses_one_archive_download(self):
         archive_buffer = io.BytesIO()
         with tarfile.open(fileobj=archive_buffer, mode="w:gz") as archive:
@@ -596,6 +654,72 @@ class TestNativeGithubCompatibility(unittest.TestCase):
         self.assertFalse(status["enabled"])
         self.assertFalse(status["connected"])
 
+    def test_workflow_authorization_uses_native_callback_state_on_both_layouts(self):
+        for layout in ("1.9.x", "1.10.x"):
+            with self.subTest(layout=layout):
+                app = self._app_for_layout(layout)
+                app.secret_key = "test-only"
+                app.config["ENABLE_PLAYGROUND"] = True
+                endpoint = (
+                    "develop.github_configure"
+                    if layout == "1.10.x"
+                    else "github_configure"
+                )
+                app.add_url_rule(
+                    "/github_configure",
+                    endpoint=endpoint,
+                    view_func=lambda: "configure",
+                )
+                states = []
+                flow = types.SimpleNamespace(
+                    scope="repo admin:public_key read:user user:email read:org",
+                    step1_get_authorize_url=lambda state: states.append(state)
+                    or "https://github.com/login/oauth/authorize",
+                )
+                with (
+                    app.test_request_context("/al/editor/github/authorize"),
+                    patch.object(docassemble_compat, "get_flask_app", return_value=app),
+                    patch.object(
+                        docassemble_compat,
+                        "_first_webapp_attr",
+                        return_value=lambda: flow,
+                    ),
+                ):
+                    url = docassemble_compat.github_authorization_url()
+                    next_step = json.loads(session["github_next"])
+                    self.assertEqual(
+                        next_step,
+                        {
+                            "state": states[0],
+                            "path": "/github_configure",
+                            "arguments": {},
+                        },
+                    )
+                    self.assertGreaterEqual(len(states[0]), 32)
+                    self.assertEqual(url, "https://github.com/login/oauth/authorize")
+                    self.assertEqual(
+                        set(flow.scope.split()),
+                        {
+                            "repo",
+                            "admin:public_key",
+                            "read:user",
+                            "user:email",
+                            "read:org",
+                            "workflow",
+                        },
+                    )
+                    docassemble_compat.github_authorization_url()
+                    self.assertNotEqual(states[0], states[1])
+                    self.assertEqual(flow.scope.split().count("workflow"), 1)
+
+    def test_github_errors_keep_operation_context(self):
+        self.assertEqual(
+            docassemble_compat._github_error_message(
+                {"message": "Not Found"}, "GitHub could not create the package tree"
+            ),
+            "GitHub could not create the package tree: Not Found",
+        )
+
     def test_publish_owners_include_personal_account_and_paginated_orgs(self):
         class FakeHttp:
             def __init__(self):
@@ -628,6 +752,51 @@ class TestNativeGithubCompatibility(unittest.TestCase):
                 {"login": "CourtForms", "type": "organization"},
             ],
         )
+
+    def test_repository_branches_include_all_pages_and_default_branch(self):
+        urls = []
+
+        class FakeHttp:
+            responses = [
+                ({"status": "200"}, {"default_branch": "develop"}),
+                (
+                    {
+                        "status": "200",
+                        "link": '<https://api.github.com/repos/LegalAid/docassemble-Housing/branches?per_page=100&page=2>; rel="next"',
+                    },
+                    [{"name": "main"}, {"name": "develop"}],
+                ),
+                ({"status": "200"}, [{"name": "feature/housing"}]),
+            ]
+
+            def request(self, url, method, headers=None, body=None):
+                urls.append(url)
+                response, payload = self.responses.pop(0)
+                return response, json.dumps(payload).encode()
+
+        with patch.object(
+            docassemble_compat, "_github_authorized_http", return_value=FakeHttp()
+        ):
+            result = docassemble_compat.get_github_repository_branches(
+                owner="LegalAid", repository="docassemble-Housing", user_id=42
+            )
+        self.assertEqual(result["default_branch"], "develop")
+        self.assertEqual(result["branches"], ["main", "develop", "feature/housing"])
+        self.assertEqual(len(urls), 3)
+
+    def test_missing_repository_has_no_existing_branches(self):
+        class FakeHttp:
+            def request(self, url, method, headers=None, body=None):
+                return {"status": "404"}, b'{"message":"Not Found"}'
+
+        with patch.object(
+            docassemble_compat, "_github_authorized_http", return_value=FakeHttp()
+        ):
+            result = docassemble_compat.get_github_repository_branches(
+                owner="LegalAid", repository="docassemble-Housing"
+            )
+        self.assertEqual(result["repository_exists"], False)
+        self.assertEqual(result["branches"], [])
 
     def test_malformed_github_credential_is_reported_as_expired_connection(self):
         class BrokenStorage:
@@ -699,6 +868,179 @@ class TestNativeGithubCompatibility(unittest.TestCase):
         self.assertIs(result, authorized_http)
         self.assertEqual(requested_keys, ["da:github:userid:7"])
         self.assertEqual(parsed_values, ['{"access_token": "worker-token"}'])
+
+    def test_expired_github_token_is_refreshed_as_json_and_saved(self):
+        """oauth2client cannot parse GitHub's default form-encoded refresh."""
+
+        class FakeCredentials:
+            access_token_expired = True
+            invalid = False
+            access_token = "old-access"
+            refresh_token = "old-refresh"
+            token_uri = "https://github.com/login/oauth/access_token"
+            client_id = "client"
+            client_secret = "secret"
+            token_expiry = None
+
+            def to_json(self):
+                return json.dumps(
+                    {
+                        "access_token": self.access_token,
+                        "refresh_token": self.refresh_token,
+                    }
+                )
+
+            def authorize(self, http):
+                return ("authorized", self.access_token)
+
+        class FakeHttp:
+            calls = []
+
+            def __init__(self, status="200", payload=None):
+                self.status = status
+                self.payload = payload
+
+            def request(self, url, method, headers=None, body=None):
+                FakeHttp.calls.append((url, method, headers, body))
+                return {"status": self.status}, json.dumps(self.payload).encode()
+
+        class FakeRedis:
+            def __init__(self):
+                self.saved = {}
+
+            def get(self, key):
+                return self.saved.get(
+                    key, b"{}" if "userid" in key and "lock" not in key else None
+                )
+
+            def set(self, key, value, nx=False, ex=None):
+                if nx and key in self.saved:
+                    return False
+                self.saved[key] = value
+                return True
+
+            def delete(self, key):
+                self.saved.pop(key, None)
+
+        credentials = FakeCredentials()
+        redis = FakeRedis()
+        oauth_client = types.SimpleNamespace(
+            Credentials=types.SimpleNamespace(new_from_json=lambda raw: credentials)
+        )
+        renewed = {
+            "access_token": "new-access",
+            "refresh_token": "new-refresh",
+            "expires_in": "28800",
+        }
+        httplib2 = types.SimpleNamespace(Http=lambda: FakeHttp(payload=renewed))
+        modules = {"oauth2client.client": oauth_client, "httplib2": httplib2}
+        with (
+            patch.object(docassemble_compat, "get_redis_client", return_value=redis),
+            patch.object(
+                docassemble_compat.importlib, "import_module", side_effect=modules.get
+            ),
+        ):
+            result = docassemble_compat._github_authorized_http(user_id=7)
+
+        self.assertEqual(result, ("authorized", "new-access"))
+        url, method, headers, body = FakeHttp.calls[-1]
+        self.assertEqual((url, method), (credentials.token_uri, "POST"))
+        self.assertEqual(headers["Accept"], "application/json")
+        self.assertIn("grant_type=refresh_token", body)
+        self.assertIn("refresh_token=old-refresh", body)
+        # GitHub retires the old refresh token, so the new one must be kept.
+        self.assertEqual(
+            json.loads(redis.saved["da:github:userid:7"]),
+            {"access_token": "new-access", "refresh_token": "new-refresh"},
+        )
+        self.assertIsNotNone(credentials.token_expiry)
+        # The lock is released for the next renewal.
+        self.assertFalse([key for key in redis.saved if "lock" in key])
+
+        credentials.access_token_expired = True
+        httplib2.Http = lambda: FakeHttp(payload={"error": "bad_refresh_token"})
+        with (
+            patch.object(docassemble_compat, "get_redis_client", return_value=redis),
+            patch.object(
+                docassemble_compat.importlib, "import_module", side_effect=modules.get
+            ),
+        ):
+            with self.assertRaisesRegex(
+                docassemble_compat.GithubCredentialError, "reconnect"
+            ):
+                docassemble_compat._github_authorized_http(user_id=7)
+
+    def test_request_that_waited_for_a_renewal_uses_the_saved_token(self):
+        """Refresh tokens work once; a second refresh would disconnect GitHub."""
+
+        class FakeCredentials:
+            def __init__(self, token, expired):
+                self.access_token = token
+                self.access_token_expired = expired
+                self.invalid = False
+
+            def authorize(self, http):
+                return ("authorized", self.access_token)
+
+        stale = FakeCredentials("old-access", expired=True)
+        renewed_elsewhere = FakeCredentials("new-access", expired=False)
+        loaded = iter([stale, renewed_elsewhere])
+        oauth_client = types.SimpleNamespace(
+            Credentials=types.SimpleNamespace(new_from_json=lambda raw: next(loaded))
+        )
+
+        class NoHttp:
+            def request(self, *args, **kwargs):
+                raise AssertionError("the retired refresh token must not be used")
+
+        class FakeRedis:
+            def __init__(self):
+                self.values = {"da:github:userid:7": b"{}"}
+
+            def get(self, key):
+                return self.values.get(key)
+
+            def set(self, key, value, nx=False, ex=None):
+                if nx and key in self.values:
+                    return False
+                self.values[key] = value
+                return True
+
+            def delete(self, key):
+                self.values.pop(key, None)
+
+        httplib2 = types.SimpleNamespace(Http=NoHttp)
+        modules = {"oauth2client.client": oauth_client, "httplib2": httplib2}
+        redis = FakeRedis()
+        with (
+            patch.object(docassemble_compat, "get_redis_client", return_value=redis),
+            patch.object(
+                docassemble_compat.importlib, "import_module", side_effect=modules.get
+            ),
+        ):
+            result = docassemble_compat._github_authorized_http(user_id=7)
+        self.assertEqual(result, ("authorized", "new-access"))
+
+        # A renewal that never finishes times out rather than hanging.
+        redis.values["da:github:weaver-refresh-lock:userid:7"] = b"someone-else"
+        loaded = iter([FakeCredentials("old-access", expired=True)])
+        clock = iter([0, 5, 20])
+        with (
+            patch.object(docassemble_compat, "get_redis_client", return_value=redis),
+            patch.object(
+                docassemble_compat.importlib, "import_module", side_effect=modules.get
+            ),
+            patch.object(docassemble_compat.time, "monotonic", lambda: next(clock)),
+            patch.object(docassemble_compat.time, "sleep", lambda seconds: None),
+        ):
+            with self.assertRaisesRegex(
+                docassemble_compat.GithubCredentialError, "try again"
+            ):
+                docassemble_compat._github_authorized_http(user_id=7)
+        # Someone else's lock is left alone.
+        self.assertEqual(
+            redis.values["da:github:weaver-refresh-lock:userid:7"], b"someone-else"
+        )
 
     def test_missing_organization_repository_is_created_under_that_org(self):
         class FakeHttp:
@@ -846,6 +1188,171 @@ class TestNativeGithubCompatibility(unittest.TestCase):
         self.assertTrue(staging_directories)
         self.assertFalse(Path(staging_directories[0]).exists())
 
+    def test_retry_after_lost_commit_response_refuses_duplicate_publish(self):
+        builder, _staging_directories = self._fake_package_builder()
+
+        class FakeHttp:
+            def __init__(self):
+                self.calls = []
+                self.branch_sha = "original-branch-sha"
+                self.commit_count = 0
+                self.ref_update_count = 0
+
+            def request(self, url, method, headers=None, body=None):
+                self.calls.append((url, method))
+                if method == "GET" and url.endswith("/git/ref/heads/main"):
+                    return (
+                        {"status": "200"},
+                        json.dumps({"object": {"sha": self.branch_sha}}).encode(),
+                    )
+                if url.endswith("/git/blobs"):
+                    return {"status": "201"}, b'{"sha":"blob-sha"}'
+                if url.endswith("/git/trees"):
+                    return {"status": "201"}, b'{"sha":"tree-sha"}'
+                if url.endswith("/git/commits"):
+                    self.commit_count += 1
+                    return {"status": "201"}, b'{"sha":"published-commit-sha"}'
+                if method == "PATCH" and url.endswith("/git/refs/heads/main"):
+                    self.ref_update_count += 1
+                    self.branch_sha = "published-commit-sha"
+                    if self.ref_update_count == 1:
+                        raise TimeoutError(
+                            "simulated lost response after branch update"
+                        )
+                    return {"status": "200"}, b'{"ref":"refs/heads/main"}'
+                raise AssertionError((url, method))
+
+        http = FakeHttp()
+        with self.assertRaisesRegex(TimeoutError, "lost response"):
+            self._publish(
+                http,
+                builder,
+                expected_remote_sha="original-branch-sha",
+            )
+
+        with self.assertRaisesRegex(ValueError, "changed after the publish preview"):
+            self._publish(
+                http,
+                builder,
+                expected_remote_sha="original-branch-sha",
+            )
+
+        self.assertEqual(http.commit_count, 1)
+        self.assertEqual(http.ref_update_count, 1)
+
+    def test_workflow_tree_rejection_preserves_existing_workflows_and_commits_other_files(
+        self,
+    ):
+        builder, staging = self._fake_package_builder()
+
+        class FakeHttp:
+            def __init__(self, fail_retry=False, truncated=False, missing_parent=False):
+                self.trees = []
+                self.fail_retry = fail_retry
+                self.truncated = truncated
+                self.updated = False
+                self.missing_parent = missing_parent
+
+            def request(self, url, method, headers=None, body=None):
+                if url.endswith("?recursive=1"):
+                    return {"status": "200"}, json.dumps(
+                        {
+                            "truncated": self.truncated,
+                            "tree": [
+                                {
+                                    "path": ".github/workflows/test.yml",
+                                    "mode": "100644",
+                                    "type": "blob",
+                                    "sha": "existing-workflow",
+                                },
+                                {
+                                    "path": ".github/workflows/other.yml",
+                                    "mode": "100644",
+                                    "type": "blob",
+                                    "sha": "other-workflow",
+                                },
+                                {
+                                    "path": "deleted.txt",
+                                    "mode": "100644",
+                                    "type": "blob",
+                                    "sha": "deleted",
+                                },
+                            ],
+                        }
+                    ).encode()
+                if method == "GET":
+                    if self.missing_parent:
+                        return {"status": "404"}, b'{"message": "Not Found"}'
+                    return {"status": "200"}, b'{"object": {"sha": "parent"}}'
+                if url.endswith("/git/blobs"):
+                    return {"status": "201"}, b'{"sha": "blob"}'
+                if url.endswith("/git/trees"):
+                    self.trees.append(json.loads(body)["tree"])
+                    if len(self.trees) == 2 and not self.fail_retry:
+                        return {"status": "201"}, b'{"sha": "tree"}'
+                    return {
+                        "status": "404",
+                        "x-oauth-scopes": "repo, read:org",
+                    }, b'{"message": "Not Found"}'
+                if url.endswith("/git/commits"):
+                    return {"status": "201"}, b'{"sha": "commit"}'
+                if url.endswith("/git/refs"):
+                    self.updated = True
+                    return {"status": "201"}, b"{}"
+                if method == "PATCH":
+                    self.updated = True
+                    return {"status": "200"}, b"{}"
+                raise AssertionError(url)
+
+        http = FakeHttp()
+        result = self._publish(
+            http,
+            builder,
+            extra_repository_files={".github/workflows/test.yml": "name: Test\n"},
+        )
+        self.assertTrue(http.updated)
+        self.assertEqual(result["files"], 3)
+        self.assertEqual(result["skipped_workflows"], [".github/workflows/test.yml"])
+        self.assertIn("other project files were published", result["warnings"][0])
+        entries = {entry["path"]: entry["sha"] for entry in http.trees[1]}
+        self.assertEqual(
+            entries,
+            {
+                "README.md": "blob",
+                ".github/workflows/test.yml": "existing-workflow",
+                ".github/workflows/other.yml": "other-workflow",
+            },
+        )
+        self.assertFalse(Path(staging[0]).exists())
+        http = FakeHttp(missing_parent=True)
+        result = self._publish(
+            http,
+            builder,
+            extra_repository_files={".github/workflows/test.yml": "name: Test\n"},
+        )
+        self.assertTrue(http.updated)
+        self.assertEqual(result["files"], 1)
+        self.assertEqual([entry["path"] for entry in http.trees[1]], ["README.md"])
+        self.assertTrue(result["warnings"])
+        for http in (FakeHttp(fail_retry=True), FakeHttp(truncated=True)):
+            with self.subTest(fail_retry=http.fail_retry, truncated=http.truncated):
+                with self.assertRaises(
+                    docassemble_compat.DocassembleCompatibilityError
+                ):
+                    self._publish(
+                        http,
+                        builder,
+                        extra_repository_files={
+                            ".github/workflows/test.yml": "name: Test\n"
+                        },
+                    )
+                self.assertFalse(http.updated)
+        with self.assertRaisesRegex(
+            docassemble_compat.DocassembleCompatibilityError,
+            "GitHub could not create the package tree: Not Found",
+        ):
+            self._publish(FakeHttp(), builder)
+
     def test_publish_github_package_can_add_github_only_files(self):
         builder, _staging = self._fake_package_builder()
 
@@ -970,6 +1477,7 @@ class TestNativeGithubCompatibility(unittest.TestCase):
             branch="feature/github",
             default_branch="main",
             commit_message="Publish housing forms on new branch",
+            expected_remote_sha="main-commit-sha",
         )
 
         self.assertEqual(
@@ -987,6 +1495,96 @@ class TestNativeGithubCompatibility(unittest.TestCase):
             http.calls[-1][2],
             {"ref": "refs/heads/feature/github", "sha": "new-commit-sha"},
         )
+
+    def test_publish_keeps_github_files_weaver_does_not_manage(self):
+        """A workflow added on GitHub survives; one the author turned off goes."""
+        builder, _staging = self._fake_package_builder()
+
+        class FakeHttp:
+            def __init__(self, tree_status="200"):
+                self.calls = []
+                self.tree_status = tree_status
+
+            def request(self, url, method, headers=None, body=None):
+                parsed_body = json.loads(body) if body else None
+                self.calls.append((url, method, parsed_body))
+                if url.endswith("?recursive=1"):
+                    return {"status": self.tree_status}, json.dumps(
+                        {
+                            "truncated": False,
+                            "tree": [
+                                {
+                                    "path": ".github/workflows/team_deploy.yml",
+                                    "mode": "100644",
+                                    "type": "blob",
+                                    "sha": "team-deploy",
+                                },
+                                {
+                                    "path": ".github/workflows/hall_monitor.yml",
+                                    "mode": "100644",
+                                    "type": "blob",
+                                    "sha": "turned-off",
+                                },
+                                {
+                                    "path": ".github/workflows/build_and_check.yml",
+                                    "mode": "100644",
+                                    "type": "blob",
+                                    "sha": "stale-copy",
+                                },
+                                {
+                                    "path": "docassemble/HousingForms/old.py",
+                                    "mode": "100644",
+                                    "type": "blob",
+                                    "sha": "deleted-module",
+                                },
+                            ],
+                        }
+                    ).encode()
+                if method == "GET":
+                    return {"status": "200"}, b'{"object": {"sha": "parent"}}'
+                if url.endswith("/git/blobs"):
+                    return {"status": "201"}, b'{"sha": "new-blob"}'
+                if url.endswith("/git/trees"):
+                    return {"status": "201"}, b'{"sha": "tree-sha"}'
+                if url.endswith("/git/commits"):
+                    return {"status": "201"}, b'{"sha": "commit-sha"}'
+                if method == "PATCH":
+                    return {"status": "200"}, b"{}"
+                raise AssertionError(url)
+
+        arguments = {
+            "extra_repository_files": {
+                ".github/workflows/build_and_check.yml": "name: Build\njobs: {}\n"
+            },
+            "preserved_path_prefixes": (".github/",),
+            "managed_paths": [
+                ".github/workflows/build_and_check.yml",
+                ".github/workflows/hall_monitor.yml",
+            ],
+        }
+        http = FakeHttp()
+        self._publish(http, builder, **arguments)
+
+        entries = {
+            entry["path"]: entry["sha"]
+            for entry in self._body_for(http, "/git/trees")["tree"]
+        }
+        self.assertEqual(
+            entries,
+            {
+                "README.md": "new-blob",
+                ".github/workflows/build_and_check.yml": "new-blob",
+                ".github/workflows/team_deploy.yml": "team-deploy",
+            },
+        )
+
+        # Publishing blind would delete whatever it could not read.
+        http = FakeHttp(tree_status="500")
+        with self.assertRaisesRegex(
+            docassemble_compat.DocassembleCompatibilityError, "No commit was published"
+        ):
+            self._publish(http, builder, **arguments)
+        self.assertFalse([call for call in http.calls if call[1] == "PATCH"])
 
     def test_publish_github_package_replaces_the_tree_so_deletions_propagate(self):
         """Publishing must not inherit the parent tree.
@@ -1145,6 +1743,141 @@ class TestNativeGithubCompatibility(unittest.TestCase):
 
         self.assertTrue(staging_directories)
         self.assertFalse(Path(staging_directories[0]).exists())
+
+
+class RoutedGithubHttp:
+    """Answer GitHub API requests from a URL-path table."""
+
+    def __init__(self, routes):
+        self.routes = routes
+        self.calls = []
+
+    def request(self, url, method, headers=None, body=None):
+        path = url.replace("https://api.github.com", "").split("?")[0]
+        self.calls.append(path)
+        if path not in self.routes:
+            return {"status": "404"}, b'{"message": "Not Found"}'
+        response, payload = self.routes[path]
+        return dict(response), json.dumps(payload).encode()
+
+
+class TestGithubWorkflowAccess(unittest.TestCase):
+    def _access(self, routes, owners=("ada", "LegalAid")):
+        http = RoutedGithubHttp(routes)
+        return docassemble_compat.get_github_workflow_access(list(owners), http=http)
+
+    @staticmethod
+    def _installation(login, workflows=None, slug="da-weaver"):
+        permissions = {"contents": "write", "metadata": "read"}
+        if workflows:
+            permissions["workflows"] = workflows
+        return {
+            "account": {"login": login},
+            "app_slug": slug,
+            "permissions": permissions,
+            "html_url": f"https://github.com/settings/installations/{login}",
+        }
+
+    def test_oauth_token_with_workflow_scope_is_granted(self):
+        result = self._access(
+            {"/user": ({"status": "200", "x-oauth-scopes": "repo, workflow"}, {})}
+        )
+        self.assertEqual(result["token_type"], "oauth_app")
+        self.assertEqual(
+            {access["status"] for access in result["owners"].values()}, {"granted"}
+        )
+
+    def test_oauth_token_without_workflow_scope_asks_to_reconnect(self):
+        result = self._access(
+            {"/user": ({"status": "200", "x-oauth-scopes": "repo, read:org"}, {})}
+        )
+        access = result["owners"]["LegalAid"]
+        self.assertEqual(access["status"], "missing_scope")
+        self.assertEqual(access["action"], "reconnect")
+        self.assertIn("Configure GitHub", access["message"])
+
+    def test_github_app_reports_each_owner_separately(self):
+        result = self._access(
+            {
+                "/user": ({"status": "200"}, {}),
+                "/user/installations": (
+                    {"status": "200"},
+                    {"installations": [self._installation("ada", "write")]},
+                ),
+            },
+            owners=("ada", "CourtForms"),
+        )
+        self.assertEqual(result["token_type"], "github_app")
+        self.assertEqual(result["owners"]["ada"]["status"], "granted")
+        missing = result["owners"]["CourtForms"]
+        self.assertEqual(missing["status"], "app_not_installed")
+        self.assertEqual(
+            missing["url"], "https://github.com/apps/da-weaver/installations/new"
+        )
+
+    def test_github_app_distinguishes_unapproved_update_from_missing_permission(self):
+        installations = {
+            "installations": [
+                self._installation("ada"),
+                self._installation("LegalAid", "read"),
+            ]
+        }
+        for app_permissions, expected, action in (
+            ({"workflows": "write"}, "app_pending_approval", "approve"),
+            ({"contents": "write"}, "app_missing_permission", "admin"),
+        ):
+            with self.subTest(expected=expected):
+                http = RoutedGithubHttp(
+                    {
+                        "/user": ({"status": "200", "x-oauth-scopes": ""}, {}),
+                        "/user/installations": ({"status": "200"}, installations),
+                        "/apps/da-weaver": (
+                            {"status": "200"},
+                            {"permissions": app_permissions},
+                        ),
+                    }
+                )
+                result = docassemble_compat.get_github_workflow_access(
+                    ["ada", "LegalAid"], http=http
+                )
+                for owner in ("ada", "LegalAid"):
+                    self.assertEqual(result["owners"][owner]["status"], expected)
+                    self.assertEqual(result["owners"][owner]["action"], action)
+                # The App's own permissions are looked up once, not per owner.
+                self.assertEqual(http.calls.count("/apps/da-weaver"), 1)
+                self.assertEqual(
+                    result["owners"]["LegalAid"]["url"],
+                    (
+                        "https://github.com/settings/installations/LegalAid"
+                        if action == "approve"
+                        else ""
+                    ),
+                )
+
+    def test_unreadable_connection_is_unknown_rather_than_an_error(self):
+        result = self._access({})
+        self.assertEqual(result["token_type"], "unknown")
+        self.assertEqual(
+            {access["status"] for access in result["owners"].values()}, {"unknown"}
+        )
+
+    def test_rejected_publish_explains_the_missing_scope(self):
+        http = RoutedGithubHttp(
+            {"/user": ({"status": "200", "x-oauth-scopes": "repo"}, {})}
+        )
+        access = docassemble_compat._diagnose_workflow_rejection(http, "LegalAid")
+        self.assertEqual(access["status"], "missing_scope")
+        granted = RoutedGithubHttp(
+            {"/user": ({"status": "200", "x-oauth-scopes": "repo, workflow"}, {})}
+        )
+        # With the permission in place the rejection has another cause, so the
+        # generic advice is kept rather than a wrong diagnosis.
+        self.assertEqual(
+            docassemble_compat._diagnose_workflow_rejection(granted, "LegalAid")[
+                "status"
+            ],
+            "unknown",
+        )
 
 
 class TestDocassembleSourceCompatibility(unittest.TestCase):

@@ -13,12 +13,68 @@
 <div id="editor-app">
 
   <!-- ===== TOP BAR ===== -->
-  <nav class="navbar navbar-expand-lg editor-navbar" id="topbar" data-bs-theme="dark" aria-label="Editor">
+  <nav class="navbar navbar-expand-xl editor-navbar" id="topbar" data-bs-theme="dark" aria-label="Editor">
     <div class="container-fluid">
-      <button type="button" class="navbar-brand editor-brand" data-action="open-project-selector" title="Choose a different project">
-        <img class="editor-brand-logo" src="/packagestatic/docassemble.ALWeaver/logo.svg?v=2.1.0" alt="ALWeaver">
-        <span class="editor-brand-project" id="topbar-project-name">No project selected</span>
-      </button>
+      <div class="dropdown editor-project-switcher">
+        <button type="button" class="navbar-brand editor-brand dropdown-toggle" id="editor-project-menu" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Switch project" title="Switch project">
+          <img class="editor-brand-logo" src="/packagestatic/docassemble.ALWeaver/logo.svg?v=2.1.0" alt="ALWeaver">
+          <span class="editor-brand-project" id="topbar-project-name">No project selected</span>
+        </button>
+        <div class="dropdown-menu editor-project-menu" data-bs-theme="light" aria-labelledby="editor-project-menu">
+          <div class="px-3 py-2">
+            <label class="editor-tiny" for="project-select">Project</label>
+            <select class="form-select form-select-sm mt-1" id="project-select"></select>
+          </div>
+          <button type="button" class="dropdown-item" data-action="open-project-selector"><i class="fa-solid fa-folder-open fa-fw me-2" aria-hidden="true"></i>Browse projects</button>
+        </div>
+      </div>
+      <div class="dropdown editor-section-switcher">
+        <button type="button" class="btn btn-sm btn-outline-light dropdown-toggle" id="editor-section-menu" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false"><span id="editor-section-label">Interview</span></button>
+        <ul class="dropdown-menu editor-section-menu-list" data-bs-theme="light" aria-labelledby="editor-section-menu">
+          <li><h6 class="dropdown-header">Sections</h6></li>
+          <li class="editor-section-menu-group">
+            <div class="editor-section-menu-row">
+              <button type="button" class="dropdown-item editor-view-switch active" data-view="interview" aria-current="page">Interview</button>
+              <button type="button" class="editor-section-submenu-toggle" data-section-submenu="editor-interview-submenu" aria-controls="editor-interview-submenu" aria-expanded="false" aria-label="Interview menu"><i class="fa-solid fa-angle-right" aria-hidden="true"></i></button>
+            </div>
+            <ul class="editor-section-submenu-list d-none" id="editor-interview-submenu">
+              <li><button type="button" class="dropdown-item" data-action="open-interview-order"><i class="fa-solid fa-list-ol fa-fw me-2" aria-hidden="true"></i>Interview Order</button></li>
+              <li><button type="button" class="dropdown-item" data-action="open-interview-flow-report"><i class="fa-solid fa-file-lines fa-fw me-2" aria-hidden="true"></i>Flow report</button></li>
+              <li><button type="button" class="dropdown-item" data-action="run-style-check"><i class="fa-solid fa-ruler fa-fw me-2" aria-hidden="true"></i>Style check</button></li>
+              <li><button type="button" class="dropdown-item" data-action="run-style-check-ai"><i class="fa-solid fa-wand-magic-sparkles fa-fw me-2" aria-hidden="true"></i>Style check + AI suggestions</button></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><button type="button" class="dropdown-item" data-action="open-full-yaml"><i class="fa-solid fa-code fa-fw me-2" aria-hidden="true"></i>YAML source</button></li>
+              <li><button type="button" class="dropdown-item" data-action="open-assemblyline-settings"><i class="fa-solid fa-sliders fa-fw me-2" aria-hidden="true"></i>AssemblyLine settings</button></li>
+              <li><button type="button" class="dropdown-item" data-action="open-standard-playground"><i class="fa-solid fa-flask fa-fw me-2" aria-hidden="true"></i>Open in Playground</button></li>
+              <li><button type="button" class="dropdown-item" data-action="open-tests-overview"><i class="fa-solid fa-vial-circle-check fa-fw me-2" aria-hidden="true"></i>Tests</button></li>
+              <li><button type="button" class="dropdown-item" data-action="open-github-publish"><i class="fa-brands fa-github fa-fw me-2" aria-hidden="true"></i>Commit to GitHub</button></li>
+              <li class="d-none js-github-pull-menu-item"><button type="button" class="dropdown-item" data-action="pull-github"><i class="fa-solid fa-code-pull-request fa-fw me-2" aria-hidden="true"></i>Pull changes from GitHub</button></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><button type="button" class="dropdown-item" data-action="open-project-selector"><i class="fa-solid fa-folder-open fa-fw me-2" aria-hidden="true"></i>Switch project</button></li>
+            </ul>
+          </li>
+          <li class="editor-section-menu-group">
+            <div class="editor-section-menu-row">
+              <button type="button" class="dropdown-item editor-view-switch" data-view="templates">Templates</button>
+              <button type="button" class="editor-section-submenu-toggle" data-section-submenu="editor-templates-submenu" aria-controls="editor-templates-submenu" aria-expanded="false" aria-label="Templates menu"><i class="fa-solid fa-angle-right" aria-hidden="true"></i></button>
+            </div>
+            <ul class="editor-section-submenu-list d-none" id="editor-templates-submenu">
+              <li><button type="button" class="dropdown-item" data-templates-mode="files"><i class="fa-solid fa-file-lines fa-fw me-2" aria-hidden="true"></i>Template files</button></li>
+              <li><button type="button" class="dropdown-item" data-templates-mode="documents"><i class="fa-solid fa-layer-group fa-fw me-2" aria-hidden="true"></i>Document setup</button></li>
+            </ul>
+          </li>
+          <li><button type="button" class="dropdown-item editor-view-switch" data-view="modules">Modules</button></li>
+          <li><button type="button" class="dropdown-item editor-view-switch" data-view="static">Static</button></li>
+          <li><button type="button" class="dropdown-item editor-view-switch" data-view="data">Sources</button></li>
+        </ul>
+      </div>
+      <div class="editor-compact-actions" role="group" aria-label="Interview actions">
+        <span id="editor-error-count" class="editor-validation-badge d-none" aria-hidden="true"></span>
+        <button type="button" class="btn btn-sm btn-outline-light" data-action="preview-interview" aria-label="Run" title="Run"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i><span class="editor-compact-action-label">Run</span></button>
+        <button type="button" class="btn btn-sm btn-outline-light" data-action="open-runtime-inspector" aria-label="Debug interview" title="Debug interview"><i class="fa-solid fa-bug" aria-hidden="true"></i><span class="editor-compact-action-label">Debug</span></button>
+        <button type="button" class="btn btn-sm btn-light js-save-file-btn" data-action="save-file" title="Save your changes (Ctrl+S)" aria-label="Save your changes" disabled><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i><span class="editor-compact-action-label">Save</span><span class="editor-save-badge js-save-badge d-none"></span></button>
+        <button type="button" class="btn btn-sm btn-outline-light d-none js-assistant-toggle" data-action="toggle-assistant" aria-controls="editor-assistant" aria-expanded="false" aria-label="Toggle the editing assistant" title="Toggle the editing assistant"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i><span class="editor-compact-action-label">Assistant</span></button>
+      </div>
       <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#editor-navbar-collapse" aria-controls="editor-navbar-collapse" aria-expanded="false" aria-label="Show the menu">
         <span class="navbar-toggler-icon"></span>
       </button>
@@ -38,7 +94,7 @@
               <li><button type="button" class="dropdown-item" data-action="open-standard-playground"><i class="fa-solid fa-flask fa-fw me-2" aria-hidden="true"></i>Open in Playground</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-tests-overview"><i class="fa-solid fa-vial-circle-check fa-fw me-2" aria-hidden="true"></i>Tests</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-github-publish"><i class="fa-brands fa-github fa-fw me-2" aria-hidden="true"></i>Commit to GitHub</button></li>
-              <li class="d-none" id="github-pull-menu-item"><button type="button" class="dropdown-item" data-action="pull-github"><i class="fa-solid fa-code-pull-request fa-fw me-2" aria-hidden="true"></i>Pull changes from GitHub</button></li>
+              <li class="d-none js-github-pull-menu-item" id="github-pull-menu-item"><button type="button" class="dropdown-item" data-action="pull-github"><i class="fa-solid fa-code-pull-request fa-fw me-2" aria-hidden="true"></i>Pull changes from GitHub</button></li>
               <li><hr class="dropdown-divider"></li>
               <li><button type="button" class="dropdown-item" data-action="open-project-selector"><i class="fa-solid fa-folder-open fa-fw me-2" aria-hidden="true"></i>Switch project</button></li>
             </ul>
@@ -56,16 +112,16 @@
           <li class="nav-item"><button type="button" class="nav-link editor-top-tab" data-view="data">Sources</button></li>
         </ul>
         <div class="editor-top-actions">
-          <button type="button" class="btn btn-sm btn-outline-light js-check-errors-btn" data-action="check-errors" title="Check for errors"><i class="fa-solid fa-triangle-exclamation js-check-errors-icon d-none" aria-hidden="true"></i><span class="js-check-errors-label">Errors</span><span class="editor-validation-badge js-validation-badge d-none" data-validation-badge></span></button>
-          <button type="button" class="btn btn-sm btn-outline-light" data-action="preview-interview"><i class="fa-solid fa-arrow-up-right-from-square me-1" aria-hidden="true"></i>Open interview</button>
+          <button type="button" class="btn btn-sm btn-outline-light" data-action="preview-interview"><i class="fa-solid fa-arrow-up-right-from-square me-1" aria-hidden="true"></i>Run</button>
           <button type="button" class="btn btn-sm btn-outline-light" id="btn-debug-interview" data-action="open-runtime-inspector"><i class="fa-solid fa-bug me-1" aria-hidden="true"></i>Debug</button>
           <button type="button" class="btn btn-sm btn-light js-save-file-btn" id="btn-save-file" data-action="save-file" title="Save your changes (Ctrl+S)" aria-label="Save your changes" disabled><i class="fa-solid fa-floppy-disk me-1" aria-hidden="true"></i>Save<span class="editor-save-badge js-save-badge d-none"></span></button>
           <button type="button" class="btn btn-sm btn-outline-light d-none js-assistant-toggle" id="btn-toggle-assistant" data-action="toggle-assistant" aria-controls="editor-assistant" aria-expanded="false" aria-label="Toggle the editing assistant"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>Assistant</button>
         </div>
-        <ul class="navbar-nav editor-account-nav" id="editor-account-nav"></ul>
       </div>
+      <ul class="navbar-nav editor-account-nav" id="editor-account-nav"></ul>
     </div>
   </nav>
+  <span id="editor-error-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true">0 errors</span>
 
   <div class="alert alert-warning alert-dismissible rounded-0 border-start-0 border-end-0 mb-0 d-none"
        id="editor-celery-warning" role="status" aria-live="polite">
@@ -89,20 +145,13 @@
   <div class="editor-layout" id="editor-layout">
 
     <!-- LEFT RAIL -->
-    <aside class="editor-left" id="left-rail">
-      <div class="editor-section">
-        <label class="editor-tiny" for="project-select">Project</label>
-        <div class="d-flex gap-2 align-items-center mt-1">
-          <select class="form-select form-select-sm" id="project-select"></select>
-          <button type="button" class="editor-sidebar-action-btn" id="btn-project-search"
-                  title="Find or replace across project" aria-label="Find or replace across project">
-            <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
-          </button>
-        </div>
-        <div class="mt-2" id="editor-file-section">
+    <aside class="editor-left" id="left-rail" aria-label="Files and blocks">
+      <div class="editor-section editor-rail-heading">
+        <div id="editor-file-section">
           <label class="editor-tiny" for="file-select">File</label>
-          <div class="d-flex gap-2 align-items-center mt-1">
+          <div class="d-flex gap-1 align-items-center mt-1">
             <select class="form-select form-select-sm" id="file-select"></select>
+            <button type="button" class="editor-sidebar-action-btn" id="btn-project-search" title="Find or replace across project" aria-label="Find or replace across project"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i></button>
             <div class="dropdown">
               <button type="button" class="editor-file-actions-kebab" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="File actions" aria-label="File actions"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>
               <ul class="dropdown-menu dropdown-menu-end">
@@ -118,6 +167,7 @@
             </div>
           </div>
         </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary editor-rail-toggle" data-action="toggle-rail" aria-controls="left-rail" aria-expanded="true" aria-label="Collapse sidebar" title="Collapse sidebar"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i></button>
       </div>
       <div class="editor-section editor-section-search" id="editor-quick-jump-section">
         <div class="mb-2" id="jump-targets">
@@ -169,6 +219,9 @@
           <p>Select a project and file to begin editing.</p>
         </div>
       </div>
+      <div class="editor-canvas-save d-none" id="editor-canvas-save">
+        <button type="button" class="btn btn-primary js-save-file-btn" data-action="save-file" title="Save your changes (Ctrl+S)" disabled><i class="fa-solid fa-floppy-disk me-1" aria-hidden="true"></i>Save<span class="editor-save-badge js-save-badge d-none"></span></button>
+      </div>
     </main>
 
     <!-- ASSISTANT DRAWER (opt-in; hidden unless the agent editor is enabled) -->
@@ -214,7 +267,7 @@
 <!-- Native Docassemble GitHub publishing -->
 <div class="modal fade" id="github-publish-modal" tabindex="-1"
      aria-labelledby="github-publish-title">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <div class="modal-header">
         <div>
@@ -223,16 +276,40 @@
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
+      <ul class="nav nav-tabs px-3 pt-2" id="github-publish-tabs" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-link active" id="github-tab-publish-button" data-bs-toggle="tab"
+                  data-bs-target="#github-tab-publish" type="button" role="tab"
+                  aria-controls="github-tab-publish" aria-selected="true">Publish</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="github-tab-workflows-button" data-bs-toggle="tab"
+                  data-bs-target="#github-tab-workflows" type="button" role="tab"
+                  aria-controls="github-tab-workflows" aria-selected="false">Workflows</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="github-tab-dependencies-button" data-bs-toggle="tab"
+                  data-bs-target="#github-tab-dependencies" type="button" role="tab"
+                  aria-controls="github-tab-dependencies" aria-selected="false">Dependencies</button>
+        </li>
+      </ul>
+      <div class="tab-content">
+      <div class="tab-pane fade show active" id="github-tab-publish" role="tabpanel"
+           aria-labelledby="github-tab-publish-button" tabindex="0">
       <form id="github-publish-form">
         <div class="modal-body">
           <div class="alert alert-secondary py-2" id="github-publish-status"
                role="status" aria-live="polite">Checking Docassemble's GitHub integration&hellip;</div>
+          <div class="alert alert-info py-2 d-none" id="github-publish-existing"
+               role="status" aria-live="polite"></div>
           <div class="mb-3">
             <label class="form-label" for="github-owner">Owner</label>
             <select class="form-select" id="github-owner" name="owner" required disabled>
               <option value="">Loading GitHub accounts&hellip;</option>
             </select>
             <div class="form-text">Choose your personal account or an organization where you are allowed to create repositories.</div>
+            <div class="alert alert-warning py-2 mt-2 mb-0 d-none" id="github-workflow-access"
+                 role="status" aria-live="polite"></div>
           </div>
           <div class="mb-3">
             <label class="form-label" for="github-package-name">Repository name</label>
@@ -245,16 +322,34 @@
           </div>
           <div class="mb-3">
             <label class="form-label" for="github-branch-name">Branch</label>
-            <input class="form-control font-monospace" id="github-branch-name" name="branch"
-                   value="main" autocomplete="off" maxlength="255" required>
-            <div class="form-text">Existing branches are updated and missing branches are created. Slashes are allowed.</div>
+            <select class="form-select font-monospace" id="github-branch-name" name="branch"
+                    required disabled>
+              <option value="">Choose a repository to load branches</option>
+            </select>
+            <input class="form-control font-monospace mt-2 d-none" id="github-new-branch-name"
+                   aria-label="New branch name" autocomplete="off" maxlength="255" disabled>
+            <button class="btn btn-link btn-sm px-0 d-none" id="github-branch-retry"
+                    type="button">Retry loading branches</button>
           </div>
           <div>
             <label class="form-label" for="github-commit-message">Commit message</label>
-            <input class="form-control" id="github-commit-message" name="commit_message"
-                   value="Update from Weaver" autocomplete="off" maxlength="500" required>
+            <div class="github-commit-message-wrap">
+              <textarea class="form-control" id="github-commit-message" name="commit_message"
+                        rows="2" maxlength="500" required>Update from Weaver</textarea>
+            </div>
           </div>
-          <p class="small text-muted mb-0 mt-3">Every visible file in this Playground project is included. Weaver uses Docassemble's GitHub connection to create the commit and push it to the selected repository.</p>
+          <p class="small text-muted mb-0 mt-3">Every visible file in this Playground project is included, along with the workflows and <code>pyproject.toml</code> set in the other tabs.</p>
+          <div class="mt-3" id="github-publish-preview" hidden>
+            <div class="alert alert-secondary py-2" id="github-publish-preview-summary"
+                 role="status" aria-live="polite"></div>
+            <div class="small fw-semibold mb-1">Files in the package</div>
+            <details class="mb-2">
+              <summary><span id="github-publish-preview-file-count">0 files</span></summary>
+              <ul class="small font-monospace mt-2 mb-0" id="github-publish-preview-files"></ul>
+            </details>
+            <div class="small fw-semibold mb-1">Changes on the selected branch</div>
+            <div class="border rounded p-2 small" id="github-publish-preview-changes"></div>
+          </div>
         </div>
         <div class="modal-footer justify-content-between">
           <a class="btn btn-sm btn-outline-secondary d-none" id="github-configure-link">Configure GitHub</a>
@@ -264,12 +359,62 @@
              target="_blank" rel="noopener">View commit</a>
           <div class="d-flex gap-2 ms-auto">
             <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" id="github-publish-preview-button" disabled>
+              Preview changes
+            </button>
             <button type="submit" class="btn btn-sm btn-primary" id="github-publish-submit" disabled>
               <i class="fa-brands fa-github me-1" aria-hidden="true"></i>Publish to GitHub
             </button>
           </div>
         </div>
       </form>
+      </div>
+      <div class="tab-pane fade" id="github-tab-workflows" role="tabpanel"
+           aria-labelledby="github-tab-workflows-button" tabindex="0">
+        <div class="modal-body">
+          <div class="alert py-2 d-none" id="github-workflows-status" role="status" aria-live="polite"></div>
+          <p class="small text-muted">Weaver adds these checks to <code>.github/workflows</code> each time you publish. Turning one off removes it from the repository. Workflows you add on GitHub yourself are left alone. <a href="https://assemblyline.suffolklitlab.org/docs/automated_quality_checks/github_actions" target="_blank" rel="noopener">About these checks</a></p>
+          <div id="github-workflows-list" class="list-group">
+            <div class="list-group-item small text-muted">Loading workflows&hellip;</div>
+          </div>
+        </div>
+      </div>
+      <div class="tab-pane fade" id="github-tab-dependencies" role="tabpanel"
+           aria-labelledby="github-tab-dependencies-button" tabindex="0">
+        <div class="modal-body">
+          <div class="alert py-2 d-none" id="github-dependencies-status" role="status" aria-live="polite"></div>
+          <p class="small text-muted">ALKiln's test server, and any server that installs this package, installs these packages first. Weaver lists the packages your interviews include; add any others your code needs. Each one must be published on PyPI or GitHub.</p>
+          <div id="github-dependencies-missing"></div>
+          <table class="table table-sm align-middle">
+            <thead>
+              <tr><th scope="col">Package</th><th scope="col">Why it is listed</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr>
+            </thead>
+            <tbody id="github-dependencies-list">
+              <tr><td colspan="3" class="small text-muted">Loading dependencies&hellip;</td></tr>
+            </tbody>
+          </table>
+          <form id="github-dependency-form" class="mb-4">
+            <label class="form-label" for="github-dependency-input">Add a dependency</label>
+            <div class="input-group">
+              <input class="form-control font-monospace" id="github-dependency-input"
+                     autocomplete="off" maxlength="300" required>
+              <button type="submit" class="btn btn-outline-primary">Add</button>
+            </div>
+            <div class="form-text">A package name with an optional version, for example <code>docassemble.ALToolbox&gt;=0.9</code>, or a GitHub repository URL, for example <code>https://github.com/SuffolkLITLab/docassemble-MassAccess</code>. Add <code>/tree/</code> and a branch name to pin a branch. The repository must be public for ALKiln's test server to install it.</div>
+          </form>
+          <div class="d-flex align-items-center justify-content-between mb-1">
+            <h6 class="mb-0" id="github-pyproject-heading"><code>pyproject.toml</code></h6>
+            <span class="badge text-bg-secondary" id="github-pyproject-mode"></span>
+          </div>
+          <p class="small text-muted mb-2" id="github-pyproject-help"></p>
+          <div class="editor-source-container github-file-source" id="github-pyproject-source"></div>
+          <div class="d-flex gap-2 mt-2">
+            <button type="button" class="btn btn-sm btn-primary" id="github-pyproject-save" disabled>Save <code class="text-reset">pyproject.toml</code></button>
+            <button type="button" class="btn btn-sm btn-outline-secondary d-none" id="github-pyproject-reset">Use the generated file</button>
+          </div>
+        </div>
+      </div>
+      </div>
     </div>
   </div>
 </div>
@@ -351,6 +496,10 @@
       </div>
       <div class="modal-body">
         <p id="unsaved-changes-message">Save or discard your changes before continuing.</p>
+        <div class="form-check d-none" id="blank-question-prompt-wrap">
+          <input class="form-check-input" type="checkbox" id="blank-question-prompt">
+          <label class="form-check-label" for="blank-question-prompt">Leave this question label blank</label>
+        </div>
         <div class="alert alert-danger d-none" id="unsaved-changes-error" role="alert"></div>
       </div>
       <div class="modal-footer">
@@ -719,6 +868,56 @@
         </div>
         <div class="editor-insert-group-label" style="color:#334155">Other</div>
         <div class="editor-insert-list">
+          <button type="button" class="editor-insert-card" data-insert="signature">
+            <span class="editor-insert-icon"><i class="fa-solid fa-signature" aria-hidden="true"></i></span>
+            <span class="editor-insert-text"><span class="editor-insert-name">Signature screen</span><span class="editor-insert-desc" style="color:#334155">Collect a signature with custom wording.</span></span>
+            <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
+          </button>
+          <button type="button" class="editor-insert-card" data-insert="buttons">
+            <span class="editor-insert-icon"><i class="fa-solid fa-list" aria-hidden="true"></i></span>
+            <span class="editor-insert-text"><span class="editor-insert-name">Button screen</span><span class="editor-insert-desc" style="color:#334155">Offer choices or actions as buttons.</span></span>
+            <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
+          </button>
+          <button type="button" class="editor-insert-card" data-insert="yesno">
+            <span class="editor-insert-icon"><i class="fa-solid fa-list" aria-hidden="true"></i></span>
+            <span class="editor-insert-text"><span class="editor-insert-name">Standalone yes/no</span><span class="editor-insert-desc" style="color:#334155">Uncommon layout; prefer a yes/no field for new screens.</span></span>
+            <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
+          </button>
+          <button type="button" class="editor-insert-card" data-insert="noyes">
+            <span class="editor-insert-icon"><i class="fa-solid fa-list" aria-hidden="true"></i></span>
+            <span class="editor-insert-text"><span class="editor-insert-name">Standalone no/yes</span><span class="editor-insert-desc" style="color:#334155">Reverse the meaning of the yes and no buttons.</span></span>
+            <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
+          </button>
+          <button type="button" class="editor-insert-card" data-insert="yesnomaybe">
+            <span class="editor-insert-icon"><i class="fa-solid fa-list" aria-hidden="true"></i></span>
+            <span class="editor-insert-text"><span class="editor-insert-name">Standalone yes/no/maybe</span><span class="editor-insert-desc" style="color:#334155">Include an “I don’t know” answer.</span></span>
+            <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
+          </button>
+          <button type="button" class="editor-insert-card" data-insert="noyesmaybe">
+            <span class="editor-insert-icon"><i class="fa-solid fa-list" aria-hidden="true"></i></span>
+            <span class="editor-insert-text"><span class="editor-insert-name">Standalone no/yes/maybe</span><span class="editor-insert-desc" style="color:#334155">Reverse yes/no meaning and include “I don’t know”.</span></span>
+            <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
+          </button>
+          <button type="button" class="editor-insert-card" data-insert="choices">
+            <span class="editor-insert-icon"><i class="fa-solid fa-list" aria-hidden="true"></i></span>
+            <span class="editor-insert-text"><span class="editor-insert-name">Standalone choices</span><span class="editor-insert-desc" style="color:#334155">Select one answer with radio buttons.</span></span>
+            <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
+          </button>
+          <button type="button" class="editor-insert-card" data-insert="dropdown">
+            <span class="editor-insert-icon"><i class="fa-solid fa-list" aria-hidden="true"></i></span>
+            <span class="editor-insert-text"><span class="editor-insert-name">Standalone dropdown</span><span class="editor-insert-desc" style="color:#334155">Select one answer from a dropdown.</span></span>
+            <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
+          </button>
+          <button type="button" class="editor-insert-card" data-insert="combobox">
+            <span class="editor-insert-icon"><i class="fa-solid fa-list" aria-hidden="true"></i></span>
+            <span class="editor-insert-text"><span class="editor-insert-name">Standalone combobox</span><span class="editor-insert-desc" style="color:#334155">Choose an answer or enter a new one.</span></span>
+            <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
+          </button>
+          <button type="button" class="editor-insert-card" data-insert="field">
+            <span class="editor-insert-icon"><i class="fa-solid fa-list" aria-hidden="true"></i></span>
+            <span class="editor-insert-text"><span class="editor-insert-name">Continue screen</span><span class="editor-insert-desc" style="color:#334155">Set a variable when the user continues.</span></span>
+            <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
+          </button>
           <button type="button" class="editor-insert-card" data-insert="comment">
             <span class="editor-insert-icon"><i class="fa-solid fa-comment-dots" aria-hidden="true"></i></span>
             <span class="editor-insert-text">
@@ -880,7 +1079,7 @@
       </div>
       <div class="modal-body editor-screen-preview-body">
         <div class="editor-screen-preview-stage" id="screen-preview-stage">
-          <iframe class="editor-screen-preview-frame" id="screen-preview-frame" title="Screen preview" sandbox="allow-same-origin allow-scripts"></iframe>
+          <iframe class="editor-screen-preview-frame" id="screen-preview-frame" title="Screen preview" sandbox="allow-scripts"></iframe>
         </div>
       </div>
       <div class="modal-footer justify-content-between">
@@ -943,7 +1142,12 @@
           <label class="editor-tiny" for="order-add-kind">Step type</label>
           <select class="form-select form-select-sm mt-1" id="order-add-kind">
             <option value="screen">Screen</option>
-            <option value="gather">List gather</option>
+            <option value="gather">Gather list</option>
+            <option value="loop">For each</option>
+            <option value="assignment">Set variable</option>
+            <option value="comment">Comment</option>
+            <option value="break">Break out of loop</option>
+            <option value="continue">Continue with next item</option>
             <option value="condition">Condition</option>
             <option value="section">Start section</option>
             <option value="progress">Progress</option>
@@ -1071,6 +1275,7 @@
 <script src="/al/editor/static/editor_runtime_inspector.js"></script>
 <script src="/al/editor/static/editor_module_restart.js"></script>
 <script src="/al/editor/static/editor_agent_chat.js"></script>
+<script src="/al/editor/static/editor_router.js"></script>
 <script src="/al/editor/static/editor.js"></script>
 </body>
 </html>

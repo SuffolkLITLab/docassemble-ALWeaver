@@ -8,12 +8,13 @@
     "format": "prettier --write docassemble/ALWeaver/data/static/editor.js $npm_package_config_jsFiles",
     "format:check": "prettier --check docassemble/ALWeaver/data/static/editor.js $npm_package_config_jsFiles",
     "lint": "eslint $npm_package_config_jsFiles",
+    "test:router": "node docassemble/ALWeaver/test_editor_router.js && node docassemble/ALWeaver/test_editor_route_navigation.js",
     "typecheck": "tsc --project tsconfig.json",
     "check": "npm run format:check && npm run lint && npm run typecheck",
-    "prepare": "uv run pre-commit install 2>/dev/null || pre-commit install 2>/dev/null || true"
+    "prepare": "pre-commit install 2>/dev/null || true"
   },
   "config": {
-    "jsFiles": "docassemble/ALWeaver/data/static/editor_api_client.js docassemble/ALWeaver/data/static/editor_agent_chat.js docassemble/ALWeaver/data/static/editor_module_restart.js docassemble/ALWeaver/data/static/editor_runtime_inspector.js docassemble/ALWeaver/data/static/editor_validation_source.js docassemble/ALWeaver/data/static/editor_dirty_state.js docassemble/ALWeaver/data/static/editor_html.js docassemble/ALWeaver/data/static/editor_expressions.js"
+    "jsFiles": "docassemble/ALWeaver/data/static/editor_api_client.js docassemble/ALWeaver/data/static/editor_agent_chat.js docassemble/ALWeaver/data/static/editor_module_restart.js docassemble/ALWeaver/data/static/editor_runtime_inspector.js docassemble/ALWeaver/data/static/editor_validation_source.js docassemble/ALWeaver/data/static/editor_dirty_state.js docassemble/ALWeaver/data/static/editor_html.js docassemble/ALWeaver/data/static/editor_expressions.js docassemble/ALWeaver/data/static/editor_router.js"
   },
   "devDependencies": {
     "@eslint/js": "^9.35.0",

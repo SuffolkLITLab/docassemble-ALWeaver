@@ -158,10 +158,10 @@ temporary `interview` object used while the original Weaver runs. Generation
 also normalizes the historical `document_concept`/`document_purpose` mismatch
 and corrects the condition guarding the “request granted” instructions.
 
-## Remaining template-ingestion boundary
+## Multiple templates
 
-The editor accepts multiple uploaded files so they can be retained in the
-project, but the generator currently builds attachment and question YAML from
-the first document. Until multi-document generation is implemented in
-`generate_interview_from_path`, the creation screen must describe this boundary
-plainly and must not imply that every uploaded file was automated.
+The generator accepts `additional_templates` and creates attachment and question
+YAML for multiple uploaded PDF/DOCX templates. Shared variables can be reused
+across templates. Review each generated attachment and its mappings before
+running the interview. Computed mappings, custom exhibit structures and advanced
+bundle logic may still require YAML/Python editing.
