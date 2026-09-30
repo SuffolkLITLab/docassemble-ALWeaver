@@ -119,7 +119,8 @@ editor accessibility workflow runs this regression and uploads the
 project and exercises template creation from both the outline and a question's
 subquestion toolbar, reuse across questions, nested help, editing and reloading,
 YAML/form switching, and adding a subject to a subjectless template. It checks
-source comments and custom properties, invalid names, duplicate definitions,
+source comments and custom properties, invalid names, non-template name collisions,
+same-name variants and their de-duplicated picker,
 and guards against renaming or deleting referenced templates. It then runs the
 interview in Docassemble and verifies collapse behavior, Markdown, and evaluated
 Mako on both question screens. Two Axe audits cover the new dialog and editor.

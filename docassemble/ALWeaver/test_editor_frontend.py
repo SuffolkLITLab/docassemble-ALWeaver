@@ -21,6 +21,7 @@ NODE_TESTS = (
     "test_editor_html.js",
     "test_editor_api_client.js",
     "test_editor_serializers.js",
+    "test_editor_help_templates.js",
     "test_editor_screen_types.js",
     "test_editor_screen_validation.js",
     "test_editor_validation_source.js",

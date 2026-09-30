@@ -6059,17 +6059,23 @@
   }
 
   function availableHelpTemplates() {
+    var selected = getSelectedBlock();
+    var selectedName =
+      selected && selected.type === 'template' && selected.data
+        ? selected.data.template
+        : '';
+    var names = new Set();
     return state.blocks.filter(function (block) {
-      return Boolean(
-        block &&
-        block.id !== state.selectedBlockId &&
-        block.type === 'template' &&
-        block.data &&
-        typeof block.data.template === 'string' &&
-        window.ALWeaverSerializers.isPythonIdentifier(block.data.template) &&
-        isTemplateEditorBlock(block) &&
-        String(block.data.subject || '').trim(),
-      );
+      if (
+        !isTemplateEditorBlock(block) ||
+        block.id === state.selectedBlockId ||
+        block.data.template === selectedName ||
+        !String(block.data.subject || '').trim() ||
+        names.has(block.data.template)
+      )
+        return false;
+      names.add(block.data.template);
+      return true;
     });
   }
 
@@ -6260,16 +6266,6 @@
       );
       if (!subject.trim())
         throw new Error('A disclosure label is required for collapsible help.');
-      if (
-        state.blocks.some(function (block) {
-          return (
-            block.type === 'template' &&
-            block.data &&
-            String(block.data.template || '') === name
-          );
-        })
-      )
-        throw new Error('A template named “' + name + '” already exists.');
     } catch (error) {
       setTemplateInsertError(String(error.message || error));
       return;
@@ -12409,7 +12405,7 @@
       esc(String(data.template || '')) +
       '">';
     html +=
-      '<div class="form-text">Use a Python-style name (letters, numbers, and underscores). References must use this exact name.</div></div>';
+      '<div class="form-text">Use a Python-style name. References and language or conditional variants use this exact name.</div></div>';
     if (subjectOpen) {
       html += '<div class="editor-form-group">';
       html +=

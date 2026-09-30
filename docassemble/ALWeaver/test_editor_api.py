@@ -4560,21 +4560,75 @@ class TestEditorBlockPayloadValidation(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.accepts(payload)
 
-    def test_a_duplicate_template_name_is_refused_in_the_active_file(self):
-        blocks = [
-            {
-                "id": "block-0-old",
-                "type": "template",
-                "data": {"template": "shared_help", "content": "Existing"},
-            }
-        ]
+    def test_new_template_variants_can_share_a_name(self):
+        from .editor_utils import parse_interview_yaml
+
+        source = "id: english\ntemplate: shared_help\nlanguage: en\ncontent: English\n"
         with patch.object(
-            api_editor, "parse_interview_yaml", return_value={"blocks": blocks}
+            api_editor, "parse_interview_yaml", wraps=parse_interview_yaml
         ):
-            with self.assertRaisesRegex(ValueError, "already defined"):
+            for variant in (
+                "template: shared_help\nlanguage: es\ncontent: Spanish\n",
+                "template: shared_help\nif: special_case\ncontent: Conditional\n",
+            ):
+                with self.subTest(variant=variant):
+                    api_editor._validate_template_against_file(source, variant)
+
+    def test_variant_can_be_renamed_or_removed_while_another_defines_its_name(self):
+        from .editor_utils import parse_interview_yaml
+
+        source = (
+            "id: english\ntemplate: shared_help\nlanguage: en\ncontent: English\n---\n"
+            "id: spanish\ntemplate: shared_help\nlanguage: es\ncontent: Spanish\n---\n"
+            "id: other\ntemplate: other_help\ncontent: Other\n---\n"
+            "question: Address\nsubquestion: ${ collapse_template(shared_help) }\n"
+        )
+        with patch.object(
+            api_editor, "parse_interview_yaml", wraps=parse_interview_yaml
+        ):
+            self.assertEqual(
+                api_editor._template_references(source, "shared_help", "spanish"), []
+            )
+            api_editor._validate_template_against_file(
+                source,
+                "template: other_help\ncontent: Edited variant\n",
+                current_block_id="spanish",
+            )
+            # Without the other variant, the same change loses the definition.
+            remaining = source.split("---\n", 1)[1]
+            self.assertEqual(
+                len(
+                    api_editor._template_references(remaining, "shared_help", "spanish")
+                ),
+                1,
+            )
+            with self.assertRaisesRegex(ValueError, "Cannot rename"):
                 api_editor._validate_template_against_file(
-                    "existing source", "template: shared_help\ncontent: New\n"
+                    remaining,
+                    "template: other_help\ncontent: Edited variant\n",
+                    current_block_id="spanish",
                 )
+
+    def test_imported_code_names_are_reserved_for_non_template_bindings(self):
+        from .editor_utils import parse_interview_yaml
+
+        source = (
+            "code: |\n  import math as imported_help\n  import os.path\n"
+            "  from math import sqrt as root_help\n  from math import ceil\n"
+            "  def local_scope():\n    import json as local_help\n"
+        )
+        with patch.object(
+            api_editor, "parse_interview_yaml", wraps=parse_interview_yaml
+        ):
+            for name in ("imported_help", "os", "root_help", "ceil"):
+                with self.subTest(name=name):
+                    with self.assertRaisesRegex(ValueError, "non-template"):
+                        api_editor._validate_template_against_file(
+                            source, f"template: {name}\ncontent: Text\n"
+                        )
+            api_editor._validate_template_against_file(
+                source, "template: local_help\ncontent: Text\n"
+            )
 
     def test_template_references_report_the_question_and_line(self):
         blocks = [

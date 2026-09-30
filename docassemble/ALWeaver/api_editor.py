@@ -2121,14 +2121,22 @@ def _validate_block_yaml_payload(
 def _template_references(
     content: str, name: str, exclude_block_id: str = ""
 ) -> List[str]:
-    """Describe direct ``collapse_template(name)`` uses in the active file."""
+    """Describe direct uses that would lose their last template definition."""
     if not name:
+        return []
+    blocks = parse_interview_yaml(content)["blocks"]
+    if exclude_block_id and any(
+        block.get("type") == "template"
+        and str(block.get("id") or "") != exclude_block_id
+        and str((block.get("data") or {}).get("template") or "").strip() == name
+        for block in blocks
+    ):
         return []
     pattern = re.compile(
         r"\bcollapse_template\s*\(\s*" + re.escape(name) + r"\s*(?=[,)])"
     )
     references: List[str] = []
-    for block in parse_interview_yaml(content)["blocks"]:
+    for block in blocks:
         if str(block.get("id") or "") == exclude_block_id:
             continue
         block_yaml = str(block.get("yaml") or "")
@@ -2142,7 +2150,7 @@ def _template_references(
 
 
 def _known_top_level_names(content: str, exclude_block_id: str = "") -> Set[str]:
-    """Collect names the graphical editor can identify without evaluating code."""
+    """Collect non-template bindings without evaluating interview code."""
     names: Set[str] = set()
     for block in parse_interview_yaml(content)["blocks"]:
         if str(block.get("id") or "") == exclude_block_id:
@@ -2151,9 +2159,7 @@ def _known_top_level_names(content: str, exclude_block_id: str = "") -> Set[str]
         if not isinstance(data, dict):
             continue
         if block.get("type") == "template":
-            template_name = str(data.get("template") or "").strip()
-            if template_name:
-                names.add(template_name)
+            continue
         objects = data.get("objects")
         if isinstance(objects, dict):
             names.update(str(value).strip() for value in objects if str(value).strip())
@@ -2240,6 +2246,12 @@ def _known_top_level_names(content: str, exclude_block_id: str = "") -> Set[str]
                         continue
                     if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
                         names.add(node.id)
+                    if isinstance(node, (ast.Import, ast.ImportFrom)):
+                        for imported in node.names:
+                            if imported.name != "*":
+                                names.add(
+                                    imported.asname or imported.name.split(".", 1)[0]
+                                )
                     pending.extend(ast.iter_child_nodes(node))
     return names
 
@@ -2280,8 +2292,8 @@ def _validate_template_against_file(
         current_content, current_block_id
     ):
         raise ValueError(
-            f"The name {name!r} is already defined in this interview file. "
-            "Choose a unique template variable name."
+            f"The name {name!r} is already defined by a non-template block "
+            "in this interview file. Choose a different template variable name."
         )
 
 

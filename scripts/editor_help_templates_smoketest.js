@@ -314,7 +314,7 @@ async function main() {
       ['block/delete', { block_id: updatedShared.id }, 'Cannot delete'],
       [
         'insert-block',
-        { block_yaml: 'template: address_help\ncontent: Duplicate\n' },
+        { block_yaml: 'template: first_done\ncontent: Collision\n' },
         'already defined',
       ],
     ]) {
@@ -327,7 +327,68 @@ async function main() {
     }
     assert.equal((await getFile()).raw_yaml, model.raw_yaml);
     pass(
-      'Reject duplicate names and renaming/deleting referenced templates without changing source',
+      'Reject non-template name collisions and changes to the last referenced definition',
+    );
+
+    // Create another language variant through the same graphical dialog.
+    await page.goto(`${fileUrl}/blocks/first`);
+    await expect(page.locator('#q-title')).toHaveValue('First help screen');
+    const originalSubquestion = await page
+      .locator('#q-subquestion')
+      .inputValue();
+    await openInsertion();
+    await page.locator('#template-insert-name').fill('address_help');
+    await page
+      .locator('#template-insert-subject')
+      .fill('Ayuda con direcciones');
+    await page.locator('#template-insert-content').fill('Detalles en español.');
+    await page.locator('#template-insert-create').click();
+    await expect(page.locator('#template-insert-modal')).toBeHidden();
+    await page.locator('#q-subquestion').fill(originalSubquestion);
+    await save();
+    model = await getFile();
+    const variant = model.blocks.find(
+      (block) =>
+        block.data.template === 'address_help' && block.id !== updatedShared.id,
+    );
+    assert.ok(
+      variant,
+      'Graphical creation accepts a second template with the same name',
+    );
+    await responseData(
+      await post('block', {
+        block_id: variant.id,
+        block_yaml:
+          'id: spanish_variant\ntemplate: address_help\nlanguage: es\nsubject: Ayuda con direcciones\ncontent: Detalles en español.\n',
+        expected_revision: model.revision,
+      }),
+    );
+    await page.goto(`${fileUrl}/blocks/first`);
+    await expect(page.locator('#q-title')).toHaveValue('First help screen');
+    await openInsertion();
+    assert.equal(
+      await page
+        .locator('#template-insert-existing option[value="address_help"]')
+        .count(),
+      1,
+    );
+    await page.screenshot({
+      path: path.join(output, 'template-variant-picker.png'),
+    });
+    await page
+      .locator('#template-insert-modal')
+      .getByRole('button', { name: 'Cancel', exact: true })
+      .click();
+    await expect(page.locator('#template-insert-modal')).toBeHidden();
+    await page.goto(`${fileUrl}/blocks/spanish_variant`);
+    await expect(page.locator('#template-name')).toHaveValue('address_help');
+    await page.locator('#template-name').fill('plain_help');
+    await save();
+    await expect(page.locator('#template-name')).toHaveValue('plain_help');
+    await page.locator('#template-name').fill('address_help');
+    await save();
+    pass(
+      'Create same-name variants, list their name once, and rename one while another defines its old name',
     );
 
     // Subjectless templates must be editable without losing pending content.
@@ -441,6 +502,28 @@ async function main() {
     await interview.close();
     pass(
       'Live interview expands/collapses shared Markdown and evaluates Mako on both screens',
+    );
+    model = await getFile();
+    await responseData(
+      await post('block/delete', {
+        block_id: 'spanish_variant',
+        expected_revision: model.revision,
+      }),
+    );
+    model = await getFile();
+    const lastVariant = model.blocks.find(
+      (block) => block.data.template === 'address_help',
+    );
+    const lastDeletion = await post('block/delete', {
+      block_id: lastVariant.id,
+      expected_revision: model.revision,
+    });
+    assert.equal(lastDeletion.status(), 400);
+    assert.ok(
+      (await lastDeletion.json()).error.message.includes('Cannot delete'),
+    );
+    pass(
+      'Delete one referenced variant and protect the last remaining definition',
     );
     assert.deepEqual(errors, [], 'Browser errors or unexpected dialogs');
     pass('No browser JavaScript errors');
