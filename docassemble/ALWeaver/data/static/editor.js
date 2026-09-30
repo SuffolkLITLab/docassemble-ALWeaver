@@ -12048,8 +12048,8 @@
   // Screen preview modal
   //
   // The preview lives in an iframe so Docassemble's own stylesheets can be
-  // loaded whole — the same bundle.css, labelauty and Bootstrap theme the
-  // running interview uses — without any of it leaking into the editor chrome.
+  // loaded whole — the same bundle.css and Bootstrap theme the running
+  // interview uses — without any of it leaking into the editor chrome.
   // -------------------------------------------------------------------------
 
   var _screenPreviewWidth = 'desktop';
@@ -12254,6 +12254,7 @@
 
     var doc = ALWeaverScreenPreview.buildDocument(previewData, {
       assets: resolved.assets,
+      widgetStyle: BOOT.previewWidgetStyle,
       extraCss: resolved.extraCss,
       theme: _screenPreviewDark ? 'dark' : 'light',
       labelLayout: labelLayout,
@@ -12537,6 +12538,7 @@
           : '';
         var html = ALWeaverInterviewReport.buildReport(steps, blocks, {
           assets: resolved.assets,
+          widgetStyle: BOOT.previewWidgetStyle,
           extraCss: resolved.extraCss,
           theme: _screenPreviewDark ? 'dark' : 'light',
           // Draw the screens the way the preview modal is currently drawing

@@ -3,13 +3,11 @@
  * Renders a question block as the markup Docassemble's own
  * ``standardformatter`` would emit, so the preview can be styled with
  * Docassemble's real stylesheets (``/static/app/bundle.css``) and finished by
- * Docassemble's real labelauty plugin.  Everything here is deliberately
+ * Docassemble's own choice styling. Everything here is deliberately
  * framework-free so it can be unit-tested under Node.
  *
- * The markup mirrors docassemble.base.standardformatter as of 1.9.13 and
- * 1.10.7; the two versions emit identical field HTML (1.10 only renamed
- * internals), and ship byte-identical app.css / labelauty assets, so one
- * renderer serves both.
+ * Docassemble 1.10.8 added explicit choice labels and native file inputs.
+ * The widgetStyle option keeps markup for earlier versions available.
  */
 (function (root, factory) {
   'use strict';
@@ -839,13 +837,7 @@
 
   function normalizeChoiceList(raw, fallback) {
     if (!Array.isArray(raw)) return fallback;
-    return raw.map(function (item) {
-      if (item && typeof item === 'object') {
-        var key = Object.keys(item)[0];
-        return { label: String(key), value: String(item[key]) };
-      }
-      return { label: String(item), value: String(item) };
-    });
+    return choiceEntries(raw);
   }
 
   // -------------------------------------------------------------------------
@@ -1144,10 +1136,14 @@
     if (!Array.isArray(raw)) return null;
     return raw.map(function (item) {
       if (item && typeof item === 'object') {
-        // Already normalized — the AssemblyLine generators emit this shape.
+        // Docassemble accepts explicit label/key and label/value choices.
+        // The label is shown; the key (or value) is submitted.
         if (Object.prototype.hasOwnProperty.call(item, 'label') &&
-            Object.prototype.hasOwnProperty.call(item, 'value')) {
-          return { label: String(item.label), value: String(item.value) };
+            (Object.prototype.hasOwnProperty.call(item, 'key') ||
+             Object.prototype.hasOwnProperty.call(item, 'value'))) {
+          var choiceValue = Object.prototype.hasOwnProperty.call(item, 'key')
+            ? item.key : item.value;
+          return { label: String(item.label), value: String(choiceValue) };
         }
         var key = Object.keys(item).find(function (name) {
           return ['url', 'image', 'help', 'default', 'color', 'css class', 'show if'].indexOf(name) === -1;
@@ -1350,6 +1346,14 @@
 
   function labelautyInput(options) {
     var label = options.label || '';
+    if (options.widgetStyle === 'native') {
+      return '<input type="' + options.type + '" class="' + attr(options.classes) +
+        '" id="' + attr(options.id) + '" name="' + attr(options.name) +
+        '" value="' + attr(options.value) + '"' +
+        (options.checked ? ' checked="checked"' : '') + ' />' +
+        '<label for="' + attr(options.id) + '" class="btn btn-' + LABELAUTY_COLOR +
+        ' text-start dalabelauty">' + renderInlineMarkdown(label) + '</label>';
+    }
     return '<input aria-label="' + attr(label) + '" alt="' + attr(label) + '" data-color="' +
       LABELAUTY_COLOR + '" data-labelauty="' + attr(label) + '|' + attr(label) + '" class="' +
       attr(options.classes) + '" id="' + attr(options.id) + '" name="' + attr(options.name) +
@@ -1432,7 +1436,7 @@
     return html;
   }
 
-  function renderChoiceGroup(desc, id, type) {
+  function renderChoiceGroup(desc, id, type, widgetStyle) {
     var entries = choicesFor(desc);
     var groupClass = type === 'radio' ? 'da-field-group da-field-radio' : 'da-field-group da-field-checkbox';
     var html = '<div class="' + groupClass + '">';
@@ -1446,6 +1450,7 @@
         value: choice.value,
         checked: desc.defaultValue !== null && desc.defaultValue !== undefined &&
           String(desc.defaultValue) === String(choice.value),
+        widgetStyle: widgetStyle,
       });
     });
     if (type === 'checkbox' && desc.noneOfTheAbove) {
@@ -1456,14 +1461,23 @@
         name: id + '_nota',
         type: 'checkbox',
         value: 'True',
+        widgetStyle: widgetStyle,
       });
     }
     html += '</div>';
     return html;
   }
 
-  function renderYesNoCheckbox(desc, id) {
+  function renderYesNoCheckbox(desc, id, widgetStyle) {
     var label = renderInlineMarkdown(desc.label) || esc(desc.variable);
+    if (widgetStyle === 'native') {
+      return '<div class="da-field-group da-field-checkbox">' +
+        '<input type="checkbox" class="da-to-labelauty checkbox-icon dauncheckable" value="' +
+        (desc.datatype.indexOf('noyes') === 0 ? 'False' : 'True') + '" name="' + attr(id) +
+        '" id="' + attr(id) + '" />' +
+        '<label for="' + attr(id) + '" class="btn btn-' + LABELAUTY_COLOR +
+        ' text-start dalabelauty">' + label + '</label></div>';
+    }
     return '<div class="da-field-group da-field-checkbox">' +
       '<input aria-label="' + attr(desc.label) + '" alt="' + attr(desc.label) +
       '" class="da-to-labelauty checkbox-icon dauncheckable" type="checkbox" value="' +
@@ -1472,7 +1486,7 @@
       '" id="' + attr(id) + '" /></div>';
   }
 
-  function renderYesNoRadio(desc, id) {
+  function renderYesNoRadio(desc, id, widgetStyle) {
     var order = desc.datatype.indexOf('noyes') === 0
       ? [{ label: 'No', value: 'False' }, { label: 'Yes', value: 'True' }]
       : [{ label: 'Yes', value: 'True' }, { label: 'No', value: 'False' }];
@@ -1488,14 +1502,16 @@
         name: id,
         type: 'radio',
         value: choice.value,
+        widgetStyle: widgetStyle,
       });
     });
     html += '</div>';
     return html;
   }
 
-  function renderFileInput(desc, id) {
-    return '<input alt="You can upload a file here" type="file" class="dafile" name="' + attr(id) +
+  function renderFileInput(desc, id, widgetStyle) {
+    return '<input alt="You can upload a file here" type="file" class="' +
+      (widgetStyle === 'native' ? 'form-control' : 'dafile') + '" name="' + attr(id) +
       '" id="' + attr(id) + '"' + (desc.datatype === 'files' ? ' multiple' : '') + ' />';
   }
 
@@ -1511,18 +1527,18 @@
   var YESNO_CHECKBOX_TYPES = ['yesno', 'noyes', 'yesnowide', 'noyeswide'];
   var YESNO_RADIO_TYPES = ['yesnoradio', 'noyesradio', 'yesnomaybe', 'noyesmaybe'];
 
-  function renderInput(desc, id) {
-    if (YESNO_CHECKBOX_TYPES.indexOf(desc.datatype) !== -1) return renderYesNoCheckbox(desc, id);
-    if (YESNO_RADIO_TYPES.indexOf(desc.datatype) !== -1) return renderYesNoRadio(desc, id);
+  function renderInput(desc, id, widgetStyle) {
+    if (YESNO_CHECKBOX_TYPES.indexOf(desc.datatype) !== -1) return renderYesNoCheckbox(desc, id, widgetStyle);
+    if (YESNO_RADIO_TYPES.indexOf(desc.datatype) !== -1) return renderYesNoRadio(desc, id, widgetStyle);
     if (desc.datatype === 'checkboxes' || desc.datatype === 'object_checkboxes') {
-      return renderChoiceGroup(desc, id, 'checkbox');
+      return renderChoiceGroup(desc, id, 'checkbox', widgetStyle);
     }
     if (desc.inputType === 'radio' || desc.datatype === 'radio' || desc.datatype === 'object_radio') {
-      return renderChoiceGroup(desc, id, 'radio');
+      return renderChoiceGroup(desc, id, 'radio', widgetStyle);
     }
     if (desc.datatype === 'area' || desc.datatype === 'mlarea') return renderTextarea(desc, id);
     if (desc.datatype === 'file' || desc.datatype === 'files' || desc.datatype === 'camera') {
-      return renderFileInput(desc, id);
+      return renderFileInput(desc, id, widgetStyle);
     }
     if (desc.choices || desc.choiceCode || desc.datatype === 'dropdown' ||
         desc.datatype === 'combobox' || desc.datatype === 'multiselect' ||
@@ -1686,7 +1702,7 @@
       useFieldset: useFieldset,
       labelId: 'da-label-' + index,
       labelFor: labelFor,
-      content: renderInput(desc, id),
+      content: renderInput(desc, id, opts.widgetStyle),
     };
 
     function build(extra) {
@@ -1735,7 +1751,7 @@
         floating: true,
         classes: [requiredClass, fieldClass],
         labelContent: labelContent,
-        content: renderInput(floatingDesc, id),
+        content: renderInput(floatingDesc, id, opts.widgetStyle),
       });
     }
 
@@ -2134,6 +2150,7 @@
         labelLayout: labelLayout,
         report: report,
         context: context,
+        widgetStyle: opts.widgetStyle,
       });
     });
 
@@ -2312,10 +2329,7 @@
   // The iframe document
   // -------------------------------------------------------------------------
 
-  /* Docassemble serves all of these from its own webapp static folder, at the
-   * same URLs on 1.9.x and 1.10.x — the 1.10 blueprint refactor renamed Flask
-   * endpoints but not the ``/static`` paths, and the asset files themselves are
-   * byte-identical between the two. */
+  /* The legacy plugin is loaded only for servers whose formatter uses it. */
   var DEFAULT_ASSETS = {
     bootstrapCss: '/static/bootstrap/css/bootstrap.min.css',
     bundleCss: '/static/app/bundle.css',
@@ -2380,16 +2394,17 @@
     body += '</div></div>';
 
     var script = '';
-    if (assets.jquery && assets.labelauty) {
+    if (opts.widgetStyle !== 'native' && assets.jquery && assets.labelauty) {
       script += '<script src="' + attr(assets.jquery) + '"></script>';
       script += '<script src="' + attr(assets.labelauty) + '"></script>';
     }
     if (assets.bootstrapJs) script += '<script src="' + attr(assets.bootstrapJs) + '"></script>';
     script += '<script>(function(){' +
-      'if (window.jQuery && jQuery.fn.labelauty) {' +
-      'jQuery(".da-to-labelauty").labelauty({class: "labelauty da-active-invisible dafullwidth"});' +
-      'jQuery(".da-to-labelauty-icon").labelauty({label: false});' +
-      '}' +
+      (opts.widgetStyle === 'native' ? '' :
+        'if (window.jQuery && jQuery.fn.labelauty) {' +
+        'jQuery(".da-to-labelauty").labelauty({class: "labelauty da-active-invisible dafullwidth"});' +
+        'jQuery(".da-to-labelauty-icon").labelauty({label: false});' +
+        '}') +
       'if (window.bootstrap && bootstrap.Popover) {' +
       'Array.prototype.forEach.call(document.querySelectorAll(\'[data-bs-toggle="popover"]\'), function (el) { new bootstrap.Popover(el, {html: true}); });' +
       '}' +

@@ -1328,12 +1328,14 @@
    * many-screen document needs: links inside a screen must not navigate away
    * from the report, and the print button waits for Mermaid to finish so the
    * chart is on the paper. */
-  var RUNTIME_SCRIPT = [
-    '(function(){"use strict";',
+  var LEGACY_WIDGET_SCRIPT = [
     'if (window.jQuery && jQuery.fn.labelauty) {',
     '  jQuery(".da-to-labelauty").labelauty({class: "labelauty da-active-invisible dafullwidth"});',
     '  jQuery(".da-to-labelauty-icon").labelauty({label: false});',
     '}',
+  ].join('\n');
+  var RUNTIME_SCRIPT = [
+    '(function(){"use strict";',
     'if (window.bootstrap && bootstrap.Popover) {',
     '  Array.prototype.forEach.call(document.querySelectorAll(\'[data-bs-toggle="popover"]\'), function (el) { new bootstrap.Popover(el, {html: true}); });',
     '}',
@@ -1430,6 +1432,7 @@
       objects: objectDeclarations(blocks),
       sectionLabels: sectionLabels(blocks),
       previewOpts: {
+        widgetStyle:        opts.widgetStyle,
         labelLayout:         opts.labelLayout,
         backButtonLabel:     opts.backButtonLabel,
         continueButtonLabel: opts.continueLabel,
@@ -1502,13 +1505,16 @@
     head += '<style>\n' + REPORT_CSS + '\n</style>\n';
 
     var scripts = '';
-    if (assets.jquery && assets.labelauty) {
+    if (opts.widgetStyle !== 'native' && assets.jquery && assets.labelauty) {
       scripts += '<script src="' + esc(assets.jquery) + '"><\/script>\n';
       scripts += '<script src="' + esc(assets.labelauty) + '"><\/script>\n';
     }
     if (assets.bootstrapJs) scripts += '<script src="' + esc(assets.bootstrapJs) + '"><\/script>\n';
     scripts += '<script src="' + esc(mermaidCdn) + '" onerror="var f=document.querySelector(\'.alwr-flow\'); if (f) f.setAttribute(\'data-mermaid\',\'failed\');"><\/script>\n';
-    scripts += '<script>\n' + RUNTIME_SCRIPT + '\n<\/script>\n';
+    scripts += '<script>\n' + RUNTIME_SCRIPT.replace(
+      '(function(){"use strict";',
+      '(function(){"use strict";' + (opts.widgetStyle === 'native' ? '' : LEGACY_WIDGET_SCRIPT)
+    ) + '\n<\/script>\n';
     scripts += '<script>\n' + MERMAID_SCRIPT.replace('__THEME__', theme) + '\n<\/script>\n';
 
     var dateStr = (function () {

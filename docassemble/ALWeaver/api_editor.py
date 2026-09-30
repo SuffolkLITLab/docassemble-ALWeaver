@@ -59,6 +59,7 @@ import ast
 import base64
 import difflib
 import importlib
+import importlib.metadata
 import importlib.resources
 import hashlib
 import hmac
@@ -1895,6 +1896,7 @@ def _render_editor_page() -> str:
     celery_check["setup"] = _celery_setup_capability()
     bootstrap: Dict[str, Any] = {
         "apiBasePath": EDITOR_BASE_PATH,
+        "previewWidgetStyle": _preview_widget_style(),
         "csrfToken": generate_csrf(),
         "features": _editor_feature_bootstrap(),
         "systemChecks": {
@@ -1929,6 +1931,18 @@ def _render_editor_page() -> str:
         "__EDITOR_BOOTSTRAP_JSON__",
         json.dumps(bootstrap, sort_keys=True),
     )
+
+
+def _preview_widget_style() -> str:
+    """Select the markup used by the installed standardformatter."""
+    try:
+        version = importlib.metadata.version("docassemble.base")
+    except importlib.metadata.PackageNotFoundError:
+        return "labelauty"
+    match = re.match(r"^(\d+)\.(\d+)\.(\d+)", version)
+    if match and tuple(map(int, match.groups())) >= (1, 10, 8):
+        return "native"
+    return "labelauty"
 
 
 def _load_llms_module():
