@@ -58,8 +58,7 @@ MAX_MODEL_TRANSCRIPT_MESSAGES = 24
 
 DEFAULT_AGENT_MODEL = "gpt-5-mini"
 
-SYSTEM_PROMPT = textwrap.dedent(
-    """
+SYSTEM_PROMPT = textwrap.dedent("""
     You are an editing assistant for a Docassemble interview.
 
     You modify interviews only by calling the provided tools.
@@ -129,16 +128,14 @@ SYSTEM_PROMPT = textwrap.dedent(
     Only use "final" when the work is actually finished, or when you have
     concluded it cannot be done with the available tools. Do not describe an
     edit you have not made: an edit only exists once a tool call has succeeded.
-    """
-).strip()
+    """).strip()
 
 EDIT_FINAL_PROMPT = (
     "For an edit_allowed turn, finish with "
     '{"action": "final", "summary": "<what you changed, in plain language>"}.'
 )
 
-READ_ONLY_FINAL_PROMPT = textwrap.dedent(
-    """
+READ_ONLY_FINAL_PROMPT = textwrap.dedent("""
     For a read_only turn, finish with
     {"action": "final", "answer": "<your complete answer to the user>"}.
     The answer field is displayed to the user verbatim. The user has seen no
@@ -148,8 +145,7 @@ READ_ONLY_FINAL_PROMPT = textwrap.dedent(
     "Explained how to make a screen conditional" is not an answer; explain
     how to make the screen conditional in the answer field itself.
     Do not use the summary field for a read_only turn.
-    """
-).strip()
+    """).strip()
 
 _ANSWER_REPORT_START = re.compile(
     r"^(?:I\s+)?(?:explained|described|summarized|outlined|gave)\b",
