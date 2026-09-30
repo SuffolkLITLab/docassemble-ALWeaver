@@ -1,0 +1,36 @@
+{
+  "pytest": {
+    "passed": 1216,
+    "skipped": 2,
+    "subtests_passed": 1003,
+    "dependency_warnings": 9,
+    "seconds": 52.69,
+    "command": "DOCASSEMBLE_SOURCE_CHECKOUT=/tmp/alweaver-no-upstream-checkout scripts/run_unit_tests.sh -q"
+  },
+  "mypy": {
+    "passed": true,
+    "source_files": 111
+  },
+  "javascript_checks": {
+    "passed": true,
+    "checks": [
+      "Prettier",
+      "ESLint",
+      "TypeScript"
+    ]
+  },
+  "black_changed_python": {
+    "passed": true
+  },
+  "git_diff_check": {
+    "passed": true
+  },
+  "precommit_all_files": {
+    "clean_pass": false,
+    "reason": "Three unrelated baseline Python files reformatted by Black; unrelated edits reverted"
+  },
+  "directory_invalidation_regression": {
+    "passed": true,
+    "load_numbers_predate_fix": true
+  }
+}

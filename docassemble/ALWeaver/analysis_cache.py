@@ -13,7 +13,16 @@ from typing import Any, Callable
 def file_stamp(path: str, content: bool = False) -> tuple:
     info = os.stat(path)
     digest = None
-    if content and stat.S_ISREG(info.st_mode):
+    if stat.S_ISDIR(info.st_mode):
+        # Directory metadata may be identical across rapid additions on some
+        # filesystems. Track names too, including newly shadowing includes.
+        hasher = hashlib.sha256()
+        for name in sorted(os.listdir(path)):
+            encoded = os.fsencode(name)
+            hasher.update(len(encoded).to_bytes(8, "big"))
+            hasher.update(encoded)
+        digest = hasher.hexdigest()
+    elif content and stat.S_ISREG(info.st_mode):
         with open(path, "rb") as stream:
             hasher = hashlib.sha256()
             for chunk in iter(lambda: stream.read(65536), b""):

@@ -1,0 +1,487 @@
+{
+  "started_utc": "2026-09-30T21:00:01.324308+00:00",
+  "elapsed_seconds": 361.27,
+  "planned_seconds": 360,
+  "clients": 15,
+  "fixture": {
+    "files_per_project": 3,
+    "included_code_blocks": 40,
+    "included_questions": 40
+  },
+  "phase_seconds": {
+    "legacy_polling_replay": 90.0,
+    "adaptive_polling": 90.0,
+    "mixed_editor_ai": 180.0
+  },
+  "requests": [
+    {
+      "phase": "adaptive_polling",
+      "endpoint": "/al/editor/api/file",
+      "count": 77,
+      "p50_ms": 8.8,
+      "p95_ms": 55.6,
+      "p99_ms": 100.8,
+      "max_ms": 180.0,
+      "status_counts": {
+        "200": 77
+      }
+    },
+    {
+      "phase": "adaptive_polling",
+      "endpoint": "/al/editor/api/runtime/sessions/<id>/snapshot",
+      "count": 271,
+      "p50_ms": 25.9,
+      "p95_ms": 109.8,
+      "p99_ms": 174.6,
+      "max_ms": 207.3,
+      "status_counts": {
+        "200": 271
+      }
+    },
+    {
+      "phase": "adaptive_polling",
+      "endpoint": "/al/editor/api/runtime/sessions/<id>/variables",
+      "count": 45,
+      "p50_ms": 18.3,
+      "p95_ms": 40.6,
+      "p99_ms": 96.9,
+      "max_ms": 99.5,
+      "status_counts": {
+        "200": 45
+      }
+    },
+    {
+      "phase": "adaptive_polling",
+      "endpoint": "/al/editor/api/variables",
+      "count": 77,
+      "p50_ms": 9.2,
+      "p95_ms": 76.8,
+      "p99_ms": 123.5,
+      "max_ms": 266.9,
+      "status_counts": {
+        "200": 77
+      }
+    },
+    {
+      "phase": "adaptive_polling",
+      "endpoint": "/al/editor/api/weaver/style-check",
+      "count": 77,
+      "p50_ms": 122.3,
+      "p95_ms": 228.7,
+      "p99_ms": 259.0,
+      "max_ms": 684.9,
+      "status_counts": {
+        "200": 77
+      }
+    },
+    {
+      "phase": "adaptive_polling",
+      "endpoint": "/al/editor/api/weaver/validate",
+      "count": 77,
+      "p50_ms": 12.0,
+      "p95_ms": 25.2,
+      "p99_ms": 38.7,
+      "max_ms": 80.9,
+      "status_counts": {
+        "200": 77
+      }
+    },
+    {
+      "phase": "legacy_polling_replay",
+      "endpoint": "/al/editor/api/file",
+      "count": 90,
+      "p50_ms": 14.5,
+      "p95_ms": 136.5,
+      "p99_ms": 347.6,
+      "max_ms": 475.0,
+      "status_counts": {
+        "200": 90
+      }
+    },
+    {
+      "phase": "legacy_polling_replay",
+      "endpoint": "/al/editor/api/runtime/sessions/<id>/question",
+      "count": 1313,
+      "p50_ms": 29.1,
+      "p95_ms": 147.2,
+      "p99_ms": 248.6,
+      "max_ms": 678.5,
+      "status_counts": {
+        "200": 1313
+      }
+    },
+    {
+      "phase": "legacy_polling_replay",
+      "endpoint": "/al/editor/api/runtime/sessions/<id>/variables",
+      "count": 1343,
+      "p50_ms": 9.9,
+      "p95_ms": 67.7,
+      "p99_ms": 131.6,
+      "max_ms": 207.4,
+      "status_counts": {
+        "200": 1343
+      }
+    },
+    {
+      "phase": "legacy_polling_replay",
+      "endpoint": "/al/editor/api/variables",
+      "count": 90,
+      "p50_ms": 26.2,
+      "p95_ms": 141.9,
+      "p99_ms": 217.7,
+      "max_ms": 372.5,
+      "status_counts": {
+        "200": 90
+      }
+    },
+    {
+      "phase": "legacy_polling_replay",
+      "endpoint": "/al/editor/api/weaver/style-check",
+      "count": 90,
+      "p50_ms": 146.0,
+      "p95_ms": 311.0,
+      "p99_ms": 439.7,
+      "max_ms": 557.5,
+      "status_counts": {
+        "200": 90
+      }
+    },
+    {
+      "phase": "legacy_polling_replay",
+      "endpoint": "/al/editor/api/weaver/validate",
+      "count": 90,
+      "p50_ms": 18.4,
+      "p95_ms": 133.5,
+      "p99_ms": 157.7,
+      "max_ms": 176.8,
+      "status_counts": {
+        "200": 90
+      }
+    },
+    {
+      "phase": "mixed_editor_ai",
+      "endpoint": "/al/editor/api/ai/generate-fields",
+      "count": 30,
+      "p50_ms": 7.4,
+      "p95_ms": 14.1,
+      "p99_ms": 22.8,
+      "max_ms": 37.7,
+      "status_counts": {
+        "202": 15,
+        "429": 15
+      }
+    },
+    {
+      "phase": "mixed_editor_ai",
+      "endpoint": "/al/editor/api/ai/generate-screen",
+      "count": 30,
+      "p50_ms": 8.2,
+      "p95_ms": 12.4,
+      "p99_ms": 14.5,
+      "max_ms": 67.8,
+      "status_counts": {
+        "202": 15,
+        "429": 15
+      }
+    },
+    {
+      "phase": "mixed_editor_ai",
+      "endpoint": "/al/editor/api/ai/jobs/<id>",
+      "count": 472,
+      "p50_ms": 9.0,
+      "p95_ms": 57.9,
+      "p99_ms": 220.2,
+      "max_ms": 644.7,
+      "status_counts": {
+        "200": 472
+      }
+    },
+    {
+      "phase": "mixed_editor_ai",
+      "endpoint": "/al/editor/api/file",
+      "count": 162,
+      "p50_ms": 9.2,
+      "p95_ms": 36.4,
+      "p99_ms": 111.0,
+      "max_ms": 490.7,
+      "status_counts": {
+        "200": 162
+      }
+    },
+    {
+      "phase": "mixed_editor_ai",
+      "endpoint": "/al/editor/api/runtime/sessions/<id>/snapshot",
+      "count": 532,
+      "p50_ms": 26.7,
+      "p95_ms": 106.3,
+      "p99_ms": 147.7,
+      "max_ms": 793.0,
+      "status_counts": {
+        "200": 532
+      }
+    },
+    {
+      "phase": "mixed_editor_ai",
+      "endpoint": "/al/editor/api/runtime/sessions/<id>/variables",
+      "count": 90,
+      "p50_ms": 17.4,
+      "p95_ms": 58.7,
+      "p99_ms": 104.3,
+      "max_ms": 296.4,
+      "status_counts": {
+        "200": 90
+      }
+    },
+    {
+      "phase": "mixed_editor_ai",
+      "endpoint": "/al/editor/api/variables",
+      "count": 162,
+      "p50_ms": 9.9,
+      "p95_ms": 43.3,
+      "p99_ms": 110.5,
+      "max_ms": 683.5,
+      "status_counts": {
+        "200": 162
+      }
+    },
+    {
+      "phase": "mixed_editor_ai",
+      "endpoint": "/al/editor/api/weaver/style-check",
+      "count": 162,
+      "p50_ms": 121.1,
+      "p95_ms": 185.3,
+      "p99_ms": 299.4,
+      "max_ms": 870.7,
+      "status_counts": {
+        "200": 162
+      }
+    },
+    {
+      "phase": "mixed_editor_ai",
+      "endpoint": "/al/editor/api/weaver/validate",
+      "count": 162,
+      "p50_ms": 11.8,
+      "p95_ms": 24.5,
+      "p99_ms": 96.9,
+      "max_ms": 199.8,
+      "status_counts": {
+        "200": 162
+      }
+    }
+  ],
+  "resources": [
+    {
+      "phase": "legacy_polling_replay",
+      "peak_working_set_gib": 3.624,
+      "peak_cgroup_memory_gib": 3.694,
+      "mean_cpu_percent": 46.3,
+      "max_cpu_percent": 85.9,
+      "peak_swap_mib": 347.1
+    },
+    {
+      "phase": "adaptive_polling",
+      "peak_working_set_gib": 3.646,
+      "peak_cgroup_memory_gib": 3.719,
+      "mean_cpu_percent": 22.8,
+      "max_cpu_percent": 44.3,
+      "peak_swap_mib": 347.2
+    },
+    {
+      "phase": "mixed_editor_ai",
+      "peak_working_set_gib": 3.782,
+      "peak_cgroup_memory_gib": 3.856,
+      "mean_cpu_percent": 24.7,
+      "max_cpu_percent": 43.8,
+      "peak_swap_mib": 347.1
+    }
+  ],
+  "ai_jobs": [
+    {
+      "client": 0,
+      "operation": "generate-screen",
+      "status": "succeeded",
+      "seconds": 9.04422130400053
+    },
+    {
+      "client": 1,
+      "operation": "generate-screen",
+      "status": "succeeded",
+      "seconds": 9.049111475000245
+    },
+    {
+      "client": 2,
+      "operation": "generate-screen",
+      "status": "succeeded",
+      "seconds": 18.117591363999964
+    },
+    {
+      "client": 3,
+      "operation": "generate-screen",
+      "status": "succeeded",
+      "seconds": 18.164164488000097
+    },
+    {
+      "client": 4,
+      "operation": "generate-screen",
+      "status": "succeeded",
+      "seconds": 24.08040140400044
+    },
+    {
+      "client": 5,
+      "operation": "generate-screen",
+      "status": "succeeded",
+      "seconds": 24.786434795001696
+    },
+    {
+      "client": 7,
+      "operation": "generate-screen",
+      "status": "succeeded",
+      "seconds": 33.60988925199854
+    },
+    {
+      "client": 6,
+      "operation": "generate-screen",
+      "status": "succeeded",
+      "seconds": 33.71095108400186
+    },
+    {
+      "client": 8,
+      "operation": "generate-screen",
+      "status": "succeeded",
+      "seconds": 39.56194603100084
+    },
+    {
+      "client": 9,
+      "operation": "generate-screen",
+      "status": "succeeded",
+      "seconds": 42.46881702800238
+    },
+    {
+      "client": 10,
+      "operation": "generate-screen",
+      "status": "succeeded",
+      "seconds": 48.38600779400076
+    },
+    {
+      "client": 11,
+      "operation": "generate-screen",
+      "status": "succeeded",
+      "seconds": 48.28875962800157
+    },
+    {
+      "client": 12,
+      "operation": "generate-screen",
+      "status": "succeeded",
+      "seconds": 57.512605928000994
+    },
+    {
+      "client": 13,
+      "operation": "generate-screen",
+      "status": "succeeded",
+      "seconds": 57.42317651199846
+    },
+    {
+      "client": 14,
+      "operation": "generate-screen",
+      "status": "succeeded",
+      "seconds": 63.35786905600253
+    },
+    {
+      "client": 0,
+      "operation": "generate-fields",
+      "status": "succeeded",
+      "seconds": 57.29868855300083
+    },
+    {
+      "client": 1,
+      "operation": "generate-fields",
+      "status": "succeeded",
+      "seconds": 63.264069157998165
+    },
+    {
+      "client": 2,
+      "operation": "generate-fields",
+      "status": "succeeded",
+      "seconds": 57.24305240399917
+    },
+    {
+      "client": 4,
+      "operation": "generate-fields",
+      "status": "succeeded",
+      "seconds": 57.208178757002315
+    },
+    {
+      "client": 3,
+      "operation": "generate-fields",
+      "status": "succeeded",
+      "seconds": 63.2295342489997
+    },
+    {
+      "client": 5,
+      "operation": "generate-fields",
+      "status": "succeeded",
+      "seconds": 63.586134970002604
+    },
+    {
+      "client": 7,
+      "operation": "generate-fields",
+      "status": "succeeded",
+      "seconds": 57.246848363000026
+    },
+    {
+      "client": 6,
+      "operation": "generate-fields",
+      "status": "succeeded",
+      "seconds": 63.26330879099987
+    },
+    {
+      "client": 8,
+      "operation": "generate-fields",
+      "status": "succeeded",
+      "seconds": 57.569247226998414
+    },
+    {
+      "client": 10,
+      "operation": "generate-fields",
+      "status": "succeeded",
+      "seconds": 57.58378297799936
+    },
+    {
+      "client": 9,
+      "operation": "generate-fields",
+      "status": "succeeded",
+      "seconds": 63.60353264200239
+    },
+    {
+      "client": 12,
+      "operation": "generate-fields",
+      "status": "succeeded",
+      "seconds": 54.27987372499774
+    },
+    {
+      "client": 11,
+      "operation": "generate-fields",
+      "status": "succeeded",
+      "seconds": 63.6049424619996
+    },
+    {
+      "client": 13,
+      "operation": "generate-fields",
+      "status": "succeeded",
+      "seconds": 63.2981753210006
+    },
+    {
+      "client": 14,
+      "operation": "generate-fields",
+      "status": "succeeded",
+      "seconds": 57.26545338900178
+    }
+  ],
+  "failures": [],
+  "limitations": [
+    "Legacy phase replays the old request pattern against the optimized server; it is not a benchmark of the original backend.",
+    "Virtual developer traffic uses HTTP sessions, not fifteen interactive browsers.",
+    "Local model responses are a deterministic eight-second fixture, not live provider latency or quality.",
+    "Host and container resource limits are recorded separately; an unlimited container does not validate an 8 GB deployment."
+  ]
+}

@@ -144,7 +144,7 @@ work in several ways:
   the new job response, and web/Celery services must load the same version.
 - Symbol discovery keeps JSON results for up to sixty seconds, checking the main
   file and all transitive includes (including empty files) by content hash and
-  filesystem revision before reuse. Directory changes invalidate relative-include
+  filesystem revision before reuse. Directory metadata and entry-name hashes invalidate relative-include
   resolution. Failed parses, dynamic Jinja sources, and untrackable sources are
   not cached. Function help is refreshed separately. Each process retains at
   most 32 results / 2 MiB of serialized symbols; template excerpts have a separate
@@ -180,7 +180,9 @@ generation. Compare endpoint request counts and response times, web/Celery worke
 RSS, available memory, swap activity, and queue delay. Closing Debug views remains
 a useful isolation test; `weaver: {runtime inspector: false}` disables the feature
 if needed. These code changes do not establish that a particular 8 GB deployment
-can sustain a class's peak document-generation load.
+can sustain a class's peak document-generation load. See the
+[recorded fifteen-user localhost stress test](performance/classroom-2026-09-30.md)
+for measured traffic, latency, memory, and test limits.
 
 ## Editing assistant data handling
 

@@ -97,3 +97,36 @@ def test_symbol_cache_tracks_transitive_and_empty_includes(tmp_path, monkeypatch
     # Owner and project identities must not reuse another owner's parse.
     _playground_symbols_without_execution(pg, 8, "default", "main.yml")
     assert len(reads) == 3 * initial_reads
+
+
+def test_directory_additions_invalidate_even_with_identical_metadata(
+    tmp_path, monkeypatch
+):
+    import os
+    from . import analysis_cache
+
+    (tmp_path / "first.yml").touch()
+    unchanged_stat = os.stat(tmp_path)
+    # Simulate a filesystem clock that does not advance between additions.
+    monkeypatch.setattr(
+        analysis_cache,
+        "os",
+        SimpleNamespace(
+            stat=lambda path: unchanged_stat,
+            listdir=os.listdir,
+            fsencode=os.fsencode,
+        ),
+    )
+    cache = FileResultCache()
+
+    def compute(dependencies):
+        dependencies.add(str(tmp_path), content=False)
+        return sorted(os.listdir(tmp_path))
+
+    loader = Mock(side_effect=compute)
+    assert cache.get("directory", loader) == ["first.yml"]
+    assert cache.get("directory", loader) == ["first.yml"]
+    assert loader.call_count == 1
+    (tmp_path / "new.yml").touch()
+    assert cache.get("directory", loader) == ["first.yml", "new.yml"]
+    assert loader.call_count == 2

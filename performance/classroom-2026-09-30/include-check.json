@@ -1,0 +1,7 @@
+{
+  "check": "Editing a transitive include invalidates cached symbols immediately",
+  "write_status": 200,
+  "read_status": 200,
+  "old_symbol_absent": true,
+  "new_symbol_present": true
+}

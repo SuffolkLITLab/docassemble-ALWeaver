@@ -138,3 +138,9 @@ NODE_PATH=/tmp/alweaver-e2e/node_modules \
 The output contains editor and live interview screenshots plus `results.json`.
 Template insertion and reference checks are scoped to the active YAML file;
 advanced templates remain editable in YAML mode.
+
+## Classroom editor load testing
+
+The bounded localhost harness is [scripts/editor_classroom_stress.py](scripts/editor_classroom_stress.py), with a loopback-only, eight-second model fixture in [scripts/editor_stress_model.py](scripts/editor_stress_model.py). It creates individual disposable developer accounts and owned projects, exercises debugger/editor traffic and queued AI drafts, records request latency and cgroup resources, and cleans up fixture accounts. It requires private local admin credentials and a correctly configured localhost web/Celery installation; it does not manage server configuration or the fixture process.
+
+See the [six-minute, fifteen-user report](performance/classroom-2026-09-30.md) for exact setup, cleanup, measurements, test limitations, and committed public result artifacts. That run used an unlimited container on a 15.34 GiB host, so it does not establish an 8 GB deployment's document-generation capacity.
