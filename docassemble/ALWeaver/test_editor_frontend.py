@@ -48,6 +48,13 @@ class _TemplateCollector(HTMLParser):
 
 
 class TestEditorFrontend(unittest.TestCase):
+    def test_github_branch_picker_has_new_branch_field_without_helper_text(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        self.assertRegex(template, r'<select[^>]+id="github-branch-name"')
+        self.assertIn('id="github-new-branch-name"', template)
+        self.assertIn('aria-label="New branch name"', template)
+        self.assertNotIn("Existing branches are updated and missing branches", template)
+
     def test_comfortable_editor_controls_remain_accessible(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
         editor = (self.package_dir / "data/static/editor.js").read_text()

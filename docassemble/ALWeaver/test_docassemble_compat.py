@@ -753,6 +753,51 @@ class TestNativeGithubCompatibility(unittest.TestCase):
             ],
         )
 
+    def test_repository_branches_include_all_pages_and_default_branch(self):
+        urls = []
+
+        class FakeHttp:
+            responses = [
+                ({"status": "200"}, {"default_branch": "develop"}),
+                (
+                    {
+                        "status": "200",
+                        "link": '<https://api.github.com/repos/LegalAid/docassemble-Housing/branches?per_page=100&page=2>; rel="next"',
+                    },
+                    [{"name": "main"}, {"name": "develop"}],
+                ),
+                ({"status": "200"}, [{"name": "feature/housing"}]),
+            ]
+
+            def request(self, url, method, headers=None, body=None):
+                urls.append(url)
+                response, payload = self.responses.pop(0)
+                return response, json.dumps(payload).encode()
+
+        with patch.object(
+            docassemble_compat, "_github_authorized_http", return_value=FakeHttp()
+        ):
+            result = docassemble_compat.get_github_repository_branches(
+                owner="LegalAid", repository="docassemble-Housing", user_id=42
+            )
+        self.assertEqual(result["default_branch"], "develop")
+        self.assertEqual(result["branches"], ["main", "develop", "feature/housing"])
+        self.assertEqual(len(urls), 3)
+
+    def test_missing_repository_has_no_existing_branches(self):
+        class FakeHttp:
+            def request(self, url, method, headers=None, body=None):
+                return {"status": "404"}, b'{"message":"Not Found"}'
+
+        with patch.object(
+            docassemble_compat, "_github_authorized_http", return_value=FakeHttp()
+        ):
+            result = docassemble_compat.get_github_repository_branches(
+                owner="LegalAid", repository="docassemble-Housing"
+            )
+        self.assertEqual(result["repository_exists"], False)
+        self.assertEqual(result["branches"], [])
+
     def test_malformed_github_credential_is_reported_as_expired_connection(self):
         class BrokenStorage:
             def __init__(self, **kwargs):

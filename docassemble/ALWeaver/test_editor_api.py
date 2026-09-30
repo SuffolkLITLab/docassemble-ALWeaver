@@ -343,6 +343,63 @@ class _FakeRedis:
 
 
 class TestEditorGithubApi(unittest.TestCase):
+    def test_github_branches_lists_selected_repository(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=42),
+            patch.object(
+                api_editor,
+                "get_native_github_integration",
+                return_value={"enabled": True, "connected": True},
+            ),
+            patch.object(
+                api_editor,
+                "get_github_repository_branches",
+                return_value={
+                    "repository_exists": True,
+                    "default_branch": "main",
+                    "branches": ["main", "feature/housing"],
+                },
+            ) as branches,
+        ):
+            response = api_editor.app.test_client().get(
+                "/al/editor/api/github/branches",
+                query_string={
+                    "project": "Housing",
+                    "owner": "LegalAid",
+                    "package": "HousingForms",
+                },
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.get_json()["data"]["branches"], ["main", "feature/housing"]
+        )
+        branches.assert_called_once_with(
+            owner="LegalAid", repository="docassemble-HousingForms", user_id=42
+        )
+
+    def test_github_branches_requires_connected_account(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=42),
+            patch.object(
+                api_editor,
+                "get_native_github_integration",
+                return_value={"enabled": True, "connected": False},
+            ),
+            patch.object(api_editor, "get_github_repository_branches") as branches,
+        ):
+            response = api_editor.app.test_client().get(
+                "/al/editor/api/github/branches",
+                query_string={
+                    "project": "Housing",
+                    "owner": "LegalAid",
+                    "package": "HousingForms",
+                },
+            )
+        self.assertEqual(response.status_code, 409)
+        branches.assert_not_called()
+
     def test_github_publish_preview_shows_target_and_text_diff_without_persisting_manifest(
         self,
     ):

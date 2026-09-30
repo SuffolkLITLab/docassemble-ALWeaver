@@ -323,9 +323,14 @@
           </div>
           <div class="mb-3">
             <label class="form-label" for="github-branch-name">Branch</label>
-            <input class="form-control font-monospace" id="github-branch-name" name="branch"
-                   value="main" autocomplete="off" maxlength="255" required>
-            <div class="form-text">Existing branches are updated and missing branches are created. Slashes are allowed.</div>
+            <select class="form-select font-monospace" id="github-branch-name" name="branch"
+                    required disabled>
+              <option value="">Choose a repository to load branches</option>
+            </select>
+            <input class="form-control font-monospace mt-2 d-none" id="github-new-branch-name"
+                   aria-label="New branch name" autocomplete="off" maxlength="255" disabled>
+            <button class="btn btn-link btn-sm px-0 d-none" id="github-branch-retry"
+                    type="button">Retry loading branches</button>
           </div>
           <div>
             <label class="form-label" for="github-commit-message">Commit message</label>
