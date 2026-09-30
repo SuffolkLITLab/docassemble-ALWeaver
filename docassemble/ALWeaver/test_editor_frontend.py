@@ -132,6 +132,17 @@ class TestEditorFrontend(unittest.TestCase):
             self.assertIn("renderMandatorySwitch(data)", renderer)
         self.assertEqual(source.count('id="adv-mandatory-switch"'), 1)
 
+    def test_block_scoped_ai_results_go_stale_after_block_navigation(self):
+        source = (Path(__file__).parent / "data/static/editor.js").read_text()
+        guard = source.split(
+            "  function aiJobResultGuard(blockId, savedSourceOnly) {", 1
+        )[1]
+        guard = guard.split("\n  function ", 1)[0]
+        self.assertIn("(getSelectedBlock() || {}).id === blockId", guard)
+        post = source.split("  function apiAiPost(path, body) {", 1)[1]
+        post = post.split("\n  function ", 1)[0]
+        self.assertIn("aiJobResultGuard(body.block_id)", post)
+
     def test_code_block_mandatory_switch_survives_canvas_redraw(self):
         # Toggles like "Advanced options" stash editor state, then redraw the
         # canvas from block.data; code blocks must stash the switch too.

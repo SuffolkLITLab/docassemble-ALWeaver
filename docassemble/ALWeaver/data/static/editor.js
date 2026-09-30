@@ -3130,7 +3130,10 @@
     csrfToken: BOOT.csrfToken || null,
   });
 
-  function aiJobResultGuard() {
+  // Block-scoped drafts also go stale when the user navigates to another
+  // block: the file is unchanged, but the draft would land on a block that is
+  // no longer on screen. Checks of the saved source only go stale on save.
+  function aiJobResultGuard(blockId, savedSourceOnly) {
     var project = state.project;
     var filename = state.filename;
     var revision = state.revision;
@@ -3143,7 +3146,8 @@
             state.project === project &&
             state.filename === filename &&
             state.revision === revision &&
-            JSON.stringify(state.blocks) === blocks
+            (!blockId || (getSelectedBlock() || {}).id === blockId) &&
+            (savedSourceOnly || JSON.stringify(state.blocks) === blocks)
           );
         },
       });
@@ -3151,7 +3155,7 @@
   }
 
   function apiAiPost(path, body) {
-    var awaitResult = aiJobResultGuard();
+    var awaitResult = aiJobResultGuard(body.block_id);
     return apiPost(path, body).then(awaitResult);
   }
 
@@ -11538,7 +11542,7 @@
     // happened until it finished.
     state.validationBusy = true;
     renderValidationDrawer();
-    var awaitStyleResult = aiJobResultGuard();
+    var awaitStyleResult = aiJobResultGuard(null, true);
     apiGet(
       '/api/weaver/style-check?project=' +
         encodeURIComponent(state.project) +
