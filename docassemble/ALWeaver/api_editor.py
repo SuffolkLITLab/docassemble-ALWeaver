@@ -2091,6 +2091,210 @@ def _validate_block_yaml_payload(
             "Block is incomplete: an id needs a block beside it to name, "
             "so add a key like question, code, or objects — or drop the id"
         )
+    if "template" in parsed and (
+        "content" in parsed or "subject" in parsed or "content file" in parsed
+    ):
+        name = str(parsed.get("template") or "").strip()
+        if not name.isidentifier() or keyword.iskeyword(name):
+            # Docassemble also supports generic/indexed and attribute template
+            # names. They stay in the raw-YAML fallback; this validator must
+            # not make an existing supported source form impossible to save.
+            if re.fullmatch(
+                r"[A-Za-z_]\w*(?:(?:\.[A-Za-z_]\w*)|(?:\[[^\]\r\n]+\]))+",
+                name,
+            ):
+                return
+            raise ValueError(
+                "Template name must be a valid top-level Python identifier "
+                "and not a Python keyword"
+            )
+        content = parsed.get("content")
+        if "content file" not in parsed and (
+            not isinstance(content, str) or not content.strip()
+        ):
+            raise ValueError("Template content cannot be empty")
+        subject = parsed.get("subject")
+        if subject is not None and not isinstance(subject, str):
+            raise ValueError("Template subject must be text")
+
+
+def _template_references(
+    content: str, name: str, exclude_block_id: str = ""
+) -> List[str]:
+    """Describe direct uses that would lose their last template definition."""
+    if not name:
+        return []
+    blocks = parse_interview_yaml(content)["blocks"]
+    if exclude_block_id and any(
+        block.get("type") == "template"
+        and str(block.get("id") or "") != exclude_block_id
+        and str((block.get("data") or {}).get("template") or "").strip() == name
+        for block in blocks
+    ):
+        return []
+    pattern = re.compile(
+        r"\bcollapse_template\s*\(\s*" + re.escape(name) + r"\s*(?=[,)])"
+    )
+    references: List[str] = []
+    for block in blocks:
+        if str(block.get("id") or "") == exclude_block_id:
+            continue
+        block_yaml = str(block.get("yaml") or "")
+        if not pattern.search(block_yaml):
+            continue
+        references.append(
+            f"{block.get('title') or block.get('id') or 'block'} "
+            f"(line {block.get('line_start') or '?'})"
+        )
+    return references
+
+
+def _known_top_level_names(content: str, exclude_block_id: str = "") -> Set[str]:
+    """Collect non-template bindings without evaluating interview code."""
+    names: Set[str] = set()
+    for block in parse_interview_yaml(content)["blocks"]:
+        if str(block.get("id") or "") == exclude_block_id:
+            continue
+        data = block.get("data") or {}
+        if not isinstance(data, dict):
+            continue
+        if block.get("type") == "template":
+            continue
+        objects = data.get("objects")
+        if isinstance(objects, dict):
+            names.update(str(value).strip() for value in objects if str(value).strip())
+        elif isinstance(objects, list):
+            for item in objects:
+                if isinstance(item, dict):
+                    names.update(
+                        str(value).strip() for value in item if str(value).strip()
+                    )
+        fields = data.get("fields")
+        if isinstance(fields, list):
+            for field in fields:
+                if not isinstance(field, dict):
+                    continue
+                explicit = field.get("field")
+                if isinstance(explicit, str) and explicit.strip():
+                    names.add(explicit.strip().split(".", 1)[0].split("[", 1)[0])
+                    continue
+                for label, value in field.items():
+                    if label in {
+                        "datatype",
+                        "default",
+                        "hint",
+                        "help",
+                        "label",
+                        "required",
+                        "show if",
+                        "hide if",
+                        "enable if",
+                        "disable if",
+                        "input type",
+                        "validate",
+                        "choices",
+                        "code",
+                        "note",
+                        "html",
+                        "raw html",
+                    }:
+                        continue
+                    if isinstance(value, str) and value.strip():
+                        names.add(value.strip().split(".", 1)[0].split("[", 1)[0])
+                        break
+        for key in (
+            "continue button field",
+            "sets",
+            "signature",
+            "yesno",
+            "noyes",
+            "yesnomaybe",
+            "noyesmaybe",
+            "field",
+        ):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                names.add(value.strip().split(".", 1)[0].split("[", 1)[0])
+        variable = str(block.get("variable") or "").strip()
+        if variable:
+            names.add(variable.split(".", 1)[0].split("[", 1)[0])
+        code = data.get("code")
+        if isinstance(code, str):
+            try:
+                tree = ast.parse(code)
+            except SyntaxError:
+                tree = None
+            if tree is not None:
+                pending: List[ast.AST] = list(tree.body)
+                while pending:
+                    node = pending.pop()
+                    if isinstance(
+                        node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+                    ):
+                        names.add(node.name)
+                        continue  # Their bodies bind names in a separate scope.
+                    if isinstance(
+                        node,
+                        (
+                            ast.Lambda,
+                            ast.ListComp,
+                            ast.SetComp,
+                            ast.DictComp,
+                            ast.GeneratorExp,
+                        ),
+                    ):
+                        continue
+                    if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                        names.add(node.id)
+                    if isinstance(node, (ast.Import, ast.ImportFrom)):
+                        for imported in node.names:
+                            if imported.name != "*":
+                                names.add(
+                                    imported.asname or imported.name.split(".", 1)[0]
+                                )
+                    pending.extend(ast.iter_child_nodes(node))
+    return names
+
+
+def _validate_template_against_file(
+    current_content: str, block_yaml: str, *, current_block_id: str = ""
+) -> None:
+    parsed = _safe_load_interview_document(block_yaml)
+    if (
+        not isinstance(parsed, dict)
+        or "template" not in parsed
+        or not ("content" in parsed or "subject" in parsed or "content file" in parsed)
+    ):
+        return
+    name = str(parsed.get("template") or "").strip()
+    if current_block_id:
+        current = next(
+            (
+                block
+                for block in parse_interview_yaml(current_content)["blocks"]
+                if str(block.get("id") or "") == current_block_id
+            ),
+            None,
+        )
+        old_name = str(((current or {}).get("data") or {}).get("template") or "")
+        if old_name == name:
+            return  # Existing language/conditional variants can share a name.
+        if old_name:
+            references = _template_references(
+                current_content, old_name, exclude_block_id=current_block_id
+            )
+            if references:
+                raise ValueError(
+                    f"Cannot rename template {old_name!r}; it is used by: "
+                    + ", ".join(references)
+                )
+    if name.isidentifier() and name in _known_top_level_names(
+        current_content, current_block_id
+    ):
+        raise ValueError(
+            f"The name {name!r} is already defined by a non-template block "
+            "in this interview file. Choose a different template variable name."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -8349,6 +8553,9 @@ def editor_api_save_block() -> Response:
         )
 
         current_content = playground_read_yaml(uid, project, filename)
+        _validate_template_against_file(
+            current_content, new_yaml, current_block_id=block_id
+        )
         current_model = parse_interview_yaml(current_content)
         original_block = next(
             (block for block in current_model["blocks"] if block["id"] == block_id),
@@ -8460,6 +8667,26 @@ def editor_api_delete_block() -> Response:
             raise ValueError("block_id is required")
 
         current_content = playground_read_yaml(uid, project, filename)
+        current_block = next(
+            (
+                item
+                for item in parse_interview_yaml(current_content)["blocks"]
+                if str(item.get("id") or "") == block_id
+            ),
+            None,
+        )
+        if current_block and current_block.get("type") == "template":
+            template_name = str(
+                ((current_block.get("data") or {}).get("template") or "")
+            ).strip()
+            references = _template_references(
+                current_content, template_name, exclude_block_id=block_id
+            )
+            if references:
+                raise ValueError(
+                    f"Cannot delete template {template_name!r}; it is used by: "
+                    + ", ".join(references)
+                )
         updated_content = delete_block_from_yaml(current_content, block_id)
         conflict = _write_source_content(
             uid, project, filename, updated_content, post_data, request_id
@@ -8677,6 +8904,7 @@ def editor_api_insert_block() -> Response:
         _validate_block_yaml_payload(block_yaml, allow_empty_question=True)
 
         current_content = playground_read_yaml(uid, project, filename)
+        _validate_template_against_file(current_content, block_yaml)
         block_text = block_yaml.strip("\r\n")
         updated_content = insert_block_in_yaml(
             current_content, block_text, insert_after_id

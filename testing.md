@@ -112,3 +112,29 @@ at widths 576, 768, 1024 and 1366. This tests text sizing, not browser zoom. The
 editor accessibility workflow runs this regression and uploads the
 `editor-navigation-screenshots` artifact, including on failure. The existing
 `scripts/editor_route_smoketest.py` also supports the compact section menus.
+
+## Reusable help template end-to-end regression
+
+`scripts/editor_help_templates_smoketest.js` creates a disposable Playground
+project and exercises template creation from both the outline and a question's
+subquestion toolbar, reuse across questions, nested help, editing and reloading,
+YAML/form switching, and adding a subject to a subjectless template. It checks
+source comments and custom properties, invalid names, non-template name collisions,
+same-name variants and their de-duplicated picker,
+and guards against renaming or deleting referenced templates. It then runs the
+interview in Docassemble and verifies collapse behavior, Markdown, and evaluated
+Mako on both question screens. Two Axe audits cover the new dialog and editor.
+The fixture project is removed after success or failure.
+
+Use the same browser dependencies and authentication variables as the navigation
+regression above, then run:
+
+```bash
+NODE_PATH=/tmp/alweaver-e2e/node_modules \
+  SCREENSHOT_DIR=/tmp/alweaver-help-template-screenshots \
+  node scripts/editor_help_templates_smoketest.js
+```
+
+The output contains editor and live interview screenshots plus `results.json`.
+Template insertion and reference checks are scoped to the active YAML file;
+advanced templates remain editable in YAML mode.

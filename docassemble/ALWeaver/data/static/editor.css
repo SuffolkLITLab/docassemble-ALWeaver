@@ -5768,3 +5768,9 @@ body {
 .editor-secondary-files .dropdown {
   display: none;
 }
+
+/* Template mode controls sit on the canvas background rather than a white card. */
+.editor-template-action {
+  --bs-btn-color: #0b5ed7;
+  --bs-btn-border-color: #0b5ed7;
+}

@@ -47,6 +47,58 @@ SOURCE = (
 
 
 class TestEditorSourcePreservation(unittest.TestCase):
+    def test_graphical_template_edit_preserves_custom_keys_and_comments(self):
+        source = (
+            "template: shared_help\n"
+            "subject: | # keep subject style\n"
+            "  Learn more\n"
+            "content: |\n"
+            "  Original text.\n"
+            "language: es # custom key\n"
+        )
+        block_id = parse_interview_yaml(source)["blocks"][0]["id"]
+        edited = (
+            "template: shared_help\n"
+            "subject: |\n"
+            "  Learn more\n"
+            "content: |\n"
+            "  Edited **Markdown** with ${ user.name }.\n"
+        )
+        updated = update_block_in_yaml(
+            source, block_id, edited, preserve_unchanged_annotations=True
+        )
+        self.assertIn("subject: | # keep subject style\n", updated)
+        self.assertIn("language: es # custom key\n", updated)
+        self.assertIn("Edited **Markdown** with ${ user.name }.", updated)
+
+    def test_template_serialization_preserves_indentation_and_trailing_newlines(self):
+        serializer = Path(__file__).parent / "data/static/editor_serializers.js"
+        values = [
+            "    indented first line\nnormal line",
+            "Text  \nnext\n\n",
+            "${ value }\n",
+        ]
+        script = (
+            f"const s = require({json.dumps(str(serializer))});"
+            f"process.stdout.write(JSON.stringify({json.dumps(values)}.map(v => "
+            "s.serializeTemplateToYaml('help_text', 'Label', v))));"
+        )
+        result = subprocess.run(
+            ["node", "-e", script], capture_output=True, text=True, check=True
+        )
+        for value, block_yaml in zip(values, json.loads(result.stdout)):
+            with self.subTest(value=value):
+                self.assertEqual(yaml.safe_load(block_yaml)["content"], value)
+                original = (
+                    "template: help_text\ncontent: Original\nlanguage: en # keep\n"
+                )
+                block_id = parse_interview_yaml(original)["blocks"][0]["id"]
+                saved = update_block_in_yaml(
+                    original, block_id, block_yaml, preserve_unchanged_annotations=True
+                )
+                self.assertEqual(yaml.safe_load(saved)["content"], value)
+                self.assertIn("language: en # keep\n", saved)
+
     def test_fast_safe_loader_matches_python_safe_loader_semantics(self):
         corpus = (
             "metadata:\n  title: Dates and YAML booleans\n"
@@ -516,6 +568,7 @@ class TestNewBlockTemplates(unittest.TestCase):
         "code",
         "objects",
         "attachment",
+        "template",
         "comment",
         "other",
     )

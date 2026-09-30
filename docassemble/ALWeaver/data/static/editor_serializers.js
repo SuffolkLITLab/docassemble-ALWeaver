@@ -393,6 +393,73 @@
     return yaml;
   }
 
+  function isPythonIdentifier(value) {
+    var name = String(
+      value === undefined || value === null ? '' : value,
+    ).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return false;
+    return (
+      [
+        'False',
+        'None',
+        'True',
+        'and',
+        'as',
+        'assert',
+        'async',
+        'await',
+        'break',
+        'class',
+        'continue',
+        'def',
+        'del',
+        'elif',
+        'else',
+        'except',
+        'finally',
+        'for',
+        'from',
+        'global',
+        'if',
+        'import',
+        'in',
+        'is',
+        'lambda',
+        'nonlocal',
+        'not',
+        'or',
+        'pass',
+        'raise',
+        'return',
+        'try',
+        'while',
+        'with',
+        'yield',
+      ].indexOf(name) === -1
+    );
+  }
+
+  function serializeTemplateToYaml(name, subject, content) {
+    var cleanName = String(
+      name === undefined || name === null ? '' : name,
+    ).trim();
+    if (!isPythonIdentifier(cleanName)) {
+      throw new Error(
+        'Template name must be a valid Python identifier and not a keyword.',
+      );
+    }
+    if (
+      !String(content === undefined || content === null ? '' : content).trim()
+    ) {
+      throw new Error('Template content cannot be empty.');
+    }
+    var yaml = 'template: ' + cleanName + '\n';
+    if (subject !== undefined && subject !== null && String(subject).trim()) {
+      yaml = appendYamlText(yaml, 'subject', subject);
+    }
+    return appendYamlText(yaml, 'content', content);
+  }
+
   // -------------------------------------------------------------------------
   // ALPeopleList quantity
   //
@@ -713,6 +780,9 @@
         '  - user: Individual\n'
       );
     }
+    if (kind === 'template') {
+      return serializeTemplateToYaml('help_text_' + stamp, 'More information', 'Add the help text here.');
+    }
     if (kind === 'comment') {
       // No id: a comment block is prose about the interview, docassemble has
       // nothing to reach it by, and an id with no type key beside it is an
@@ -769,6 +839,8 @@
     escapeYamlStr: escapeYamlStr,
     appendYamlText: appendYamlText,
     serializeQuestionToYaml: serializeQuestionToYaml,
+    serializeTemplateToYaml: serializeTemplateToYaml,
+    isPythonIdentifier: isPythonIdentifier,
     makeNewBlockYaml: makeNewBlockYaml,
     questionScreenType: questionScreenType,
     screenChoice: screenChoice,

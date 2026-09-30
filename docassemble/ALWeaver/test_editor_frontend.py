@@ -21,6 +21,7 @@ NODE_TESTS = (
     "test_editor_html.js",
     "test_editor_api_client.js",
     "test_editor_serializers.js",
+    "test_editor_help_templates.js",
     "test_editor_screen_types.js",
     "test_editor_screen_validation.js",
     "test_editor_validation_source.js",
@@ -49,6 +50,18 @@ class _TemplateCollector(HTMLParser):
 
 
 class TestEditorFrontend(unittest.TestCase):
+    def test_help_template_controls_have_accessible_labels(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        for control in (
+            "template-insert-existing",
+            "template-insert-name",
+            "template-insert-subject",
+            "template-insert-content",
+        ):
+            self.assertIn(f'for="{control}"', template)
+        self.assertIn('id="template-insert-error" role="alert"', template)
+        self.assertIn('data-insert="template"', template)
+
     def test_github_branch_picker_has_new_branch_field_without_helper_text(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
         self.assertRegex(template, r'<select[^>]+id="github-branch-name"')

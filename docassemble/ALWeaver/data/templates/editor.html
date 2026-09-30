@@ -857,6 +857,14 @@
             </span>
             <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
           </button>
+          <button type="button" class="editor-insert-card" data-insert="template">
+            <span class="editor-insert-icon"><i class="fa-solid fa-circle-info" aria-hidden="true"></i></span>
+            <span class="editor-insert-text">
+              <span class="editor-insert-name">Reusable help text</span>
+              <span class="editor-insert-desc" style="color:#334155">Create a named text template for collapsible help.</span>
+            </span>
+            <span class="editor-insert-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></span>
+          </button>
         </div>
         <div class="editor-insert-group-label" style="color:#334155">Other</div>
         <div class="editor-insert-list">
@@ -930,6 +938,52 @@
         <div class="editor-insert-footnote">
           <a href="https://docassemble.org/docs/initial.html" style="color:#0d3970" target="_blank" rel="noopener">Block type docs</a>
         </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Reusable help insertion modal -->
+<div class="modal fade" id="template-insert-modal" tabindex="-1" aria-labelledby="template-insert-title">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <div class="editor-tiny">Reusable help text</div>
+          <h5 class="modal-title mt-1" id="template-insert-title">Insert collapsible help</h5>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="template-insert-existing-wrap">
+          <label class="editor-tiny" for="template-insert-existing">Existing text template</label>
+          <select class="form-select form-select-sm mt-1" id="template-insert-existing"></select>
+          <div class="form-text">Only templates with a subject can be inserted as collapsible help.</div>
+        </div>
+        <hr>
+        <div class="editor-tiny mb-2">Or create new help text</div>
+        <div class="row g-2">
+          <div class="col-md-5">
+            <label class="editor-tiny" for="template-insert-name">Variable name</label>
+            <input class="form-control form-control-sm font-monospace mt-1" id="template-insert-name" autocomplete="off">
+            <div class="form-text">Use letters, numbers, and underscores; begin with a letter or underscore.</div>
+          </div>
+          <div class="col-md-7">
+            <label class="editor-tiny" for="template-insert-subject">Disclosure label</label>
+            <input class="form-control form-control-sm mt-1" id="template-insert-subject">
+            <div class="form-text">This is the clickable text shown on the question screen.</div>
+          </div>
+        </div>
+        <div class="mt-2">
+          <label class="editor-tiny" for="template-insert-content">Content</label>
+          <textarea class="form-control form-control-sm mt-1" id="template-insert-content" rows="5"></textarea>
+        </div>
+        <div class="alert alert-danger d-none mt-3 mb-0" id="template-insert-error" role="alert"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-sm btn-outline-primary" id="template-insert-create">Create and insert</button>
+        <button type="button" class="btn btn-sm btn-primary" id="template-insert-apply">Insert selected</button>
       </div>
     </div>
   </div>

@@ -4547,6 +4547,207 @@ class TestEditorBlockPayloadValidation(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.accepts(payload)
 
+    def test_text_templates_require_a_safe_name_and_nonblank_content(self):
+        self.accepts(
+            "template: mailing_help\nsubject: |\n  Learn more\ncontent: |\n  Hi ${ user }\n"
+        )
+        for payload in (
+            "template: 2_bad\ncontent: Text\n",
+            "template: class\ncontent: Text\n",
+            "template: blank_help\ncontent: '   '\n",
+        ):
+            with self.subTest(payload=payload):
+                with self.assertRaises(ValueError):
+                    self.accepts(payload)
+
+    def test_new_template_variants_can_share_a_name(self):
+        from .editor_utils import parse_interview_yaml
+
+        source = "id: english\ntemplate: shared_help\nlanguage: en\ncontent: English\n"
+        with patch.object(
+            api_editor, "parse_interview_yaml", wraps=parse_interview_yaml
+        ):
+            for variant in (
+                "template: shared_help\nlanguage: es\ncontent: Spanish\n",
+                "template: shared_help\nif: special_case\ncontent: Conditional\n",
+            ):
+                with self.subTest(variant=variant):
+                    api_editor._validate_template_against_file(source, variant)
+
+    def test_variant_can_be_renamed_or_removed_while_another_defines_its_name(self):
+        from .editor_utils import parse_interview_yaml
+
+        source = (
+            "id: english\ntemplate: shared_help\nlanguage: en\ncontent: English\n---\n"
+            "id: spanish\ntemplate: shared_help\nlanguage: es\ncontent: Spanish\n---\n"
+            "id: other\ntemplate: other_help\ncontent: Other\n---\n"
+            "question: Address\nsubquestion: ${ collapse_template(shared_help) }\n"
+        )
+        with patch.object(
+            api_editor, "parse_interview_yaml", wraps=parse_interview_yaml
+        ):
+            self.assertEqual(
+                api_editor._template_references(source, "shared_help", "spanish"), []
+            )
+            api_editor._validate_template_against_file(
+                source,
+                "template: other_help\ncontent: Edited variant\n",
+                current_block_id="spanish",
+            )
+            # Without the other variant, the same change loses the definition.
+            remaining = source.split("---\n", 1)[1]
+            self.assertEqual(
+                len(
+                    api_editor._template_references(remaining, "shared_help", "spanish")
+                ),
+                1,
+            )
+            with self.assertRaisesRegex(ValueError, "Cannot rename"):
+                api_editor._validate_template_against_file(
+                    remaining,
+                    "template: other_help\ncontent: Edited variant\n",
+                    current_block_id="spanish",
+                )
+
+    def test_imported_code_names_are_reserved_for_non_template_bindings(self):
+        from .editor_utils import parse_interview_yaml
+
+        source = (
+            "code: |\n  import math as imported_help\n  import os.path\n"
+            "  from math import sqrt as root_help\n  from math import ceil\n"
+            "  def local_scope():\n    import json as local_help\n"
+        )
+        with patch.object(
+            api_editor, "parse_interview_yaml", wraps=parse_interview_yaml
+        ):
+            for name in ("imported_help", "os", "root_help", "ceil"):
+                with self.subTest(name=name):
+                    with self.assertRaisesRegex(ValueError, "non-template"):
+                        api_editor._validate_template_against_file(
+                            source, f"template: {name}\ncontent: Text\n"
+                        )
+            api_editor._validate_template_against_file(
+                source, "template: local_help\ncontent: Text\n"
+            )
+
+    def test_template_references_report_the_question_and_line(self):
+        blocks = [
+            {
+                "id": "address",
+                "title": "What is your address?",
+                "line_start": 14,
+                "yaml": "subquestion: ${ collapse_template(shared_help) }\n",
+                "data": {},
+            },
+            {
+                "id": "other",
+                "title": "Other",
+                "line_start": 30,
+                "yaml": "subquestion: No help here.\n",
+                "data": {},
+            },
+        ]
+        with patch.object(
+            api_editor, "parse_interview_yaml", return_value={"blocks": blocks}
+        ):
+            self.assertEqual(
+                api_editor._template_references("source", "shared_help"),
+                ["What is your address? (line 14)"],
+            )
+
+    def test_advanced_template_names_remain_source_editable(self):
+        self.accepts("template: person[i].help\ncontent: Advanced text\n")
+
+    def test_template_names_do_not_collide_with_local_function_variables(self):
+        from .editor_utils import parse_interview_yaml
+
+        source = (
+            "code: |\n  def helper():\n    local_help = 'local'\n"
+            "  assigned_help, other = ('global', True)\n---\n"
+            "question: Choice\nyesno: answer_help\n"
+        )
+        with patch.object(
+            api_editor, "parse_interview_yaml", wraps=parse_interview_yaml
+        ):
+            api_editor._validate_template_against_file(
+                source, "template: local_help\ncontent: Text\n"
+            )
+            for name in ("assigned_help", "answer_help", "helper"):
+                with self.subTest(name=name):
+                    with self.assertRaisesRegex(ValueError, "already defined"):
+                        api_editor._validate_template_against_file(
+                            source, f"template: {name}\ncontent: Text\n"
+                        )
+
+    def test_existing_template_language_variants_can_be_edited(self):
+        from .editor_utils import parse_interview_yaml
+
+        source = (
+            "template: help_text\nlanguage: en\ncontent: English\n---\n"
+            "template: help_text\nlanguage: es\ncontent: Spanish\n"
+        )
+        block_id = parse_interview_yaml(source)["blocks"][0]["id"]
+        with patch.object(
+            api_editor, "parse_interview_yaml", wraps=parse_interview_yaml
+        ):
+            api_editor._validate_template_against_file(
+                source,
+                "template: help_text\ncontent: Edited\n",
+                current_block_id=block_id,
+            )
+
+    def test_content_file_templates_remain_source_editable(self):
+        from .editor_utils import parse_interview_yaml
+
+        for name in ("shared_help", "person[i].help"):
+            source = f"template: {name}\nsubject: Learn more\ncontent file: help.md\n"
+            self.accepts(source)
+            self.assertEqual(
+                parse_interview_yaml(source)["blocks"][0]["type"], "template"
+            )
+
+    def test_template_references_match_the_exact_argument(self):
+        from .editor_utils import parse_interview_yaml
+
+        source = (
+            "id: exact\nquestion: Exact\nsubquestion: |\n"
+            "  ${ collapse_template(shared_help, collapsed=False) }\n---\n"
+            "id: attribute\nquestion: Attribute\nsubquestion: |\n"
+            "  ${ collapse_template(shared_help.other) }\n---\n"
+            "id: prefix\nquestion: Prefix\nsubquestion: |\n"
+            "  ${ collapse_template(shared_help_longer) }\n"
+        )
+        with patch.object(
+            api_editor, "parse_interview_yaml", wraps=parse_interview_yaml
+        ):
+            refs = api_editor._template_references(source, "shared_help")
+        self.assertEqual(len(refs), 1)
+        self.assertIn("Exact", refs[0])
+
+    def test_referenced_template_cannot_be_renamed(self):
+        from .editor_utils import parse_interview_yaml
+
+        source = (
+            "template: shared_help\nsubject: Label\ncontent: Text\n---\n"
+            "id: address\nquestion: Address\n"
+            "subquestion: ${ collapse_template(shared_help) }\n"
+        )
+        block_id = parse_interview_yaml(source)["blocks"][0]["id"]
+        with patch.object(
+            api_editor, "parse_interview_yaml", wraps=parse_interview_yaml
+        ):
+            with self.assertRaisesRegex(ValueError, "Cannot rename.*Address"):
+                api_editor._validate_template_against_file(
+                    source,
+                    "template: renamed_help\ncontent: Text\n",
+                    current_block_id=block_id,
+                )
+            api_editor._validate_template_against_file(
+                source,
+                "template: shared_help\ncontent: Edited\n",
+                current_block_id=block_id,
+            )
+
     def test_question_text_is_required_when_saving(self):
         for value in ('""', '"   "', "null", "[]"):
             with self.subTest(value=value):

@@ -93,6 +93,22 @@ assert.strictEqual(serializers.escapeYamlStr('with: colon'), '"with: colon"');
 assert.strictEqual(serializers.escapeYamlStr('two\nlines'), JSON.stringify('two\nlines'));
 assert.strictEqual(serializers.escapeYamlStr('a\\b"c'), '"a\\\\b\\"c"');
 
+// Reusable help templates keep Markdown, Unicode, blank lines, and Mako as
+// literal text. Their names are Python identifiers because Docassemble exposes
+// the template as a variable.
+const helpYaml = serializers.serializeTemplateToYaml(
+  'mailing_address_help',
+  'Which address: “home” or mailing?',
+  'First paragraph.\n\n- **Apartment**\n- [More](https://example.com)\n\n${ user.name }'
+);
+assert.ok(helpYaml.startsWith('template: mailing_address_help\n'));
+assert.ok(helpYaml.includes('subject: ' + JSON.stringify('Which address: “home” or mailing?') + '\n'));
+assert.ok(helpYaml.includes('content: |2-\n  First paragraph.\n  \n  - **Apartment**'));
+assert.ok(helpYaml.includes('  ${ user.name }\n'));
+assert.throws(() => serializers.serializeTemplateToYaml('2 bad', 'Label', 'Text'));
+assert.throws(() => serializers.serializeTemplateToYaml('class', 'Label', 'Text'));
+assert.throws(() => serializers.serializeTemplateToYaml('valid_name', 'Label', '  '));
+assert.ok(serializers.makeNewBlockYaml('template', 123).includes('template: help_text_123\n'));
 assert.strictEqual(
   serializers.makeNewBlockYaml('question', 123).split('\n')[1],
   'question: ""',

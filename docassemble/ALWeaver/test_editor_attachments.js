@@ -45,6 +45,7 @@ assert.strictEqual(context.state.documents.bundles[0].elements.length, 0);
 // A standalone attachment block still gets the plain attachment card.
 const routed = [];
 const canvas = {
+  window: {ALWeaverSerializers: require('./data/static/editor_serializers.js')},
   state: {project: 'p', questionEditMode: 'preview'},
   canvasContent: {innerHTML: ''},
   selected: null,
@@ -60,6 +61,8 @@ const canvas = {
 };
 canvas.getSelectedBlock = () => canvas.selected;
 vm.createContext(canvas);
+const templateStart = source.indexOf('  function isTemplateEditorBlock(');
+vm.runInContext(source.slice(templateStart, source.indexOf('\n  }', templateStart) + 4), canvas);
 const helperStart = source.indexOf('  function isQuestionEditorBlock(');
 vm.runInContext(source.slice(helperStart, source.indexOf('\n  }', helperStart) + 4), canvas);
 const canvasStart = source.indexOf('  function renderBlockCanvas(');
