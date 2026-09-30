@@ -1,0 +1,24 @@
+{
+  "results": [
+    {
+      "check": "Visible debugger uses combined snapshot polling",
+      "snapshot_requests": 5
+    },
+    {
+      "check": "Hidden-page visibility event suspends polling",
+      "requests_during_12_seconds": 0
+    },
+    {
+      "check": "Foreground visibility event refreshes immediately"
+    },
+    {
+      "check": "Leaving Debug suspends polling",
+      "requests_during_12_seconds": 0
+    },
+    {
+      "check": "No browser JavaScript errors"
+    }
+  ],
+  "page_errors": [],
+  "snapshot_requests": 7
+}

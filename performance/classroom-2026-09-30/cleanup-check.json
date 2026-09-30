@@ -1,0 +1,10 @@
+{
+  "no_fixture_accounts_remain": true,
+  "original_configuration_restored": true,
+  "fixture_provider_stopped": true,
+  "services_running": [
+    "uwsgi",
+    "celery",
+    "celerysingle"
+  ]
+}

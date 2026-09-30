@@ -23,6 +23,63 @@ async function expectError(promise, expected) {
 }
 
 async function run() {
+  const queued = {
+    success: true,
+    data: { job_url: '/al/editor/api/ai/jobs/example' },
+  };
+  let jobReads = 0;
+  let waits = 0;
+  const result = await api.waitForJob(queued, {
+    wait: async (ms) => {
+      assert.ok(ms >= 2500 && ms <= 3500);
+      waits += 1;
+    },
+    get: async (url) => {
+      assert.strictEqual(url, queued.data.job_url);
+      jobReads += 1;
+      return {
+        data:
+          jobReads === 1
+            ? { status: 'running' }
+            : { status: 'succeeded', result: { screen: 'ready' } },
+      };
+    },
+    isCurrent: () => true,
+  });
+  assert.deepStrictEqual(result, { success: true, data: { screen: 'ready' } });
+  assert.strictEqual(waits, 2);
+  await expectError(
+    api.waitForJob(queued, {
+      wait: async () => {},
+      isCurrent: () => false,
+      get: async () => {
+        throw new Error('Must not poll after navigation');
+      },
+    }),
+    { code: 'stale_response' },
+  );
+  let current = true;
+  await expectError(
+    api.waitForJob(queued, {
+      wait: async () => {},
+      isCurrent: () => current,
+      get: async () => {
+        current = false;
+        return { data: { status: 'succeeded', result: {} } };
+      },
+    }),
+    { code: 'stale_response' },
+  );
+  await expectError(
+    api.waitForJob(queued, {
+      wait: async () => {},
+      get: async () => ({
+        data: { status: 'failed', error: { message: 'Worker failed' } },
+      }),
+    }),
+    { message: 'Worker failed' },
+  );
+
   const activeFile = {
     project: 'matrix_sec_project',
     filename: 'interview.yml',
@@ -58,7 +115,11 @@ async function run() {
     undefined,
   );
   assert.strictEqual(
-    api.attachExpectedRevision('/api/validate-source', originalWrite, activeFile),
+    api.attachExpectedRevision(
+      '/api/validate-source',
+      originalWrite,
+      activeFile,
+    ),
     originalWrite,
   );
 
@@ -145,10 +206,13 @@ async function run() {
         422,
       ),
   });
-  await expectError(draftConfirmationClient.post('/api/file', { content: 'bad' }), {
-    status: 422,
-    code: 'draft_confirmation_required',
-  });
+  await expectError(
+    draftConfirmationClient.post('/api/file', { content: 'bad' }),
+    {
+      status: 422,
+      code: 'draft_confirmation_required',
+    },
+  );
   assert.deepStrictEqual(
     reportedErrors,
     [],

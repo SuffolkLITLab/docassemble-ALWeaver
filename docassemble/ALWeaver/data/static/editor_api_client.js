@@ -94,6 +94,51 @@
     return baseUrl + value;
   }
 
+  // Poll small job records only after the previous request completes. Capture
+  // context before submission so navigation or edits cannot apply a late draft.
+  function waitForJob(response, options) {
+    var data = response && response.data;
+    if (!data || !data.job_url) return Promise.resolve(response);
+    options = options || {};
+    var wait =
+      options.wait ||
+      function (ms) {
+        return new Promise(function (resolve) {
+          root.setTimeout(resolve, ms);
+        });
+      };
+    var started = Date.now();
+    function poll() {
+      if (options.isCurrent && !options.isCurrent())
+        return Promise.reject(
+          new EditorApiError(
+            'The editor changed while the AI request was running.',
+            { code: 'stale_response' },
+          ),
+        );
+      if (Date.now() - started > 19 * 60 * 1000)
+        return Promise.reject(new EditorApiError('The AI request timed out.'));
+      return options.get(data.job_url).then(function (result) {
+        var job = result.data || {};
+        if (options.isCurrent && !options.isCurrent())
+          throw new EditorApiError(
+            'The editor changed while the AI request was running.',
+            { code: 'stale_response' },
+          );
+        if (job.status === 'succeeded')
+          return { success: true, data: job.result };
+        if (['failed', 'expired', 'cancelled'].indexOf(job.status) !== -1)
+          throw new EditorApiError(
+            (job.error && job.error.message) || 'The AI request failed.',
+          );
+        // eslint-disable-next-line sonarjs/pseudo-random -- Timer jitter only; no security token.
+        return wait(2500 + Math.random() * 1000).then(poll);
+      });
+    }
+    // eslint-disable-next-line sonarjs/pseudo-random -- Timer jitter only; no security token.
+    return wait(2500 + Math.random() * 1000).then(poll);
+  }
+
   function createClient(options) {
     options = options || {};
     var baseUrl = options.baseUrl || '';
@@ -334,6 +379,7 @@
   }
 
   return {
+    waitForJob: waitForJob,
     EditorApiError: EditorApiError,
     attachExpectedRevision: attachExpectedRevision,
     createClient: createClient,

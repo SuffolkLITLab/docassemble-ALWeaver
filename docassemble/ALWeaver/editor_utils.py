@@ -14,10 +14,13 @@ import io
 import os
 import re
 import tokenize
+from types import SimpleNamespace
+
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import yaml
 
+from .analysis_cache import Dependencies, FileResultCache
 from .docassemble_compat import create_playground, create_saved_file
 from .editor_function_catalog import interview_function_catalog, local_function_catalog
 
@@ -2746,18 +2749,45 @@ def _al_individual_primitive_groups(model: Dict[str, Any]) -> Dict[str, List[str
     return result
 
 
+_symbol_cache = FileResultCache()
+
+
 def _playground_symbols_without_execution(pg, user_id, project, filename):
+    path = pg.get_file(filename)
+    if path is None:
+        raise FileNotFoundError(filename)
+    data = _symbol_cache.get(
+        (user_id, project, filename, path),
+        lambda dependencies: _parse_playground_symbols(
+            path, user_id, project, filename, dependencies
+        ),
+    )
+    # Rebuild the small function-catalog input, not the parsed interview. Module
+    # help stays fresh when Python modules are loaded or changed in this worker.
+    catalog_input = SimpleNamespace(
+        consolidated_metadata=data["metadata"],
+        questions_list=[
+            SimpleNamespace(**question) for question in data["catalog_questions"]
+        ],
+    )
+    return (
+        {name: set(values) for name, values in data["variables"].items()},
+        interview_function_catalog(catalog_input),
+        data["origins"],
+    )
+
+
+def _parse_playground_symbols(
+    path, user_id, project, filename, dependencies: Dependencies
+):
     """Parse the selected project without assembling or running author code."""
     from docassemble.base.parse import Interview
 
     try:
         from docassemble.base.interview_source import InterviewSourceFile
     except ImportError:  # Docassemble 1.9
-        from docassemble.base.parse import InterviewSourceFile
+        from docassemble.base.parse import InterviewSourceFile  # type: ignore[attr-defined, no-redef]
 
-    path = pg.get_file(filename)
-    if path is None:
-        raise FileNotFoundError(filename)
     with open(path, encoding="utf-8", newline="") as source_file:
         content = source_file.read()
     package = "docassemble.playground" + str(user_id)
@@ -2771,9 +2801,17 @@ def _playground_symbols_without_execution(pg, user_id, project, filename):
     )
     # String sources cannot append relative includes, even with a directory.
     source.set_content(content)
-    interview = Interview(source=source)
+
+    class TrackedInterview(Interview):
+        def read_from(self, included_source):
+            dependencies.source(included_source)
+            return super().read_from(included_source)
+
+    interview = TrackedInterview(source=source)
+    if not getattr(interview, "success", True):
+        dependencies.cacheable = False
     names = set(interview.names_used)
-    fields = set()
+    fields: set[str] = set()
     origins: Dict[str, List[str]] = {}
     for question in interview.questions_list:
         question_names = set(getattr(question, "names_used", ()))
@@ -2790,16 +2828,31 @@ def _playground_symbols_without_execution(pg, user_id, project, filename):
     names.difference_update(
         {"_internal", "url_args", "device_local", "session_local", "user_local"}
     )
-    return (
-        {
-            "all_names_reduced": names,
-            "fields_used": fields,
-            "names_used": names,
-            "undefined_names": names - fields,
+    return {
+        "variables": {
+            "all_names_reduced": sorted(names),
+            "fields_used": sorted(fields),
+            "names_used": sorted(names),
+            "undefined_names": sorted(names - fields),
         },
-        interview_function_catalog(interview),
-        origins,
-    )
+        "origins": origins,
+        "metadata": {
+            "suppress loading util": getattr(
+                interview, "consolidated_metadata", {}
+            ).get("suppress loading util", False)
+        },
+        "catalog_questions": [
+            {
+                "question_type": question.question_type,
+                "sourcecode": getattr(question, "sourcecode", ""),
+                "module_list": getattr(question, "module_list", []),
+                "package": getattr(question, "package", None),
+            }
+            for question in interview.questions_list
+            if getattr(question, "question_type", None)
+            in {"code", "modules", "imports"}
+        ],
+    }
 
 
 def playground_get_variables(

@@ -1,0 +1,1918 @@
+[
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3705491456,
+    "inactive_file_bytes": 71819264,
+    "swap_bytes": 363962368,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1642372796
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 0.11400949399831006,
+    "phase": "legacy_polling_replay",
+    "working_set_bytes": 3633672192
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3883069440,
+    "inactive_file_bytes": 71946240,
+    "swap_bytes": 363950080,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1646767307
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 5.230783978000545,
+    "phase": "legacy_polling_replay",
+    "working_set_bytes": 3811123200,
+    "cpu_percent": 85.88439873087204
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3883798528,
+    "inactive_file_bytes": 72118272,
+    "swap_bytes": 363945984,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1648464694
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 10.343076040997403,
+    "phase": "legacy_polling_replay",
+    "working_set_bytes": 3811680256,
+    "cpu_percent": 33.202074120252455
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3883921408,
+    "inactive_file_bytes": 72290304,
+    "swap_bytes": 363945984,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1650198954
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 15.472632542998326,
+    "phase": "legacy_polling_replay",
+    "working_set_bytes": 3811631104,
+    "cpu_percent": 33.809160681308505
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3901059072,
+    "inactive_file_bytes": 72491008,
+    "swap_bytes": 363945984,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1654409332
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 20.605223476999527,
+    "phase": "legacy_polling_replay",
+    "working_set_bytes": 3828568064,
+    "cpu_percent": 82.03221441451846
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3901698048,
+    "inactive_file_bytes": 72658944,
+    "swap_bytes": 363945984,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1656121443
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 25.72867318600038,
+    "phase": "legacy_polling_replay",
+    "working_set_bytes": 3829039104,
+    "cpu_percent": 33.417152450860826
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3901767680,
+    "inactive_file_bytes": 72830976,
+    "swap_bytes": 363945984,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1657929867
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 30.846153438997135,
+    "phase": "legacy_polling_replay",
+    "working_set_bytes": 3828936704,
+    "cpu_percent": 35.338172510602284
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3907530752,
+    "inactive_file_bytes": 73023488,
+    "swap_bytes": 363941888,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1660336556
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 35.95135673199911,
+    "phase": "legacy_polling_replay",
+    "working_set_bytes": 3834507264,
+    "cpu_percent": 47.141883718891265
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3922235392,
+    "inactive_file_bytes": 73211904,
+    "swap_bytes": 363941888,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1662994320
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 41.046916161998524,
+    "phase": "legacy_polling_replay",
+    "working_set_bytes": 3849023488,
+    "cpu_percent": 52.1584339562949
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3926351872,
+    "inactive_file_bytes": 73383936,
+    "swap_bytes": 363941888,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1664661906
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 46.161283623998315,
+    "phase": "legacy_polling_replay",
+    "working_set_bytes": 3852967936,
+    "cpu_percent": 32.60590898855653
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3941838848,
+    "inactive_file_bytes": 73564160,
+    "swap_bytes": 363941888,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1666849870
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 51.26157079899713,
+    "phase": "legacy_polling_replay",
+    "working_set_bytes": 3868274688,
+    "cpu_percent": 42.89883931879796
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3947175936,
+    "inactive_file_bytes": 73764864,
+    "swap_bytes": 363937792,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1670923304
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 56.393520170000556,
+    "phase": "legacy_polling_replay",
+    "working_set_bytes": 3873411072,
+    "cpu_percent": 79.37400986486229
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3947352064,
+    "inactive_file_bytes": 73965568,
+    "swap_bytes": 363937792,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1672662498
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 61.5010749849971,
+    "phase": "legacy_polling_replay",
+    "working_set_bytes": 3873386496,
+    "cpu_percent": 34.051401560947824
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3945836544,
+    "inactive_file_bytes": 74145792,
+    "swap_bytes": 363937792,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1674755530
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 66.6143639999973,
+    "phase": "legacy_polling_replay",
+    "working_set_bytes": 3871690752,
+    "cpu_percent": 40.93318398118988
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3951316992,
+    "inactive_file_bytes": 74330112,
+    "swap_bytes": 363933696,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1678208914
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 71.72779464799896,
+    "phase": "legacy_polling_replay",
+    "working_set_bytes": 3876986880,
+    "cpu_percent": 67.53555954356368
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3951652864,
+    "inactive_file_bytes": 74510336,
+    "swap_bytes": 363933696,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1680274966
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 76.84548894899854,
+    "phase": "legacy_polling_replay",
+    "working_set_bytes": 3877142528,
+    "cpu_percent": 40.37075836273504
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3952066560,
+    "inactive_file_bytes": 74678272,
+    "swap_bytes": 363933696,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1682068279
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 81.95380893199763,
+    "phase": "legacy_polling_replay",
+    "working_set_bytes": 3877388288,
+    "cpu_percent": 35.10572959345328
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3966246912,
+    "inactive_file_bytes": 74883072,
+    "swap_bytes": 363933696,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1684982145
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 87.07586458099831,
+    "phase": "legacy_polling_replay",
+    "working_set_bytes": 3891363840,
+    "cpu_percent": 56.88860488207495
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3967307776,
+    "inactive_file_bytes": 75038720,
+    "swap_bytes": 363933696,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1687138031
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 92.1767483529984,
+    "phase": "adaptive_polling",
+    "working_set_bytes": 3892269056,
+    "cpu_percent": 42.26495047454617
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3970711552,
+    "inactive_file_bytes": 75075584,
+    "swap_bytes": 363933696,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1687647976
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 97.27924975899805,
+    "phase": "adaptive_polling",
+    "working_set_bytes": 3895635968,
+    "cpu_percent": 9.994019784108128
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3984261120,
+    "inactive_file_bytes": 75112448,
+    "swap_bytes": 363933696,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1688972621
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 102.38861588899817,
+    "phase": "adaptive_polling",
+    "working_set_bytes": 3909148672,
+    "cpu_percent": 25.925818708160723
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3965493248,
+    "inactive_file_bytes": 75153408,
+    "swap_bytes": 363933696,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1690674083
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 107.49206361100005,
+    "phase": "adaptive_polling",
+    "working_set_bytes": 3890339840,
+    "cpu_percent": 33.33946172632852
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3975815168,
+    "inactive_file_bytes": 75194368,
+    "swap_bytes": 363933696,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1691176077
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 112.58256713899755,
+    "phase": "adaptive_polling",
+    "working_set_bytes": 3900620800,
+    "cpu_percent": 9.861382027122852
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3980230656,
+    "inactive_file_bytes": 75227136,
+    "swap_bytes": 364060672,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1692420521
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 117.68571496199729,
+    "phase": "adaptive_polling",
+    "working_set_bytes": 3905003520,
+    "cpu_percent": 24.385811329848718
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3980226560,
+    "inactive_file_bytes": 75292672,
+    "swap_bytes": 363933696,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1693892525
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 122.77977457399902,
+    "phase": "adaptive_polling",
+    "working_set_bytes": 3904933888,
+    "cpu_percent": 28.89648162993465
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3980324864,
+    "inactive_file_bytes": 75501568,
+    "swap_bytes": 363933696,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1694559917
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 127.89232232699942,
+    "phase": "adaptive_polling",
+    "working_set_bytes": 3904823296,
+    "cpu_percent": 13.054000319279716
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3980267520,
+    "inactive_file_bytes": 75546624,
+    "swap_bytes": 363933696,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1695273063
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 132.98784505499862,
+    "phase": "adaptive_polling",
+    "working_set_bytes": 3904720896,
+    "cpu_percent": 13.995541538483598
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3978940416,
+    "inactive_file_bytes": 75595776,
+    "swap_bytes": 363933696,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1697535255
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 138.09852556699843,
+    "phase": "adaptive_polling",
+    "working_set_bytes": 3903344640,
+    "cpu_percent": 44.26400739957037
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3979345920,
+    "inactive_file_bytes": 75624448,
+    "swap_bytes": 363933696,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1698609174
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 143.19513957399977,
+    "phase": "adaptive_polling",
+    "working_set_bytes": 3903721472,
+    "cpu_percent": 21.07122490588326
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3979452416,
+    "inactive_file_bytes": 75669504,
+    "swap_bytes": 363933696,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1699147824
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 148.30453843899886,
+    "phase": "adaptive_polling",
+    "working_set_bytes": 3903782912,
+    "cpu_percent": 10.542336079688615
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3985649664,
+    "inactive_file_bytes": 78434304,
+    "swap_bytes": 363933696,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1701082114
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 153.41159906599933,
+    "phase": "adaptive_polling",
+    "working_set_bytes": 3907215360,
+    "cpu_percent": 37.87481961294179
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3988971520,
+    "inactive_file_bytes": 78487552,
+    "swap_bytes": 363933696,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1702411666
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 158.5034336309982,
+    "phase": "adaptive_polling",
+    "working_set_bytes": 3910483968,
+    "cpu_percent": 26.111453210583583
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3988930560,
+    "inactive_file_bytes": 78508032,
+    "swap_bytes": 363933696,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1702809651
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 163.6102870350005,
+    "phase": "adaptive_polling",
+    "working_set_bytes": 3910422528,
+    "cpu_percent": 7.7931549726509255
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3988705280,
+    "inactive_file_bytes": 78548992,
+    "swap_bytes": 363933696,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1703851917
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 168.71527524799967,
+    "phase": "adaptive_polling",
+    "working_set_bytes": 3910156288,
+    "cpu_percent": 20.416619128444037
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3993395200,
+    "inactive_file_bytes": 78585856,
+    "swap_bytes": 363933696,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1705124173
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 173.81572467300066,
+    "phase": "adaptive_polling",
+    "working_set_bytes": 3914809344,
+    "cpu_percent": 24.943997949744467
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 3993251840,
+    "inactive_file_bytes": 78622720,
+    "swap_bytes": 363933696,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1705955929
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 1,
+      "calls": 2,
+      "delay_seconds": 8
+    },
+    "at": 178.92688837899914,
+    "phase": "adaptive_polling",
+    "working_set_bytes": 3914629120,
+    "cpu_percent": 16.273319499116187
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4086657024,
+    "inactive_file_bytes": 78467072,
+    "swap_bytes": 363917312,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1707813707
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 2,
+      "maximum_active": 2,
+      "calls": 4,
+      "delay_seconds": 8
+    },
+    "at": 184.04730367499724,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4008189952,
+    "cpu_percent": 36.281783656336636
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4097925120,
+    "inactive_file_bytes": 78516224,
+    "swap_bytes": 363917312,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1709394752
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 2,
+      "maximum_active": 2,
+      "calls": 6,
+      "delay_seconds": 8
+    },
+    "at": 189.1656974949983,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4019408896,
+    "cpu_percent": 30.88947540186871
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4102475776,
+    "inactive_file_bytes": 78569472,
+    "swap_bytes": 363917312,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1710426882
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 2,
+      "maximum_active": 2,
+      "calls": 6,
+      "delay_seconds": 8
+    },
+    "at": 194.26367197799846,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4023906304,
+    "cpu_percent": 20.24588399651217
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4103905280,
+    "inactive_file_bytes": 78618624,
+    "swap_bytes": 363917312,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1711264963
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 2,
+      "maximum_active": 2,
+      "calls": 8,
+      "delay_seconds": 8
+    },
+    "at": 199.36995712099815,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4025286656,
+    "cpu_percent": 16.412734043043823
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4130304000,
+    "inactive_file_bytes": 78671872,
+    "swap_bytes": 363917312,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1712787585
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 2,
+      "maximum_active": 2,
+      "calls": 9,
+      "delay_seconds": 8
+    },
+    "at": 204.47197729899926,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4051632128,
+    "cpu_percent": 29.843511920341683
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4114903040,
+    "inactive_file_bytes": 78700544,
+    "swap_bytes": 363917312,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1715025658
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 2,
+      "maximum_active": 2,
+      "calls": 10,
+      "delay_seconds": 8
+    },
+    "at": 209.58207162399776,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4036202496,
+    "cpu_percent": 43.797097620123814
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4115030016,
+    "inactive_file_bytes": 78774272,
+    "swap_bytes": 363917312,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1716025487
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 2,
+      "maximum_active": 2,
+      "calls": 12,
+      "delay_seconds": 8
+    },
+    "at": 214.68486791800024,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4036255744,
+    "cpu_percent": 19.593747082852204
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4117843968,
+    "inactive_file_bytes": 78823424,
+    "swap_bytes": 363917312,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1717536353
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 2,
+      "maximum_active": 2,
+      "calls": 12,
+      "delay_seconds": 8
+    },
+    "at": 219.7994617939985,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4039020544,
+    "cpu_percent": 29.540292672897966
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4118515712,
+    "inactive_file_bytes": 78872576,
+    "swap_bytes": 363917312,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1719194883
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 2,
+      "maximum_active": 2,
+      "calls": 14,
+      "delay_seconds": 8
+    },
+    "at": 224.91074615300022,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4039643136,
+    "cpu_percent": 32.448400118437604
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4118196224,
+    "inactive_file_bytes": 78917632,
+    "swap_bytes": 363917312,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1719953003
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 2,
+      "maximum_active": 2,
+      "calls": 16,
+      "delay_seconds": 8
+    },
+    "at": 230.01561989999755,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4039278592,
+    "cpu_percent": 14.850905968946325
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4119334912,
+    "inactive_file_bytes": 78962688,
+    "swap_bytes": 363917312,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1721301372
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 2,
+      "maximum_active": 2,
+      "calls": 16,
+      "delay_seconds": 8
+    },
+    "at": 235.12598720700043,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4040372224,
+    "cpu_percent": 26.38497233168132
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4119310336,
+    "inactive_file_bytes": 79011840,
+    "swap_bytes": 363917312,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1722824809
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 2,
+      "maximum_active": 2,
+      "calls": 18,
+      "delay_seconds": 8
+    },
+    "at": 240.23820924499887,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4040298496,
+    "cpu_percent": 29.79989892216153
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4119609344,
+    "inactive_file_bytes": 79089664,
+    "swap_bytes": 363917312,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1724074155
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 2,
+      "maximum_active": 2,
+      "calls": 20,
+      "delay_seconds": 8
+    },
+    "at": 245.34503953899912,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4040519680,
+    "cpu_percent": 24.464216119885414
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4120035328,
+    "inactive_file_bytes": 79138816,
+    "swap_bytes": 363917312,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1725357657
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 2,
+      "maximum_active": 2,
+      "calls": 20,
+      "delay_seconds": 8
+    },
+    "at": 250.44641691799916,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4040896512,
+    "cpu_percent": 25.15991083670012
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4120784896,
+    "inactive_file_bytes": 79183872,
+    "swap_bytes": 363917312,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1726635719
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 2,
+      "maximum_active": 2,
+      "calls": 22,
+      "delay_seconds": 8
+    },
+    "at": 255.56333281600018,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4041601024,
+    "cpu_percent": 24.977193791660476
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4121022464,
+    "inactive_file_bytes": 79245312,
+    "swap_bytes": 363917312,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1727703447
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 2,
+      "maximum_active": 2,
+      "calls": 23,
+      "delay_seconds": 8
+    },
+    "at": 260.65639136499885,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4041777152,
+    "cpu_percent": 20.964377097332264
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4124856320,
+    "inactive_file_bytes": 79290368,
+    "swap_bytes": 363917312,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1728861055
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 2,
+      "maximum_active": 2,
+      "calls": 24,
+      "delay_seconds": 8
+    },
+    "at": 265.7686503179975,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4045565952,
+    "cpu_percent": 22.643766887453687
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4100100096,
+    "inactive_file_bytes": 79347712,
+    "swap_bytes": 363917312,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1730217612
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 2,
+      "maximum_active": 2,
+      "calls": 26,
+      "delay_seconds": 8
+    },
+    "at": 270.8772526399989,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4020752384,
+    "cpu_percent": 26.554366820796965
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4106682368,
+    "inactive_file_bytes": 79409152,
+    "swap_bytes": 363917312,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1731510212
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 2,
+      "maximum_active": 2,
+      "calls": 26,
+      "delay_seconds": 8
+    },
+    "at": 275.98123489299905,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4027273216,
+    "cpu_percent": 25.325323167810875
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4107472896,
+    "inactive_file_bytes": 79437824,
+    "swap_bytes": 363917312,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1732354778
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 2,
+      "maximum_active": 2,
+      "calls": 28,
+      "delay_seconds": 8
+    },
+    "at": 281.0824492719985,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4028035072,
+    "cpu_percent": 16.556175397703168
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4112248832,
+    "inactive_file_bytes": 79499264,
+    "swap_bytes": 363917312,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1733485489
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 2,
+      "maximum_active": 2,
+      "calls": 30,
+      "delay_seconds": 8
+    },
+    "at": 286.17995657400024,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4032749568,
+    "cpu_percent": 22.181645518310035
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4125454336,
+    "inactive_file_bytes": 79536128,
+    "swap_bytes": 363917312,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1734696756
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 2,
+      "maximum_active": 2,
+      "calls": 30,
+      "delay_seconds": 8
+    },
+    "at": 291.27989531300045,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4045918208,
+    "cpu_percent": 23.750618624831887
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4125282304,
+    "inactive_file_bytes": 79536128,
+    "swap_bytes": 363917312,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1735554230
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 2,
+      "maximum_active": 2,
+      "calls": 32,
+      "delay_seconds": 8
+    },
+    "at": 296.39259604499966,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4045746176,
+    "cpu_percent": 16.77144908234641
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4131385344,
+    "inactive_file_bytes": 79581184,
+    "swap_bytes": 363917312,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1736735229
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 2,
+      "calls": 32,
+      "delay_seconds": 8
+    },
+    "at": 301.4896808049998,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4051804160,
+    "cpu_percent": 23.1700875227346
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4140580864,
+    "inactive_file_bytes": 79642624,
+    "swap_bytes": 363913216,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1737893611
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 2,
+      "calls": 32,
+      "delay_seconds": 8
+    },
+    "at": 306.5934573049999,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4060938240,
+    "cpu_percent": 22.69656596443787
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4133761024,
+    "inactive_file_bytes": 79683584,
+    "swap_bytes": 363913216,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1739580103
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 2,
+      "calls": 32,
+      "delay_seconds": 8
+    },
+    "at": 311.6992359319993,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4054077440,
+    "cpu_percent": 33.03104429717776
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4134174720,
+    "inactive_file_bytes": 79708160,
+    "swap_bytes": 363913216,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1740679285
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 2,
+      "calls": 32,
+      "delay_seconds": 8
+    },
+    "at": 316.80724043100054,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4054466560,
+    "cpu_percent": 21.51881424957473
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4133265408,
+    "inactive_file_bytes": 79736832,
+    "swap_bytes": 363913216,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1741815742
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 2,
+      "calls": 32,
+      "delay_seconds": 8
+    },
+    "at": 321.9105747559988,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4053528576,
+    "cpu_percent": 22.268911414115156
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4133531648,
+    "inactive_file_bytes": 79785984,
+    "swap_bytes": 363913216,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1742773486
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 2,
+      "calls": 32,
+      "delay_seconds": 8
+    },
+    "at": 327.01129361600033,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4053745664,
+    "cpu_percent": 18.776647493951803
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4136370176,
+    "inactive_file_bytes": 79843328,
+    "swap_bytes": 363913216,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1744329119
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 2,
+      "calls": 32,
+      "delay_seconds": 8
+    },
+    "at": 332.1129351319978,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4056526848,
+    "cpu_percent": 30.49279325334648
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4136509440,
+    "inactive_file_bytes": 79904768,
+    "swap_bytes": 363913216,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1745550146
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 2,
+      "calls": 32,
+      "delay_seconds": 8
+    },
+    "at": 337.22348003299703,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4056604672,
+    "cpu_percent": 23.89230549097144
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4136652800,
+    "inactive_file_bytes": 79929344,
+    "swap_bytes": 363913216,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1746799557
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 2,
+      "calls": 32,
+      "delay_seconds": 8
+    },
+    "at": 342.3256045829985,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4056723456,
+    "cpu_percent": 24.48805370695315
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4136271872,
+    "inactive_file_bytes": 79974400,
+    "swap_bytes": 363913216,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1747901793
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 2,
+      "calls": 32,
+      "delay_seconds": 8
+    },
+    "at": 347.4383849429978,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4056297472,
+    "cpu_percent": 21.558446136734684
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4136660992,
+    "inactive_file_bytes": 80003072,
+    "swap_bytes": 363913216,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1748914362
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 2,
+      "calls": 32,
+      "delay_seconds": 8
+    },
+    "at": 352.5524393029991,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4056657920,
+    "cpu_percent": 19.79973087340704
+  },
+  {
+    "cgroup_version": 1,
+    "memory_bytes": 4136595456,
+    "inactive_file_bytes": 80044032,
+    "swap_bytes": 363913216,
+    "cpu": {
+      "nr_periods": "0",
+      "nr_throttled": "0",
+      "throttled_time": "0",
+      "usage_usec": 1750170500
+    },
+    "memory_events": {
+      "oom_kill_disable": "0",
+      "under_oom": "0",
+      "oom_kill": "0"
+    },
+    "model_fixture": {
+      "active": 0,
+      "maximum_active": 2,
+      "calls": 32,
+      "delay_seconds": 8
+    },
+    "at": 357.6513761040005,
+    "phase": "mixed_editor_ai",
+    "working_set_bytes": 4056551424,
+    "cpu_percent": 24.635292591845854
+  }
+]

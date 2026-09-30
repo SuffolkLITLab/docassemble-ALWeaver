@@ -80,7 +80,18 @@ from copy import deepcopy
 from dataclasses import dataclass
 from html import escape
 from urllib.parse import quote
-from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Union, cast
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterator,
+    List,
+    Optional,
+    Set,
+    Tuple,
+    Union,
+    cast,
+)
 
 import yaml
 from flask import Response, current_app, jsonify, redirect, request, url_for
@@ -88,6 +99,8 @@ from flask_wtf.csrf import generate_csrf
 from flask_login import current_user
 
 from docassemble.base.util import log
+
+from .analysis_cache import Dependencies, FileResultCache
 
 try:
     from docassemble.base.functions import package_question_filename
@@ -1141,7 +1154,7 @@ _source_range_for_line = source_range_for_line
 _validate_source_text = validate_source_text
 
 
-def _run_interview_linter(raw_yaml: str, include_llm: bool = True) -> Dict[str, Any]:
+def _interview_linter() -> Callable[..., Dict[str, Any]]:
     try:
         from docassemble.ALDashboard.interview_linter import (  # type: ignore
             lint_interview_content,
@@ -1151,8 +1164,11 @@ def _run_interview_linter(raw_yaml: str, include_llm: bool = True) -> Dict[str, 
             "Running style checks needs the ALDashboard package. Install "
             "docassemble.ALDashboard on this server and try again."
         ) from exc
+    return lint_interview_content
 
-    return lint_interview_content(raw_yaml, include_llm=include_llm)
+
+def _run_interview_linter(raw_yaml: str, include_llm: bool = True) -> Dict[str, Any]:
+    return _interview_linter()(raw_yaml, include_llm=include_llm)
 
 
 def _demote_style_findings(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -1984,6 +2000,9 @@ def _interview_outline_text(blocks: List[Dict[str, Any]], max_items: int = 80) -
     return "\n".join(lines)
 
 
+_template_context_cache = FileResultCache(max_bytes=256 * 1024)
+
+
 def _project_template_context_text(
     user_id: int, project: str, max_chars: int = 8000
 ) -> str:
@@ -2002,11 +2021,24 @@ def _project_template_context_text(
     if not os.path.isdir(project_dir):
         return ""
 
+    return _template_context_cache.get(
+        (user_id, project, project_dir, max_chars),
+        lambda dependencies: _extract_template_context(
+            project_dir, max_chars, dependencies
+        ),
+    )
+
+
+def _extract_template_context(
+    project_dir: str, max_chars: int, dependencies: Dependencies
+) -> str:
+    dependencies.add(project_dir, content=False)
     chunks: List[str] = []
     for filename in sorted(os.listdir(project_dir))[:3]:
         path = os.path.join(project_dir, filename)
         if not os.path.isfile(path):
             continue
+        dependencies.add(path, content=False)
         ext = os.path.splitext(filename.lower())[1]
         extracted = ""
         try:
@@ -2017,8 +2049,10 @@ def _project_template_context_text(
             elif ext == ".docx":
                 from docx2python import docx2python
 
-                extracted = docx2python(path).text
+                with docx2python(path) as document:
+                    extracted = document.text
         except Exception:
+            dependencies.cacheable = False
             extracted = ""
         compact = re.sub(r"\s+", " ", str(extracted or "")).strip()
         if compact:
@@ -5031,6 +5065,43 @@ def editor_api_validate() -> Response:
         )
 
 
+def _style_check_result(
+    uid: int, project: str, filename: str, include_llm: bool
+) -> Dict[str, Any]:
+    raw_yaml = playground_read_yaml(uid, project, filename)
+    model = parse_interview_yaml(raw_yaml)
+    lint_result = _run_interview_linter(raw_yaml, include_llm=include_llm)
+    findings = lint_result.get("findings", []) if isinstance(lint_result, dict) else []
+    if not isinstance(findings, list):
+        findings = []
+    annotated_findings = _demote_style_findings(
+        _annotate_lint_findings(findings, model["blocks"], source_name="style-check")
+    )
+    summary = _lint_summary_for_findings(annotated_findings)
+    return {
+        "project": project,
+        "filename": filename,
+        "errors": annotated_findings,
+        "summary": {
+            "count": len(annotated_findings),
+            "errors": summary["error"],
+            "warnings": summary["warning"],
+            "infos": summary["info"],
+        },
+        "checker": "ALDashboard.interview_linter",
+        "structured": True,
+        "include_llm": include_llm,
+        "screen_catalog": (
+            lint_result.get("screen_catalog", [])
+            if isinstance(lint_result, dict)
+            else []
+        ),
+        "lint_mode": (
+            lint_result.get("lint_mode") if isinstance(lint_result, dict) else None
+        ),
+    }
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/weaver/style-check", methods=["GET"])
 def editor_api_style_check() -> Response:
     """Run the system-wide interview linter and return block-aware style findings."""
@@ -5041,54 +5112,26 @@ def editor_api_style_check() -> Response:
         uid = _current_user_id()
         project = _normalize_project(request.args.get("project"))
         filename = _normalize_filename(request.args.get("filename"))
-        include_llm = str(request.args.get("include_llm", "1")).strip().lower() not in {
+        include_llm = str(request.args.get("include_llm", "0")).strip().lower() not in {
             "0",
             "false",
             "no",
         }
-        raw_yaml = playground_read_yaml(uid, project, filename)
-        model = parse_interview_yaml(raw_yaml)
-        lint_result = _run_interview_linter(raw_yaml, include_llm=include_llm)
-        findings = (
-            lint_result.get("findings", []) if isinstance(lint_result, dict) else []
-        )
-        if not isinstance(findings, list):
-            findings = []
-        annotated_findings = _demote_style_findings(
-            _annotate_lint_findings(
-                findings, model["blocks"], source_name="style-check"
+        if include_llm:
+            # Fail fast on a missing file or missing linter; neither needs a model.
+            playground_read_yaml(uid, project, filename)
+            _interview_linter()
+            return _queue_ai_job(
+                "style-check",
+                uid,
+                {"project": project, "filename": filename},
+                request_id,
             )
-        )
-        summary = _lint_summary_for_findings(annotated_findings)
-
         return jsonify(
             {
                 "success": True,
                 "request_id": request_id,
-                "data": {
-                    "project": project,
-                    "filename": filename,
-                    "errors": annotated_findings,
-                    "summary": {
-                        "count": len(annotated_findings),
-                        "errors": summary["error"],
-                        "warnings": summary["warning"],
-                        "infos": summary["info"],
-                    },
-                    "checker": "ALDashboard.interview_linter",
-                    "structured": True,
-                    "include_llm": include_llm,
-                    "screen_catalog": (
-                        lint_result.get("screen_catalog", [])
-                        if isinstance(lint_result, dict)
-                        else []
-                    ),
-                    "lint_mode": (
-                        lint_result.get("lint_mode")
-                        if isinstance(lint_result, dict)
-                        else None
-                    ),
-                },
+                "data": _style_check_result(uid, project, filename, False),
             }
         )
     except (ValueError, FileNotFoundError) as exc:
@@ -6554,6 +6597,10 @@ def editor_api_runtime_session(weaver_session_id: str) -> Response:
 
 
 @app.route(
+    f"{EDITOR_BASE_PATH}/api/runtime/sessions/<weaver_session_id>/snapshot",
+    methods=["GET"],
+)
+@app.route(
     f"{EDITOR_BASE_PATH}/api/runtime/sessions/<weaver_session_id>/variables",
     methods=["GET", "POST"],
 )
@@ -6622,6 +6669,10 @@ def editor_api_runtime_variables(weaver_session_id: str) -> Response:
                 }
             )
 
+        # Get the question first: Docassemble may assemble it and update the
+        # session. This is one observation, not an atomic database snapshot.
+        snapshot = request.path.endswith("/snapshot")
+        question_data = {"question": get_target_question(target)} if snapshot else {}
         variables = get_target_variables(target, simplify=True)
         include_internal = parse_bool(
             request.args.get("include_internal"), default=False
@@ -6646,12 +6697,12 @@ def editor_api_runtime_variables(weaver_session_id: str) -> Response:
                 },
                 413,
             )
-        append_runtime_event(r, record, "variables_refreshed")
         return jsonify(
             {
                 "success": True,
                 "request_id": request_id,
                 "data": {
+                    **question_data,
                     "variables": variables,
                     "seeded_variables": list(record.seeded_variables),
                     "includes_internal": include_internal,
@@ -6691,12 +6742,6 @@ def editor_api_runtime_question(weaver_session_id: str) -> Response:
         return _runtime_not_found(request_id)
     try:
         question = get_target_question(record.target(_browser_session_secret()))
-        append_runtime_event(
-            r,
-            record,
-            "question_returned",
-            question_name=question.get("questionName"),
-        )
         return jsonify(
             {
                 "success": True,
@@ -9491,6 +9536,106 @@ def editor_api_save_order() -> Response:
         )
 
 
+def _ai_request_context(
+    uid: int, post_data: Dict[str, Any], require_block: bool
+) -> Tuple[Any, str, str, str, List[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    """Cheap checks shared by the request path and the worker.
+
+    The route runs these before queueing so bad input still gets a
+    descriptive 400/404 instead of occupying the user's one AI job slot.
+    """
+    llms = _load_llms_module()
+    if llms is None:
+        raise ValueError("docassemble.ALToolbox.llms is not available")
+
+    project = _normalize_project(post_data.get("project"))
+    filename = _normalize_filename(post_data.get("filename"))
+    block_id = str(post_data.get("block_id") or "").strip()
+    if require_block and not block_id:
+        raise ValueError("block_id is required")
+
+    raw_yaml = playground_read_yaml(uid, project, filename)
+    model = parse_interview_yaml(raw_yaml)
+    blocks = model.get("blocks") or []
+    block = _question_block_by_id(blocks, block_id) if block_id else None
+    if require_block and not block:
+        raise ValueError("block_id must refer to a question block")
+    return llms, project, block_id, raw_yaml, blocks, block
+
+
+def _generate_ai_screen(uid: int, post_data: Dict[str, Any]) -> Dict[str, Any]:
+    llms, project, block_id, raw_yaml, blocks, block = _ai_request_context(
+        uid, post_data, require_block=False
+    )
+    user_instruction = str(post_data.get("instruction") or "").strip()
+    field_types = _field_types_from_request(post_data)
+    current_block_data = deepcopy(block.get("data") or {}) if block else {}
+
+    outline = _interview_outline_text(blocks)
+    template_context = _project_template_context_text(uid, project)
+    current_screen_payload = post_data.get("current_screen")
+
+    system_message = textwrap.dedent("""
+        You are drafting ONE docassemble question screen.
+        Return ONLY JSON with keys:
+          question: string
+          subquestion: string
+          continue_button_field: string
+          fields: array of {label, field, datatype, choices?}
+
+        Rules:
+        - Usually draft 2-3 fields on a normal screen.
+        - Never return more than 7 fields.
+        - Choose datatypes from the provided allowed list.
+        - Keep labels plain and user-friendly.
+        - Keep variable names python-safe snake_case.
+        - When fields is non-empty, continue_button_field must be an empty string.
+        - Use continue_button_field only for a screen with no input fields.
+        """).strip()
+
+    user_message = (
+        f"Allowed datatypes: {json.dumps(field_types)}\n\n"
+        f"Optional user instruction for this screen:\n{user_instruction or '[none]'}\n\n"
+        f"Current screen snapshot:\n{json.dumps(current_screen_payload or current_block_data, ensure_ascii=False)}\n\n"
+        f"Interview outline:\n{outline[:6000]}\n\n"
+        f"Template context (source document excerpts):\n{template_context[:7000] or '[none]'}\n\n"
+        f"Current raw interview YAML:\n{raw_yaml[:12000]}"
+    )
+
+    model_name = pick_small_model_name(llms)
+    drafted = llms.chat_completion(
+        system_message=system_message,
+        user_message=user_message,
+        json_mode=True,
+        model=model_name,
+    )
+    if not isinstance(drafted, dict):
+        raise ValueError("AI did not return a JSON object")
+
+    screen = normalize_generated_screen(drafted, allowed_datatypes=field_types)
+
+    candidate_block = deepcopy(
+        current_block_data if isinstance(current_block_data, dict) else {}
+    )
+    candidate_block["id"] = str(
+        candidate_block.get("id") or block_id or "ai_generated_screen"
+    )
+    candidate_block["question"] = screen.get("question")
+    if screen.get("subquestion"):
+        candidate_block["subquestion"] = screen.get("subquestion")
+    candidate_block["fields"] = screen.get("fields") or []
+    if screen.get("continue_button_field"):
+        candidate_block["continue button field"] = screen.get("continue_button_field")
+
+    candidate_yaml = canonical_block_yaml(candidate_block)
+    _ensure_dayamlchecker_valid(candidate_yaml)
+    return {
+        "screen": screen,
+        "model": model_name,
+        "validated_yaml": candidate_yaml,
+    }
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/ai/generate-screen", methods=["POST"])
 def editor_api_ai_generate_screen() -> Response:
     """Generate a single question screen draft from interview + template context."""
@@ -9498,96 +9643,13 @@ def editor_api_ai_generate_screen() -> Response:
     if not _editor_auth_check():
         return _auth_fail(request_id)
     try:
-        llms = _load_llms_module()
-        if llms is None:
-            raise ValueError("docassemble.ALToolbox.llms is not available")
-
+        post_data = request.get_json(silent=True)
+        if not isinstance(post_data, dict):
+            raise ValueError("Request body must be a JSON object")
         uid = _current_user_id()
-        post_data = request.get_json(silent=True) or {}
-        project = _normalize_project(post_data.get("project"))
-        filename = _normalize_filename(post_data.get("filename"))
-        block_id = str(post_data.get("block_id") or "").strip()
-        user_instruction = str(post_data.get("instruction") or "").strip()
-        field_types = _field_types_from_request(post_data)
-
-        raw_yaml = playground_read_yaml(uid, project, filename)
-        model = parse_interview_yaml(raw_yaml)
-        blocks = model.get("blocks") or []
-        block = _question_block_by_id(blocks, block_id) if block_id else None
-        current_block_data = deepcopy(block.get("data") or {}) if block else {}
-
-        outline = _interview_outline_text(blocks)
-        template_context = _project_template_context_text(uid, project)
-        current_screen_payload = post_data.get("current_screen")
-
-        system_message = textwrap.dedent("""
-            You are drafting ONE docassemble question screen.
-            Return ONLY JSON with keys:
-              question: string
-              subquestion: string
-              continue_button_field: string
-              fields: array of {label, field, datatype, choices?}
-
-            Rules:
-            - Usually draft 2-3 fields on a normal screen.
-            - Never return more than 7 fields.
-            - Choose datatypes from the provided allowed list.
-            - Keep labels plain and user-friendly.
-            - Keep variable names python-safe snake_case.
-            - When fields is non-empty, continue_button_field must be an empty string.
-            - Use continue_button_field only for a screen with no input fields.
-            """).strip()
-
-        user_message = (
-            f"Allowed datatypes: {json.dumps(field_types)}\n\n"
-            f"Optional user instruction for this screen:\n{user_instruction or '[none]'}\n\n"
-            f"Current screen snapshot:\n{json.dumps(current_screen_payload or current_block_data, ensure_ascii=False)}\n\n"
-            f"Interview outline:\n{outline[:6000]}\n\n"
-            f"Template context (source document excerpts):\n{template_context[:7000] or '[none]'}\n\n"
-            f"Current raw interview YAML:\n{raw_yaml[:12000]}"
-        )
-
-        model_name = pick_small_model_name(llms)
-        drafted = llms.chat_completion(
-            system_message=system_message,
-            user_message=user_message,
-            json_mode=True,
-            model=model_name,
-        )
-        if not isinstance(drafted, dict):
-            raise ValueError("AI did not return a JSON object")
-
-        screen = normalize_generated_screen(drafted, allowed_datatypes=field_types)
-
-        candidate_block = deepcopy(
-            current_block_data if isinstance(current_block_data, dict) else {}
-        )
-        candidate_block["id"] = str(
-            candidate_block.get("id") or block_id or "ai_generated_screen"
-        )
-        candidate_block["question"] = screen.get("question")
-        if screen.get("subquestion"):
-            candidate_block["subquestion"] = screen.get("subquestion")
-        candidate_block["fields"] = screen.get("fields") or []
-        if screen.get("continue_button_field"):
-            candidate_block["continue button field"] = screen.get(
-                "continue_button_field"
-            )
-
-        candidate_yaml = canonical_block_yaml(candidate_block)
-        _ensure_dayamlchecker_valid(candidate_yaml)
-
-        return jsonify(
-            {
-                "success": True,
-                "request_id": request_id,
-                "data": {
-                    "screen": screen,
-                    "model": model_name,
-                    "validated_yaml": candidate_yaml,
-                },
-            }
-        )
+        _ai_request_context(uid, post_data, require_block=False)
+        _field_types_from_request(post_data)
+        return _queue_ai_job("generate-screen", uid, post_data, request_id)
     except (ValueError, FileNotFoundError) as exc:
         status = 404 if isinstance(exc, FileNotFoundError) else 400
         return jsonify_with_status(
@@ -9610,6 +9672,69 @@ def editor_api_ai_generate_screen() -> Response:
         )
 
 
+def _generate_ai_fields(uid: int, post_data: Dict[str, Any]) -> Dict[str, Any]:
+    llms, project, block_id, raw_yaml, blocks, block = _ai_request_context(
+        uid, post_data, require_block=True
+    )
+    assert block is not None
+    field_types = _field_types_from_request(post_data)
+
+    outline = _interview_outline_text(blocks)
+    template_context = _project_template_context_text(uid, project)
+    current_screen_payload = post_data.get("current_screen")
+    if not isinstance(current_screen_payload, dict):
+        current_screen_payload = deepcopy(block.get("data") or {})
+
+    system_message = textwrap.dedent("""
+        You are generating fields for ONE docassemble question screen.
+        Return ONLY JSON with key:
+          fields: array of {label, field, datatype, choices?}
+
+        Rules:
+        - Usually return 2-3 fields for a normal screen.
+        - Never return more than 7 fields.
+        - Choose datatypes from the provided allowed list.
+        - Keep labels plain and user-friendly.
+        - Keep variable names python-safe snake_case.
+        """).strip()
+
+    user_message = (
+        f"Allowed datatypes: {json.dumps(field_types)}\n\n"
+        f"Current question screen data:\n{json.dumps(current_screen_payload, ensure_ascii=False)}\n\n"
+        f"Interview outline:\n{outline[:6000]}\n\n"
+        f"Template context (source document excerpts):\n{template_context[:7000] or '[none]'}\n\n"
+        f"Current raw interview YAML:\n{raw_yaml[:12000]}"
+    )
+
+    model_name = pick_small_model_name(llms)
+    drafted = llms.chat_completion(
+        system_message=system_message,
+        user_message=user_message,
+        json_mode=True,
+        model=model_name,
+    )
+    if not isinstance(drafted, dict):
+        raise ValueError("AI did not return a JSON object")
+
+    generated_fields = normalize_generated_fields(
+        drafted.get("fields", []),
+        allowed_datatypes=field_types,
+    )
+    if not generated_fields:
+        raise ValueError("AI did not return any usable fields")
+
+    candidate_block = deepcopy(block.get("data") or {})
+    candidate_block["id"] = str(candidate_block.get("id") or block_id)
+    candidate_block["fields"] = generated_fields
+    candidate_yaml = canonical_block_yaml(candidate_block)
+    _ensure_dayamlchecker_valid(candidate_yaml)
+    return {
+        "fields": generated_fields,
+        "model": model_name,
+        "validated_yaml": candidate_yaml,
+    }
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/ai/generate-fields", methods=["POST"])
 def editor_api_ai_generate_fields() -> Response:
     """Generate fields for one existing question block using full interview context."""
@@ -9617,87 +9742,13 @@ def editor_api_ai_generate_fields() -> Response:
     if not _editor_auth_check():
         return _auth_fail(request_id)
     try:
-        llms = _load_llms_module()
-        if llms is None:
-            raise ValueError("docassemble.ALToolbox.llms is not available")
-
+        post_data = request.get_json(silent=True)
+        if not isinstance(post_data, dict):
+            raise ValueError("Request body must be a JSON object")
         uid = _current_user_id()
-        post_data = request.get_json(silent=True) or {}
-        project = _normalize_project(post_data.get("project"))
-        filename = _normalize_filename(post_data.get("filename"))
-        block_id = str(post_data.get("block_id") or "").strip()
-        if not block_id:
-            raise ValueError("block_id is required")
-        field_types = _field_types_from_request(post_data)
-
-        raw_yaml = playground_read_yaml(uid, project, filename)
-        model = parse_interview_yaml(raw_yaml)
-        blocks = model.get("blocks") or []
-        block = _question_block_by_id(blocks, block_id)
-        if not block:
-            raise ValueError("block_id must refer to a question block")
-
-        outline = _interview_outline_text(blocks)
-        template_context = _project_template_context_text(uid, project)
-        current_screen_payload = post_data.get("current_screen")
-        if not isinstance(current_screen_payload, dict):
-            current_screen_payload = deepcopy(block.get("data") or {})
-
-        system_message = textwrap.dedent("""
-            You are generating fields for ONE docassemble question screen.
-            Return ONLY JSON with key:
-              fields: array of {label, field, datatype, choices?}
-
-            Rules:
-            - Usually return 2-3 fields for a normal screen.
-            - Never return more than 7 fields.
-            - Choose datatypes from the provided allowed list.
-            - Keep labels plain and user-friendly.
-            - Keep variable names python-safe snake_case.
-            """).strip()
-
-        user_message = (
-            f"Allowed datatypes: {json.dumps(field_types)}\n\n"
-            f"Current question screen data:\n{json.dumps(current_screen_payload, ensure_ascii=False)}\n\n"
-            f"Interview outline:\n{outline[:6000]}\n\n"
-            f"Template context (source document excerpts):\n{template_context[:7000] or '[none]'}\n\n"
-            f"Current raw interview YAML:\n{raw_yaml[:12000]}"
-        )
-
-        model_name = pick_small_model_name(llms)
-        drafted = llms.chat_completion(
-            system_message=system_message,
-            user_message=user_message,
-            json_mode=True,
-            model=model_name,
-        )
-        if not isinstance(drafted, dict):
-            raise ValueError("AI did not return a JSON object")
-
-        generated_fields = normalize_generated_fields(
-            drafted.get("fields", []),
-            allowed_datatypes=field_types,
-        )
-        if not generated_fields:
-            raise ValueError("AI did not return any usable fields")
-
-        candidate_block = deepcopy(block.get("data") or {})
-        candidate_block["id"] = str(candidate_block.get("id") or block_id)
-        candidate_block["fields"] = generated_fields
-        candidate_yaml = canonical_block_yaml(candidate_block)
-        _ensure_dayamlchecker_valid(candidate_yaml)
-
-        return jsonify(
-            {
-                "success": True,
-                "request_id": request_id,
-                "data": {
-                    "fields": generated_fields,
-                    "model": model_name,
-                    "validated_yaml": candidate_yaml,
-                },
-            }
-        )
+        _ai_request_context(uid, post_data, require_block=True)
+        _field_types_from_request(post_data)
+        return _queue_ai_job("generate-fields", uid, post_data, request_id)
     except (ValueError, FileNotFoundError) as exc:
         status = 404 if isinstance(exc, FileNotFoundError) else 400
         return jsonify_with_status(
@@ -10314,6 +10365,17 @@ TEMPLATE_IMPORT_JOB = _EditorJobKind(
 )
 
 
+AI_JOB = _EditorJobKind(
+    key_prefix="da:alweaver:editor:ai-job:",
+    celery_task="docassemble.ALWeaver.api_weaver_worker.weaver_editor_ai_task",
+    expire_seconds=60 * 60,
+)
+AI_JOB_QUEUE_SECONDS = 15 * 60
+AI_JOB_SOFT_LIMIT = 150
+AI_JOB_HARD_LIMIT = 180
+AI_JOB_OWNER_PREFIX = "da:alweaver:editor:ai-owner:"
+
+
 def _job_state_key(kind: _EditorJobKind, job_id: str) -> str:
     return kind.key_prefix + job_id
 
@@ -10354,6 +10416,233 @@ def _update_job_state(
     state = _load_job_state(kind, job_id) or {}
     state.update(updates)
     return _store_job_state(kind, job_id, state)
+
+
+def _release_ai_owner(uid: int, job_id: str) -> None:
+    # A timed-out job must never release a newer job's reservation.
+    r.eval(
+        "if redis.call('get', KEYS[1]) == ARGV[1] then "
+        "return redis.call('del', KEYS[1]) else return 0 end",
+        1,
+        AI_JOB_OWNER_PREFIX + str(uid),
+        job_id,
+    )
+
+
+def _queue_ai_job(
+    operation: str, uid: int, payload: Dict[str, Any], request_id: str
+) -> Response:
+    if not worker_configuration_is_ready():
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "unavailable",
+                    "code": "editor_async_not_configured",
+                    "message": "AI drafting and AI style checks require Weaver's Celery worker module.",
+                    "details": get_worker_configuration_status(),
+                },
+            },
+            503,
+        )
+    if len(json.dumps(payload).encode("utf-8")) > 128 * 1024:
+        raise ValueError("AI request is too large (maximum 128 KiB)")
+    job_id = str(uuid.uuid4())
+    if not r.set(
+        AI_JOB_OWNER_PREFIX + str(uid),
+        job_id,
+        nx=True,
+        ex=AI_JOB_QUEUE_SECONDS + AI_JOB_HARD_LIMIT + 60,
+    ):
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "busy",
+                    "code": "ai_job_in_progress",
+                    "message": "An AI draft or style check is already queued or running for your account. Wait for it to finish.",
+                },
+            },
+            429,
+        )
+    try:
+        state = _store_job_state(
+            AI_JOB,
+            job_id,
+            {
+                "owner_user_id": uid,
+                "operation": operation,
+                "status": "queued",
+                "queued_at": time.time(),
+                "celery_task_id": job_id,
+                "result": None,
+                "error": None,
+            },
+        )
+        workerapp.send_task(
+            AI_JOB.celery_task,
+            task_id=job_id,
+            kwargs={
+                "job_id": job_id,
+                "uid": uid,
+                "operation": operation,
+                "payload": payload,
+            },
+            soft_time_limit=AI_JOB_SOFT_LIMIT,
+            time_limit=AI_JOB_HARD_LIMIT,
+            expires=AI_JOB_QUEUE_SECONDS,
+        )
+    except Exception:
+        _release_ai_owner(uid, job_id)
+        _update_job_state(
+            AI_JOB,
+            job_id,
+            status="failed",
+            error={"message": "Could not queue the AI request."},
+        )
+        raise
+    return jsonify_with_status(
+        {
+            "success": True,
+            "request_id": request_id,
+            "status": "queued",
+            "data": {
+                "job_id": job_id,
+                "job_url": f"{EDITOR_BASE_PATH}/api/ai/jobs/{job_id}",
+                "status": state["status"],
+            },
+        },
+        202,
+    )
+
+
+def _run_ai_job_with_capacity(
+    job_id: str, uid: int, operation: str, payload: Dict[str, Any]
+) -> bool:
+    """Try once for a server-wide slot; False means retry later, without waiting."""
+    state = _load_job_state(AI_JOB, job_id)
+    if (
+        not state
+        or state.get("owner_user_id") != uid
+        or state.get("status") in JOB_TERMINAL_STATES
+    ):
+        return True
+    if time.time() - state["queued_at"] > AI_JOB_QUEUE_SECONDS:
+        _update_job_state(
+            AI_JOB,
+            job_id,
+            status="expired",
+            error={"message": "The AI request expired in the queue. Please try again."},
+        )
+        _release_ai_owner(uid, job_id)
+        return True
+    # Each slot expires after the worker's hard limit, including a cleanup
+    # margin for a killed worker. No web or Celery worker waits on the lock.
+    for slot in range(2):
+        lock = r.lock(
+            f"da:alweaver:editor:ai-slot:{slot}", timeout=AI_JOB_HARD_LIMIT + 60
+        )
+        if not lock.acquire(blocking=False):
+            continue
+        try:
+            _complete_ai_job(job_id, uid, operation, payload)
+        finally:
+            lock.release()
+        return True
+    return False
+
+
+def _complete_ai_job(
+    job_id: str, uid: int, operation: str, payload: Dict[str, Any]
+) -> None:
+    state = _load_job_state(AI_JOB, job_id)
+    if (
+        not state
+        or state.get("owner_user_id") != uid
+        or state.get("status") in JOB_TERMINAL_STATES
+    ):
+        return
+    try:
+        _update_job_state(AI_JOB, job_id, status="running", started_at=time.time())
+        if operation == "generate-screen":
+            result = _generate_ai_screen(uid, payload)
+        elif operation == "generate-fields":
+            result = _generate_ai_fields(uid, payload)
+        elif operation == "style-check":
+            result = _style_check_result(
+                uid,
+                _normalize_project(payload.get("project")),
+                _normalize_filename(payload.get("filename")),
+                True,
+            )
+        else:
+            raise ValueError("Unknown AI operation")
+        _update_job_state(
+            AI_JOB, job_id, status="succeeded", result=result, finished_at=time.time()
+        )
+    except (ValueError, FileNotFoundError, ALDashboardUnavailable) as exc:
+        # The synchronous routes returned these messages as 4xx/503 errors;
+        # keep them readable now that the work finishes in a worker.
+        _update_job_state(
+            AI_JOB,
+            job_id,
+            status="failed",
+            finished_at=time.time(),
+            error={"type": "validation_error", "message": str(exc)},
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: AI job {job_id} failed: {type(exc).__name__}", "error")
+        _update_job_state(
+            AI_JOB,
+            job_id,
+            status="failed",
+            finished_at=time.time(),
+            error={
+                "type": "ai_job_failed",
+                "message": "The AI request failed or exceeded its time limit. Please try again.",
+            },
+        )
+    finally:
+        _release_ai_owner(uid, job_id)
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/ai/jobs/<job_id>", methods=["GET"])
+def editor_api_ai_job(job_id: str) -> Response:
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    uid = _current_user_id()
+    state = _load_job_state(AI_JOB, job_id)
+    if not state or state.get("owner_user_id") != uid:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "not_found", "message": "Job not found."},
+            },
+            404,
+        )
+    if state.get("status") not in JOB_TERMINAL_STATES:
+        if time.time() - state["queued_at"] > AI_JOB_QUEUE_SECONDS + AI_JOB_HARD_LIMIT:
+            state = _update_job_state(
+                AI_JOB,
+                job_id,
+                status="expired",
+                error={"message": "The AI request expired. Please try again."},
+            )
+        else:
+            state = _reconcile_job_state(
+                AI_JOB,
+                job_id,
+                state,
+                success_message="AI request completed.",
+                failure_message="The AI request failed or exceeded its time limit.",
+            )
+    if state.get("status") in JOB_TERMINAL_STATES:
+        _release_ai_owner(uid, job_id)
+    return jsonify({"success": True, "request_id": request_id, "data": state})
 
 
 def _load_new_project_job_state(job_id: str) -> Optional[Dict[str, Any]]:
@@ -10796,12 +11085,14 @@ def _reconcile_job_state(
             finished_at=time.time(),
         )
     if celery_state in {"STARTED", "RETRY"}:
+        if status == "running":
+            return state
         updates: Dict[str, Any] = {"status": "running"}
         if not state.get("started_at"):
             updates["started_at"] = time.time()
         return _update_job_state(kind, job_id, **updates)
     if celery_state in {"PENDING", "RECEIVED"}:
-        return _update_job_state(kind, job_id, status="queued")
+        return state
     return _update_job_state(
         kind,
         job_id,

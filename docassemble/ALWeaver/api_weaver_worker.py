@@ -196,3 +196,23 @@ def weaver_editor_template_import_task(
             use_llm_assist=use_llm_assist,
             request_id=request_id,
         )
+
+
+@workerapp.task(
+    bind=True,
+    name="docassemble.ALWeaver.api_weaver_worker.weaver_editor_ai_task",
+    soft_time_limit=150,
+    time_limit=180,
+    max_retries=None,
+)
+def weaver_editor_ai_task(
+    self, *, job_id: str, uid: int, operation: str, payload: Dict[str, Any]
+) -> None:
+    """Keep model waits out of Flask and limit these jobs to two server-wide."""
+    import random
+
+    with bg_context():
+        from .api_editor import _run_ai_job_with_capacity
+
+        if not _run_ai_job_with_capacity(job_id, uid, operation, payload):
+            raise self.retry(countdown=random.randint(5, 10))
