@@ -50,11 +50,13 @@ def test_transitive_imports_relative_names_exports_and_help():
 
 
 def test_local_functions_have_complete_static_signatures():
-    catalog = local_function_catalog('''
+    catalog = local_function_catalog(
+        '''
 def total(amount: float, /, digits=2, *extras, symbol=True, **options):
     """Add an amount without executing this body."""
     raise RuntimeError("not executed")
-''')
+'''
+    )
     info = catalog["total"]
     assert (
         info["signature"]
@@ -76,7 +78,8 @@ def test_unloaded_declared_module_is_read_without_importing_or_calling(
     tmp_path, monkeypatch
 ):
     source = tmp_path / "matrix_unloaded_helpers.py"
-    source.write_text('''
+    source.write_text(
+        '''
 raise AssertionError("Module must not be imported during discovery")
 __all__ = ["public_helper"]
 def public_helper(value=2):
@@ -84,7 +87,8 @@ def public_helper(value=2):
     raise AssertionError("Function must not be called")
 def hidden_helper():
     pass
-''')
+'''
+    )
     monkeypatch.syspath_prepend(str(tmp_path))
     interview = SimpleNamespace(
         questions_list=[
@@ -117,23 +121,26 @@ def test_playground_discovery_parses_selected_project_without_assembly(
             **kwargs, set_content=lambda content: captured.update(content=content)
         )
 
-    def interview(**kwargs):
-        return SimpleNamespace(
-            names_used={"root_value"},
-            questions={"included_value": []},
-            questions_list=[
+    class interview:
+        def __init__(self, **kwargs):
+            self.__dict__.update(
                 SimpleNamespace(
-                    question_type="code",
-                    sourcecode="def local_helper():\n    raise RuntimeError()",
-                    names_used=set(),
-                    mako_names=set(),
-                    fields_used={"included_value"},
-                    from_source=SimpleNamespace(
-                        path="docassemble.playground7MyProject:included.yml"
-                    ),
-                )
-            ],
-        )
+                    names_used={"root_value"},
+                    questions={"included_value": []},
+                    questions_list=[
+                        SimpleNamespace(
+                            question_type="code",
+                            sourcecode="def local_helper():\n    raise RuntimeError()",
+                            names_used=set(),
+                            mako_names=set(),
+                            fields_used={"included_value"},
+                            from_source=SimpleNamespace(
+                                path="docassemble.playground7MyProject:included.yml"
+                            ),
+                        )
+                    ],
+                ).__dict__
+            )
 
     monkeypatch.setitem(
         sys.modules, "docassemble.base.parse", SimpleNamespace(Interview=interview)

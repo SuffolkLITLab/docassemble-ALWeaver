@@ -3130,6 +3130,31 @@
     csrfToken: BOOT.csrfToken || null,
   });
 
+  function aiJobResultGuard() {
+    var project = state.project;
+    var filename = state.filename;
+    var revision = state.revision;
+    var blocks = JSON.stringify(state.blocks);
+    return function (response) {
+      return window.ALWeaverApiClient.waitForJob(response, {
+        get: apiGet,
+        isCurrent: function () {
+          return (
+            state.project === project &&
+            state.filename === filename &&
+            state.revision === revision &&
+            JSON.stringify(state.blocks) === blocks
+          );
+        },
+      });
+    };
+  }
+
+  function apiAiPost(path, body) {
+    var awaitResult = aiJobResultGuard();
+    return apiPost(path, body).then(awaitResult);
+  }
+
   function apiGet(path, options) {
     return apiClient.get(path, options);
   }
@@ -11513,6 +11538,7 @@
     // happened until it finished.
     state.validationBusy = true;
     renderValidationDrawer();
+    var awaitStyleResult = aiJobResultGuard();
     apiGet(
       '/api/weaver/style-check?project=' +
         encodeURIComponent(state.project) +
@@ -11521,6 +11547,7 @@
         '&include_llm=' +
         (wantsLlm ? '1' : '0'),
     )
+      .then(awaitStyleResult)
       .then(function (res) {
         _validationInFlight = false;
         state.validationBusy = false;
@@ -20599,7 +20626,7 @@
             );
             if (screenInstruction === null) return;
             _setButtonLoading('ai-generate-screen', true, 'Drafting...');
-            apiPost('/api/ai/generate-screen', {
+            apiAiPost('/api/ai/generate-screen', {
               project: state.project,
               filename: state.filename,
               block_id: newBlock.id,
@@ -21573,7 +21600,7 @@
       );
       if (screenInstruction === null) return;
       _setButtonLoading('ai-generate-screen', true, 'Drafting...');
-      apiPost('/api/ai/generate-screen', {
+      apiAiPost('/api/ai/generate-screen', {
         project: state.project,
         filename: state.filename,
         block_id: questionBlock.id,
@@ -21618,7 +21645,7 @@
         return;
       if (syncFieldsToData(currentQuestionBlock) === false) return false;
       _setButtonLoading('ai-generate-fields', true, 'Generating...');
-      apiPost('/api/ai/generate-fields', {
+      apiAiPost('/api/ai/generate-fields', {
         project: state.project,
         filename: state.filename,
         block_id: currentQuestionBlock.id,

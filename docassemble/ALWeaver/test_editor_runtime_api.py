@@ -57,6 +57,51 @@ class TestEditorRuntimeApi(unittest.TestCase):
             patch.object(api_editor, "r", self.redis),
         )
 
+    def test_snapshot_combines_reads_without_history_writes(self):
+        self._record()
+        patches = self._base_patches()
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patch.object(self.redis, "set", wraps=self.redis.set) as store,
+            patch.object(
+                api_editor,
+                "get_target_question",
+                return_value={"questionName": "intro"},
+            ) as question,
+            patch.object(
+                api_editor,
+                "get_target_variables",
+                return_value={"answer": 1, "_internal": {}},
+            ) as variables,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/runtime/sessions/weaver-session/snapshot"
+            ):
+                response = api_editor.editor_api_runtime_variables("weaver-session")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.get_json()["data"]["question"], {"questionName": "intro"}
+        )
+        self.assertEqual(response.get_json()["data"]["variables"], {"answer": 1})
+        question.assert_called_once()
+        variables.assert_called_once()
+        store.assert_not_called()
+
+    def test_runtime_read_renews_lifetime_only_after_touch_interval(self):
+        from datetime import timedelta
+        from .runtime_sessions import utc_now
+
+        record = self._record()
+        record.last_accessed_at = utc_now() - timedelta(seconds=61)
+        store_runtime_record(self.redis, record)
+        with patch.object(self.redis, "set", wraps=self.redis.set) as store:
+            load_runtime_record(self.redis, "weaver-session", 7)
+            load_runtime_record(self.redis, "weaver-session", 7)
+        store.assert_called_once()
+
     def test_runtime_records_are_owner_scoped_and_publicly_redacted(self):
         self.assertEqual(
             playground_yaml_filename(12, "Housing", "main.yml"),

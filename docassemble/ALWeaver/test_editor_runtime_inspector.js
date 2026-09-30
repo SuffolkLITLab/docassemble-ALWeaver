@@ -112,24 +112,34 @@ assert.strictEqual(
 
 async function testHideStopsPollingAndBlocksPendingRepaint() {
   let intervalStarts = 0;
+  const timers = new Map();
+  let visibilityChanged;
+  global.document = {
+    createElement: () => fakeNode(),
+    hidden: false,
+    addEventListener(name, fn) {
+      visibilityChanged = fn;
+    },
+    removeEventListener() {},
+  };
   let intervalStops = 0;
   global.window = {
-    setInterval() {
+    setTimeout(callback, delay) {
       intervalStarts += 1;
+      timers.set(intervalStarts, { callback, delay });
       return intervalStarts;
     },
-    clearInterval() {
+    clearTimeout(id) {
       intervalStops += 1;
-    },
-    setTimeout(callback) {
-      callback();
+      timers.delete(id);
     },
   };
 
   const pendingResponses = [];
   const inspector = runtime.createRuntimeInspector({
     api: {
-      get() {
+      get(path) {
+        assert.ok(path.endsWith('/snapshot'));
         return new Promise((resolve) => pendingResponses.push(resolve));
       },
       post() {
@@ -158,7 +168,10 @@ async function testHideStopsPollingAndBlocksPendingRepaint() {
       scrollTop: 0,
       clientHeight: 0,
       textContent: '',
-      classList: { toggle() {} },
+      classList: { toggle() {}, add() {} },
+      appendChild() {},
+      setAttribute() {},
+      addEventListener() {},
     };
   }
 
@@ -189,15 +202,21 @@ async function testHideStopsPollingAndBlocksPendingRepaint() {
   };
 
   inspector.render(container);
-  assert.strictEqual(intervalStarts, 1, 'showing a live session starts polling');
+  assert.strictEqual(
+    intervalStarts,
+    1,
+    'showing a live session starts polling',
+  );
   const observation = inspector.refreshAll();
-  assert.strictEqual(pendingResponses.length, 2);
+  assert.strictEqual(pendingResponses.length, 1);
+  assert.strictEqual(timers.size, 0, 'no timer while a request is in flight');
 
   inspector.hide();
-  assert.strictEqual(intervalStops, 1, 'hiding stops the polling timer');
+  assert.strictEqual(intervalStops, 1, 'observation cancels the pending timer');
   const queriesBeforeResolution = canvasQueries;
-  pendingResponses[0]({ data: { question: { questionName: 'next' } } });
-  pendingResponses[1]({ data: { variables: { answer: true } } });
+  pendingResponses[0]({
+    data: { question: { questionName: 'next' }, variables: { answer: true } },
+  });
   await observation;
   assert.strictEqual(
     canvasQueries,
@@ -208,9 +227,65 @@ async function testHideStopsPollingAndBlocksPendingRepaint() {
   await inspector.refreshAll();
   assert.strictEqual(
     pendingResponses.length,
-    2,
+    1,
     'a hidden inspector does not start another observation',
   );
+  assert.strictEqual(
+    timers.size,
+    0,
+    'completion after hide cannot restart polling',
+  );
+  inspector.render(container);
+  assert.strictEqual(timers.size, 1);
+  global.document.hidden = true;
+  visibilityChanged();
+  assert.strictEqual(timers.size, 0, 'background tabs stop polling');
+  global.document.hidden = false;
+  visibilityChanged();
+  assert.strictEqual(
+    pendingResponses.length,
+    2,
+    'foregrounding refreshes immediately',
+  );
+  pendingResponses[1]({
+    data: { question: { questionName: 'next' }, variables: { answer: true } },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  let timer = [...timers.values()][0];
+  assert.ok(
+    timer.delay >= 6750 && timer.delay <= 8250,
+    'unchanged snapshot backs off to 7.5 seconds plus jitter',
+  );
+  timers.clear();
+  timer.callback();
+  assert.strictEqual(
+    timers.size,
+    0,
+    'slow observations never schedule overlapping polls',
+  );
+  pendingResponses[2]({
+    data: { question: { questionName: 'next' }, variables: { answer: true } },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  timer = [...timers.values()][0];
+  assert.ok(
+    timer.delay >= 9000 && timer.delay <= 11000,
+    'idle polling caps at ten seconds plus jitter',
+  );
+  const refresh = inspector.refreshAll();
+  pendingResponses[3]({
+    data: {
+      question: { questionName: 'changed' },
+      variables: { answer: false },
+    },
+  });
+  await refresh;
+  timer = [...timers.values()][0];
+  assert.ok(
+    timer.delay >= 4500 && timer.delay <= 5500,
+    'activity restores five second polling',
+  );
+  inspector.hide();
 }
 
 testHideStopsPollingAndBlocksPendingRepaint()

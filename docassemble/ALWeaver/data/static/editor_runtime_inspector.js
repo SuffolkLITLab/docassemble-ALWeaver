@@ -198,7 +198,7 @@
     var steps = [];
     var includeInternal = false;
     var variableQuery = '';
-    // Polling rebuilds the variable list every second (see startPolling), so
+    // Polling refreshes the variable list (see startPolling), so
     // <details> elements are recreated from scratch on every refresh. Without
     // remembering which names were open, an expanded variable snaps shut on
     // the next poll tick, mid-read.
@@ -217,6 +217,7 @@
     var observeAgain = false;
     var observationPromise = null;
     var pollTimer = null;
+    var pollDelay = 5000;
     var hidden = true;
 
     function sessionPath(suffix) {
@@ -248,7 +249,7 @@
 
     function stopPolling() {
       if (pollTimer !== null) {
-        window.clearInterval(pollTimer);
+        window.clearTimeout(pollTimer);
         pollTimer = null;
       }
     }
@@ -261,18 +262,36 @@
       hidden = true;
       stopPolling();
       container = null;
+      if (typeof document !== 'undefined')
+        document.removeEventListener('visibilitychange', visibilityChanged);
+    }
+
+    function pageHidden() {
+      return typeof document !== 'undefined' && document.hidden;
+    }
+
+    function visibilityChanged() {
+      if (pageHidden()) stopPolling();
+      else {
+        pollDelay = 5000;
+        observeRuntime();
+      }
     }
 
     function startPolling() {
       stopPolling();
-      if (hidden) return;
-      // The interview runs in an iframe and normally advances through AJAX,
-      // so its load event is not a reliable navigation signal.  Coalesced
-      // observations make this inexpensive while ensuring every click is
-      // eventually reflected in the debugger panels.
-      pollTimer = window.setInterval(function () {
-        if (session && !busy) observeRuntime();
-      }, 1000);
+      if (hidden || pageHidden() || !session || observing) return;
+      // Wait *after* completion: a slow server must not acquire a backlog.
+      // Spread a classroom's timers out and back off when nothing changes.
+      pollTimer = window.setTimeout(
+        function () {
+          pollTimer = null;
+          if (busy) startPolling();
+          else observeRuntime();
+        },
+        // eslint-disable-next-line sonarjs/pseudo-random -- Timer jitter only; no security token.
+        Math.round(pollDelay * (0.9 + Math.random() * 0.2)),
+      );
     }
 
     function recordObservation(
@@ -376,22 +395,23 @@
     }
 
     function observeRuntime(successMessage) {
-      if (!session || hidden) return Promise.resolve();
+      if (!session || hidden || pageHidden()) return Promise.resolve();
       if (observing) {
         observeAgain = true;
         return observationPromise || Promise.resolve();
       }
+      stopPolling();
       observing = true;
-      var variablePath =
-        sessionPath('/variables') +
+      var observedSession = session.weaver_session_id;
+      var snapshotPath =
+        sessionPath('/snapshot') +
         (includeInternal ? '?include_internal=true' : '');
-      observationPromise = Promise.all([
-        api.get(sessionPath('/question')),
-        api.get(variablePath),
-      ])
-        .then(function (responses) {
-          var nextQuestion = clone((responses[0].data || {}).question || {});
-          var variableData = responses[1].data || {};
+      observationPromise = api
+        .get(snapshotPath)
+        .then(function (response) {
+          if (!session || session.weaver_session_id !== observedSession) return;
+          var variableData = response.data || {};
+          var nextQuestion = clone(variableData.question || {});
           var nextVariables = clone(variableData.variables || {});
           var nextSeededVariables = Array.isArray(variableData.seeded_variables)
             ? variableData.seeded_variables.map(String)
@@ -399,6 +419,13 @@
           var nextChanged = hasVariableSnapshot
             ? changedVariableNames(variables, nextVariables)
             : [];
+          var unchanged =
+            hasVariableSnapshot &&
+            !nextChanged.length &&
+            JSON.stringify(question) === JSON.stringify(nextQuestion) &&
+            JSON.stringify(seededVariables) ===
+              JSON.stringify(nextSeededVariables);
+          pollDelay = unchanged ? Math.min(pollDelay * 1.5, 10000) : 5000;
           recordObservation(
             nextQuestion,
             nextVariables,
@@ -415,6 +442,8 @@
           );
         })
         .catch(function (requestError) {
+          if (!session || session.weaver_session_id !== observedSession) return;
+          pollDelay = Math.min(pollDelay * 2, 30000);
           setStatus(
             requestError.message || 'Unable to refresh runtime facts.',
             true,
@@ -426,10 +455,8 @@
           render(container);
           if (observeAgain) {
             observeAgain = false;
-            window.setTimeout(function () {
-              observeRuntime();
-            }, 100);
-          }
+            observeRuntime();
+          } else startPolling();
         });
       return observationPromise;
     }
@@ -648,7 +675,7 @@
           : '';
       }
 
-      // Polling calls this every second (see startPolling). Rebuilding a
+      // Polling calls this after each observation. Rebuilding a
       // panel that has not actually changed destroys and recreates its
       // elements for nothing — which, mid double-click, makes the browser's
       // word-selection lose its anchor node and fall back to selecting the
@@ -701,6 +728,8 @@
     // whatever replaced it.
     function show(target) {
       hidden = false;
+      if (typeof document !== 'undefined')
+        document.addEventListener('visibilitychange', visibilityChanged);
       container = target || container;
       if (session) startPolling();
       render(container);
@@ -911,8 +940,11 @@
       },
       releaseSession: releaseSession,
       setSession: function (value) {
+        stopPolling();
         session = clone(value);
+        pollDelay = 5000;
         resetObservedState();
+        startPolling();
         onSessionChange(clone(session));
       },
     };

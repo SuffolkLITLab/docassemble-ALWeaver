@@ -77,8 +77,8 @@ says which of the fixes below is needed.
 ## Celery worker configuration
 
 Uploaded-document project generation in the graphical editor, importing a
-template already in a project, publishing a project to GitHub, and asynchronous
-API requests require ALWeaver's task module to be registered with Docassemble's global Celery configuration. Add
+template already in a project, publishing a project to GitHub, AI screen/field
+drafting, AI style checks, and asynchronous API requests require ALWeaver's task module to be registered with Docassemble's global Celery configuration. Add
 the module to the existing `celery modules` list in the Docassemble
 configuration; preserve any modules already listed:
 
@@ -112,6 +112,75 @@ scenario seeding, and back navigation. Set `weaver: {runtime inspector: false}`
 (or `WEAVER_ENABLE_RUNTIME_INSPECTOR: false`) to turn it off. Its server API uses
 owner-scoped target sessions and a fixed read-only `al_weaver.inspect_*` action
 allowlist; Docassemble remains the only interview runtime.
+
+## Shared classroom servers
+
+For a class of about 15 developers on an 8 GB host, this editor reduces ongoing
+work in several ways:
+
+- The debugger requests one `/runtime/sessions/<id>/snapshot` after the previous
+  observation completes. It waits five seconds after changed data, backs off to
+  ten seconds when unchanged, and up to thirty seconds after errors, with 10%
+  timer jitter. Hidden browser tabs and closed debugger views stop polling.
+  Refresh and iframe navigation still trigger observations. Fifteen idle visible
+  debuggers therefore generate about 1.5 requests/second instead of 30, before
+  accounting for request duration. This is a traffic estimate, not a server benchmark.
+- Routine runtime reads renew their Redis lifetime at most once per minute and
+  no longer append poll events. Scenario/action history is retained. The combined
+  snapshot still reads the question and simplified variables; it is neither an
+  atomic snapshot nor a cheap session-revision check. The variable size limit
+  applies after Docassemble has simplified the session.
+- AI screen/field drafts and explicitly requested AI style checks return HTTP
+  202 with `data.job_url`; clients poll that URL until `data.status` is terminal.
+  Successful `data.result` contains the previous synchronous response's `data`.
+  There is one outstanding job per account (HTTP 429 for another), with at most
+  two of these AI jobs executing server-wide. Capacity retries wait 5–10 seconds
+  in Celery, without occupying a web worker. Queue lifetime is fifteen minutes;
+  execution has a 150-second soft limit and a 180-second hard limit. These tasks do not retry model work
+  after failure; any provider SDK retries share the task execution deadline. Use Celery's normal prefork pool
+  for these time limits. A lost worker's capacity reservation expires after four
+  minutes. Deterministic style checking stays synchronous and is the default
+  when `include_llm` is omitted. Existing API consumers of AI routes must handle
+  the new job response, and web/Celery services must load the same version.
+- Symbol discovery keeps JSON results for up to sixty seconds, checking the main
+  file and all transitive includes (including empty files) by content hash and
+  filesystem revision before reuse. Directory changes invalidate relative-include
+  resolution. Failed parses, dynamic Jinja sources, and untrackable sources are
+  not cached. Function help is refreshed separately. Each process retains at
+  most 32 results / 2 MiB of serialized symbols; template excerpts have a separate
+  256 KiB cache invalidated by file/directory metadata. Each result is capped at
+  256 KiB. Same-key parsing is coalesced within a process, and cached data is
+  decoded afresh for each caller. No live Interview objects are retained. These
+  are per-process caches, not a shared Redis cache; validation still runs its
+  correctness checks and reuses symbol discovery when it reaches that step.
+
+A conservative starting configuration for a controlled classroom trial is below.
+Merge these keys into existing configuration and preserve the other Celery modules:
+
+```yaml
+celery processes: 2
+celery modules:
+  - docassemble.ALWeaver.api_weaver_worker
+weaver:
+  restart on module save: never
+```
+
+The worker count is a trial setting, not a capacity guarantee. Docassemble counts
+its dedicated `celerysingle` worker in `celery processes`; check the actual general
+worker pool after applying it. Each worker has its own memory, and uploads,
+conversion, generation, and assistant turns still share this host. See
+[Docassemble's background concurrency configuration](https://docassemble.org/docs/config.html#celery%20processes).
+Schedule configuration changes and restarts outside class. `never` suppresses the
+module-save restart workflow; Python changes still need a coordinated restart,
+and the explicit restart action remains available.
+
+Before/after testing should use the same interviews and operations: open fifteen
+debuggers, let them idle, navigate interviews, request AI drafts, then try document
+generation. Compare endpoint request counts and response times, web/Celery worker
+RSS, available memory, swap activity, and queue delay. Closing Debug views remains
+a useful isolation test; `weaver: {runtime inspector: false}` disables the feature
+if needed. These code changes do not establish that a particular 8 GB deployment
+can sustain a class's peak document-generation load.
 
 ## Editing assistant data handling
 

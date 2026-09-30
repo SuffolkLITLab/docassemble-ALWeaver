@@ -11,6 +11,7 @@ from .docassemble_compat import TargetSession
 
 RUNTIME_SESSION_KEY_PREFIX = "da:alweaver:editor:runtime-session:"
 RUNTIME_SESSION_EXPIRE_SECONDS = 8 * 60 * 60
+RUNTIME_SESSION_TOUCH_SECONDS = 60
 
 
 def utc_now() -> datetime:
@@ -135,8 +136,12 @@ def load_runtime_record(
     value["created_at"] = datetime.fromisoformat(value["created_at"])
     value["last_accessed_at"] = datetime.fromisoformat(value["last_accessed_at"])
     record = WeaverTargetSession(**value)
-    record.last_accessed_at = utc_now()
-    store_runtime_record(redis_client, record)
+    # Observations are reads; refresh the sliding lifetime at most once a
+    # minute rather than serializing/writing the history on every poll.
+    now = utc_now()
+    if (now - record.last_accessed_at).total_seconds() >= RUNTIME_SESSION_TOUCH_SECONDS:
+        record.last_accessed_at = now
+        store_runtime_record(redis_client, record)
     return record
 
 
