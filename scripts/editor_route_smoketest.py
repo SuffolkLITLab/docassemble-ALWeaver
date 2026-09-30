@@ -26,10 +26,20 @@ def path_has(page, fragment: str) -> None:
 
 
 def section_control(page, view: str):
+    compact = page.locator("#editor-section-menu")
+    if compact.is_visible():
+        compact.click()
+        return page.locator(f'.editor-view-switch[data-view="{view}"]:visible').first
     return page.locator(f'.editor-top-tab[data-view="{view}"]:visible').first
 
 
 def open_interview_action(page, action: str) -> None:
+    compact = page.locator("#editor-section-menu")
+    if compact.is_visible():
+        compact.click()
+        submenu = page.locator('[data-section-submenu="editor-interview-submenu"]')
+        if submenu.get_attribute("aria-expanded") != "true":
+            submenu.click()
     menu = page.locator("#interview-menu")
     if menu.count() and menu.is_visible():
         menu.click()
@@ -288,7 +298,14 @@ def main() -> None:
 
         # Templates' secondary menu opens Document setup without a full reload.
         selected_interview = quote(page.locator("#file-select").input_value(), safe="")
-        page.locator("#templates-menu").click()
+        compact = page.locator("#editor-section-menu")
+        if compact.is_visible():
+            compact.click()
+            submenu = page.locator('[data-section-submenu="editor-templates-submenu"]')
+            if submenu.get_attribute("aria-expanded") != "true":
+                submenu.click()
+        else:
+            page.locator("#templates-menu").click()
         page.locator('[data-templates-mode="documents"]:visible').last.click()
         page.wait_for_load_state("networkidle")
         path_has(page, f"/interviews/{selected_interview}/documents")

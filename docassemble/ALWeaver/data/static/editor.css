@@ -61,26 +61,6 @@ body {
   z-index: 10;
 }
 
-@media (min-width: 1200px) {
-  .editor-navbar {
-    height: auto;
-    flex-wrap: nowrap;
-  }
-
-  .editor-brand {
-    max-width: min(20vw, 280px);
-  }
-
-  .editor-navbar .navbar-collapse {
-    min-width: 0;
-  }
-  /* Bootstrap's .nav-underline adds a 2px border to every link, which would
-     make the tabs taller than the brand and push the bar past 56px. */
-  .editor-navbar .nav-underline .nav-link {
-    padding-block: 0.375rem;
-  }
-}
-
 .editor-brand {
   display: flex;
   align-items: center;
@@ -115,57 +95,8 @@ body {
   white-space: nowrap;
 }
 
-.editor-section-switcher,
-.editor-compact-actions {
+.editor-section-switcher {
   display: none;
-}
-
-@media (max-width: 1199.98px) {
-  .editor-brand {
-    margin-right: 0;
-  }
-
-  .editor-compact-actions {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-left: auto;
-    margin-right: 8px;
-    flex: 0 0 auto;
-  }
-
-  .editor-compact-actions .btn {
-    white-space: nowrap;
-  }
-
-  .editor-compact-actions .js-assistant-toggle .editor-compact-action-label {
-    display: none;
-  }
-
-  .editor-top-actions [data-action="preview-interview"],
-  .editor-top-actions [data-action="save-file"] {
-    display: none;
-  }
-
-  .editor-compact-action-label {
-    margin-left: 5px;
-  }
-}
-
-@media (min-width: 576px) and (max-width: 1199.98px) {
-  .editor-brand {
-    max-width: min(35vw, 280px);
-  }
-
-  .editor-section-switcher {
-    display: block;
-    flex: 0 0 auto;
-    margin-left: 8px;
-  }
-
-  .editor-section-switcher > .btn {
-    white-space: nowrap;
-  }
 }
 
 .editor-section-menu-list {
@@ -203,7 +134,7 @@ body {
   background: #e9eef5;
 }
 
-.editor-section-submenu-toggle[aria-expanded="true"] svg {
+.editor-section-submenu-toggle[aria-expanded='true'] svg {
   transform: rotate(90deg);
 }
 
@@ -219,55 +150,25 @@ body {
   white-space: normal;
 }
 
-@media (max-width: 899.98px) {
-  .editor-compact-action-label {
-    display: none;
-  }
-
-  .editor-compact-actions .btn {
-    min-width: 32px;
-  }
-
-  .editor-compact-actions [data-action="save-file"] .editor-compact-action-label {
-    display: inline;
-  }
-}
-
-@media (min-width: 576px) and (max-width: 1199.98px) {
-  /* The section picker owns navigation at tablet widths. Keep only the
-     remaining actions and account menu in the hamburger. */
-  #view-tabs,
-  .editor-top-actions .js-assistant-toggle,
-  .editor-top-actions [data-action="open-runtime-inspector"] {
-    display: none !important;
-  }
-}
-
 @media (max-width: 575.98px) {
   .editor-brand-project {
     display: none;
   }
-
-  .editor-compact-actions {
-    gap: 4px;
-    margin-right: 4px;
+  .editor-compact-actions [data-action='open-runtime-inspector'],
+  .editor-compact-actions .js-assistant-toggle {
+    display: none;
   }
-
-  .editor-compact-actions [data-action="save-file"] {
+  .editor-compact-actions [data-action='save-file'] {
     padding-inline: 0.35rem;
   }
-
   .editor-navbar .navbar-toggler {
+    order: 3;
     width: 44px;
     height: 40px;
     padding: 0;
   }
-
-  .editor-compact-actions [data-action="open-runtime-inspector"] {
-    display: none;
-  }
-
-  .editor-compact-actions .js-assistant-toggle {
+  .editor-top-actions [data-action='preview-interview'],
+  .editor-top-actions [data-action='save-file'] {
     display: none;
   }
 }
@@ -5553,8 +5454,7 @@ body {
 .editor-layout.editor-rail-collapsed {
   --editor-left-width: 3.5rem;
 }
-.editor-rail-collapsed .editor-left > :not(.editor-rail-heading),
-.editor-rail-collapsed .editor-rail-heading strong {
+.editor-rail-collapsed .editor-left > :not(.editor-rail-heading) {
   display: none;
 }
 .editor-rail-collapsed .editor-rail-heading {
@@ -5620,9 +5520,17 @@ body {
   gap: 4px 8px;
   min-width: 0;
 }
-.editor-question-button-summary dt { font-weight: 500; }
-.editor-question-button-summary dd { margin: 0; overflow-wrap: anywhere; }
-.editor-question-button-summary code { font-size: inherit; color: inherit; }
+.editor-question-button-summary dt {
+  font-weight: 500;
+}
+.editor-question-button-summary dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.editor-question-button-summary code {
+  font-size: inherit;
+  color: inherit;
+}
 .editor-section-menu-list {
   max-width: calc(100vw - 24px);
   min-width: min(17.5rem, calc(100vw - 24px));
@@ -5669,12 +5577,9 @@ body {
     justify-content: flex-start;
     padding: 8px 12px;
   }
-  .editor-rail-collapsed .editor-rail-heading strong {
-    display: block;
-  }
 }
 
-.editor-shell textarea.form-control[rows="1"] {
+.editor-shell textarea.form-control[rows='1'] {
   min-height: 2.5rem;
 }
 .editor-field-type-btn {
@@ -5687,13 +5592,179 @@ body {
   display: none !important;
 }
 
-/* Larger browser text can exhaust the desktop navbar before its breakpoint. */
-.editor-navbar > .container-fluid,
-.editor-navbar .navbar-collapse,
-.editor-navbar .navbar-nav {
-  flex-wrap: wrap;
+/* Keep project, section, actions and account on one top rail. The section
+   picker leaves room for authoring controls in narrower windows. */
+.editor-navbar > .container-fluid {
+  flex-wrap: nowrap;
+  gap: 0.5rem;
 }
-.editor-navbar .navbar-collapse {
+.editor-project-switcher {
+  flex: 0 1 24rem;
   min-width: 0;
-  gap: 0 0.5rem;
+}
+.editor-project-switcher .editor-brand {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+.editor-project-menu {
+  min-width: 17rem;
+  max-width: calc(100vw - 1.5rem);
+}
+.editor-compact-actions {
+  order: 2;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin: 0 0 0 auto;
+  flex: 0 0 auto;
+}
+.editor-compact-actions .btn {
+  white-space: nowrap;
+}
+.editor-compact-action-label {
+  margin-left: 0.3125rem;
+}
+.editor-account-nav {
+  order: 4;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+#editor-account-menu {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  white-space: nowrap;
+}
+.editor-account-name {
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.editor-rail-heading {
+  position: relative;
+}
+#editor-file-section {
+  min-width: 0;
+  width: 100%;
+}
+#editor-file-section > label {
+  padding-right: 2rem;
+}
+#file-select {
+  min-width: 0;
+}
+.editor-rail-heading > .editor-rail-toggle {
+  position: absolute;
+  top: 0.375rem;
+  right: 0.75rem;
+}
+.editor-rail-collapsed #editor-file-section {
+  display: none;
+}
+.editor-rail-collapsed .editor-rail-heading > .editor-rail-toggle {
+  position: static;
+}
+@media (min-width: 576px) {
+  .editor-section-switcher {
+    display: block;
+    flex: 0 0 auto;
+    margin: 0;
+  }
+  #editor-navbar-collapse,
+  .editor-navbar .navbar-toggler {
+    display: none !important;
+  }
+}
+@media (max-width: 899.98px) {
+  .editor-account-name,
+  .editor-compact-action-label {
+    display: none;
+  }
+  .editor-project-switcher {
+    flex-basis: 10rem;
+  }
+}
+@media (max-width: 575.98px) {
+  .editor-project-switcher {
+    flex: 0 1 auto;
+  }
+  .editor-navbar > .container-fluid {
+    flex-wrap: wrap;
+    gap: 0.25rem;
+  }
+  #editor-navbar-collapse {
+    order: 5;
+    flex-basis: 100%;
+  }
+}
+
+/* Container thresholds follow the author's text size as well as the viewport.
+   Larger text switches to labelled icon buttons before the top rail overflows. */
+.editor-navbar {
+  container-type: inline-size;
+}
+@container (max-width: 90rem) {
+  .editor-account-name,
+  .editor-compact-action-label {
+    display: none;
+  }
+}
+@container (max-width: 32rem) {
+  .editor-brand-project,
+  .editor-compact-actions [data-action='open-runtime-inspector'],
+  .editor-compact-actions .js-assistant-toggle {
+    display: none;
+  }
+}
+
+/* Bootstrap puts menus in the flow of a collapsed navbar. This account menu
+   lives on the top rail, so it must overlay the workspace at every width. */
+.editor-account-nav .dropdown-menu {
+  position: absolute;
+  right: 0;
+  left: auto;
+  max-height: calc(100dvh - var(--editor-navbar-height) - 1rem);
+  overflow-y: auto;
+}
+@container (max-width: 20rem) {
+  .editor-brand-logo {
+    height: 20px;
+  }
+  .editor-navbar > .container-fluid {
+    gap: 0.1875rem;
+    padding-inline: 0.25rem;
+  }
+  .editor-compact-actions {
+    gap: 0.1875rem;
+  }
+}
+
+/* Keep the five folder tabs visible when they fit. The text-relative threshold
+   selects the compact picker on smaller windows or with larger browser text. */
+@container (min-width: 75rem) {
+  .editor-section-switcher {
+    display: none;
+  }
+  #editor-navbar-collapse {
+    order: 1;
+    display: flex !important;
+    flex: 0 0 auto;
+  }
+  #view-tabs {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 0.75rem;
+  }
+  .editor-top-actions {
+    display: none;
+  }
+}
+
+/* Secondary file views have their own file list. Keep project-wide search
+   available in the same sidebar row while hiding interview-only controls. */
+.editor-secondary-files > label,
+.editor-secondary-files #file-select,
+.editor-secondary-files .dropdown {
+  display: none;
 }
