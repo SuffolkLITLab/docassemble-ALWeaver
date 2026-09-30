@@ -6,6 +6,7 @@ virtual developer signs in separately. No credentials, cookies, source text,
 or model prompts are written to the public result files. AI calls require a
 configured provider; use a local delayed provider fixture for a cost-free run.
 """
+
 from __future__ import annotations
 
 import argparse

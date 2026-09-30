@@ -9540,8 +9540,7 @@ def _generate_ai_screen(uid: int, post_data: Dict[str, Any]) -> Dict[str, Any]:
     template_context = _project_template_context_text(uid, project)
     current_screen_payload = post_data.get("current_screen")
 
-    system_message = textwrap.dedent(
-        """
+    system_message = textwrap.dedent("""
         You are drafting ONE docassemble question screen.
         Return ONLY JSON with keys:
           question: string
@@ -9557,8 +9556,7 @@ def _generate_ai_screen(uid: int, post_data: Dict[str, Any]) -> Dict[str, Any]:
         - Keep variable names python-safe snake_case.
         - When fields is non-empty, continue_button_field must be an empty string.
         - Use continue_button_field only for a screen with no input fields.
-        """
-    ).strip()
+        """).strip()
 
     user_message = (
         f"Allowed datatypes: {json.dumps(field_types)}\n\n"
@@ -9665,8 +9663,7 @@ def _generate_ai_fields(uid: int, post_data: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(current_screen_payload, dict):
         current_screen_payload = deepcopy(block.get("data") or {})
 
-    system_message = textwrap.dedent(
-        """
+    system_message = textwrap.dedent("""
         You are generating fields for ONE docassemble question screen.
         Return ONLY JSON with key:
           fields: array of {label, field, datatype, choices?}
@@ -9677,8 +9674,7 @@ def _generate_ai_fields(uid: int, post_data: Dict[str, Any]) -> Dict[str, Any]:
         - Choose datatypes from the provided allowed list.
         - Keep labels plain and user-friendly.
         - Keep variable names python-safe snake_case.
-        """
-    ).strip()
+        """).strip()
 
     user_message = (
         f"Allowed datatypes: {json.dumps(field_types)}\n\n"

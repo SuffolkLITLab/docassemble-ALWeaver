@@ -32,5 +32,11 @@
   "directory_invalidation_regression": {
     "passed": true,
     "load_numbers_predate_fix": true
+  },
+  "black_ci_version": {
+    "version": "26.3.0",
+    "full_repository_passed": true,
+    "unchanged_files": 111,
+    "formatted_files_ast_unchanged": true
   }
 }
