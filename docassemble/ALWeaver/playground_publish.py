@@ -242,7 +242,7 @@ def find_project_github_sync(
     if not os.path.isdir(directory):
         return None
     candidates: List[Tuple[bool, float, str, Dict[str, Any]]] = []
-    for filename in sorted(os.listdir(directory)):
+    for filename in os.listdir(directory):
         if not filename.startswith("docassemble."):
             continue
         path = os.path.join(directory, filename)
@@ -257,8 +257,9 @@ def find_project_github_sync(
             continue
         package = filename[len("docassemble.") :]
         commit_file = os.path.join(directory, f".docassemble-{package}")
+        has_commit_file = os.path.isfile(commit_file)
         commit = str(manifest.get("github_commit") or "").strip()
-        if not commit and os.path.isfile(commit_file):
+        if not commit and has_commit_file:
             with open(commit_file, "r", encoding="utf-8") as stream:
                 commit = stream.read().strip()
         sync = {
@@ -271,7 +272,7 @@ def find_project_github_sync(
         }
         try:
             modified = os.path.getmtime(
-                commit_file if commit and os.path.isfile(commit_file) else path
+                commit_file if commit and has_commit_file else path
             )
         except OSError:
             continue

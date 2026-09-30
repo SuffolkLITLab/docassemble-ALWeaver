@@ -2179,6 +2179,16 @@ def editor_static(filename: str) -> Response:
 # ---------------------------------------------------------------------------
 
 
+def _github_sync_summary(sync: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the client-safe fields of a project's GitHub sync record."""
+    return {
+        "package": sync["package"],
+        "repository_url": sync["repository_url"],
+        "branch": sync["branch"],
+        "has_merge_base": bool(sync.get("commit")),
+    }
+
+
 def _project_github_sync_summaries(
     user_id: int, projects: List[str]
 ) -> Dict[str, Dict[str, Any]]:
@@ -2188,12 +2198,7 @@ def _project_github_sync_summaries(
         sync = find_project_github_sync(user_id=user_id, project_name=project)
         if not sync:
             continue
-        summaries[project] = {
-            "package": sync["package"],
-            "repository_url": sync["repository_url"],
-            "branch": sync["branch"],
-            "has_merge_base": bool(sync.get("commit")),
-        }
+        summaries[project] = _github_sync_summary(sync)
     return summaries
 
 
@@ -2278,11 +2283,9 @@ def editor_api_github_status() -> Response:
                 commit = str(sync.get("commit") or "").strip()
                 published = bool(re.fullmatch(r"[0-9a-fA-F]{40}", commit))
                 sync_data = {
-                    "package": sync["package"],
+                    **_github_sync_summary(sync),
                     "owner": repository["owner"],
                     "repository_url": repository["url"],
-                    "branch": sync["branch"],
-                    "has_merge_base": bool(commit),
                     "published": published,
                     "commit_url": (
                         f"{repository['url']}/commit/{commit}" if published else None

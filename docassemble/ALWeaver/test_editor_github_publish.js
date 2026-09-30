@@ -62,6 +62,7 @@ const context = {
     data: { branches, default_branch: 'main' },
   }),
   showGithubWorkflowAccess() {},
+  clearTimeout,
 };
 vm.createContext(context);
 context.githubBranchRequest = 0;

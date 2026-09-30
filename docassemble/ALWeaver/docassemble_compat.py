@@ -1027,6 +1027,12 @@ def _github_json_request(
     return response, payload
 
 
+def _github_next_page_url(response: Any) -> Optional[str]:
+    """Return the ``rel="next"`` URL from a GitHub ``Link`` header, if any."""
+    next_match = re.search(r'<([^>]+)>;\s*rel="next"', str(response.get("link") or ""))
+    return next_match.group(1) if next_match else None
+
+
 def _github_error_message(payload: Any, fallback: str) -> str:
     if isinstance(payload, dict) and payload.get("message"):
         return f"{fallback}: {payload['message']}"
@@ -1282,9 +1288,7 @@ def get_github_publish_owners(*, user_id: Optional[int] = None) -> List[Dict[str
             for org in organizations
             if isinstance(org, dict) and org.get("login")
         )
-        link_header = str(response.get("link") or "")
-        next_match = re.search(r'<([^>]+)>;\s*rel="next"', link_header)
-        url = next_match.group(1) if next_match else None
+        url = _github_next_page_url(response)
     return owners
 
 
@@ -1319,10 +1323,7 @@ def get_github_repository_branches(
             for branch in payload
             if isinstance(branch, dict) and branch.get("name")
         )
-        next_match = re.search(
-            r'<([^>]+)>;\s*rel="next"', str(response.get("link") or "")
-        )
-        next_url = next_match.group(1) if next_match else None
+        next_url = _github_next_page_url(response)
         if next_url and not next_url.startswith(f"{base_url}/branches?"):
             raise DocassembleCompatibilityError(
                 "GitHub returned an invalid branch page"
@@ -1366,9 +1367,7 @@ def _github_user_installations(http: Any) -> Optional[List[Dict[str, Any]]]:
             for entry in payload.get("installations") or []
             if isinstance(entry, dict)
         )
-        link_header = str(response.get("link") or "")
-        next_match = re.search(r'<([^>]+)>;\s*rel="next"', link_header)
-        url = next_match.group(1) if next_match else None
+        url = _github_next_page_url(response)
     return installations
 
 
