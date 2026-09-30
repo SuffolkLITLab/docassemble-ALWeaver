@@ -2630,13 +2630,15 @@ def editor_api_github_publish() -> Response:
             raise ValueError(
                 "The publish target changed after preview. Review the current target before publishing."
             )
+        # Docassemble's github_url, github_branch, and commit marker describe
+        # the last successful publish. Keep them until the worker commits and
+        # record_project_github_sync updates all three together.
         prepared = prepare_project_github_package(
             user_id=uid,
             project_name=project,
             package_name=package,
             author_name=author_name,
             author_email=author_email,
-            github_url=repository_url,
             dependencies=repository_dependency_names(uid, project, package),
         )
         package_info, manifest_path = load_project_github_manifest(

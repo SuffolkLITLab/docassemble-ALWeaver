@@ -238,6 +238,81 @@ class test_playground_publish(unittest.TestCase):
                 (project_dir / ".docassemble-docassemble-HousingForms").exists()
             )
 
+    def test_failed_retarget_preserves_docassembles_last_published_target(self):
+        old_url = "https://github.com/OldOrg/docassemble-HousingForms"
+        new_url = "https://github.com/NewOrg/docassemble-HousingForms"
+        old_commit = "a" * 40
+        new_commit = "b" * 40
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            class FakeArea:
+                def __init__(self, section):
+                    self.directory = str(root / section)
+                    Path(self.directory).mkdir(parents=True, exist_ok=True)
+
+                def finalize(self):
+                    pass
+
+            areas = {
+                section: FakeArea(section)
+                for section in playground_publish.PLAYGROUND_SECTIONS
+            }
+            questions_dir = Path(areas["playground"].directory) / "Housing"
+            questions_dir.mkdir()
+            (questions_dir / "main.yml").write_text(
+                "question: Housing\n", encoding="utf-8"
+            )
+            packages_dir = Path(areas["playgroundpackages"].directory) / "Housing"
+            packages_dir.mkdir()
+            manifest_path = packages_dir / "docassemble.HousingForms"
+            manifest_path.write_text(
+                f"github_url: {old_url}\n"
+                "github_branch: release/old\n"
+                f"github_commit: {old_commit}\n",
+                encoding="utf-8",
+            )
+            commit_file = packages_dir / ".docassemble-HousingForms"
+            commit_file.write_text(old_commit + "\n", encoding="utf-8")
+
+            with patch.object(
+                playground_publish,
+                "create_saved_file",
+                side_effect=lambda _uid, fix, section: areas[section],
+            ):
+                # The publish request prepares files but fails before the
+                # worker records a successful commit to the new owner.
+                prepare_project_github_package(
+                    user_id=7,
+                    project_name="Housing",
+                    package_name="HousingForms",
+                )
+                after_failure = playground_publish.find_project_github_sync(
+                    user_id=7, project_name="Housing"
+                )
+                self.assertEqual(after_failure["repository_url"], old_url)
+                self.assertEqual(after_failure["branch"], "release/old")
+                self.assertEqual(after_failure["commit"], old_commit)
+                self.assertEqual(
+                    commit_file.read_text(encoding="utf-8"), old_commit + "\n"
+                )
+
+                # A successful publish replaces Docassemble's target and marker.
+                playground_publish.record_project_github_sync(
+                    user_id=7,
+                    project_name="Housing",
+                    package_name="HousingForms",
+                    repository_url=new_url,
+                    branch="release/new",
+                    commit_sha=new_commit,
+                )
+                after_success = playground_publish.find_project_github_sync(
+                    user_id=7, project_name="Housing"
+                )
+                self.assertEqual(after_success["repository_url"], new_url)
+                self.assertEqual(after_success["branch"], "release/new")
+                self.assertEqual(after_success["commit"], new_commit)
+
     def test_find_github_sync_prefers_the_last_published_package(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             project_dir = Path(temp_dir) / "Housing"

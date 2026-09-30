@@ -1030,7 +1030,6 @@ class TestEditorGithubApi(unittest.TestCase):
             package_name="HousingForms",
             author_name="Ada",
             author_email="ada@example.com",
-            github_url="https://github.com/LegalAid/docassemble-HousingForms",
             dependencies=["docassemble.AssemblyLine"],
         )
         self.assertEqual(
