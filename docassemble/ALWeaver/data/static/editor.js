@@ -3207,6 +3207,35 @@
     status.textContent = message;
   }
 
+  function showGithubPublishedTarget(sync) {
+    var existing = document.getElementById('github-publish-existing');
+    var repositoryLink = document.getElementById('github-repository-link');
+    var commitLink = document.getElementById('github-commit-link');
+    var published = Boolean(sync && sync.published && sync.commit_url);
+    if (existing) {
+      existing.classList.toggle('d-none', !published);
+      existing.textContent = published
+        ? 'Last published to ' +
+          sync.owner +
+          '/docassemble-' +
+          sync.package +
+          ' on ' +
+          sync.branch +
+          '.'
+        : '';
+    }
+    [
+      [repositoryLink, sync && sync.repository_url],
+      [commitLink, sync && sync.commit_url],
+    ].forEach(function (entry) {
+      var link = entry[0];
+      if (!link) return;
+      if (published) link.href = entry[1];
+      else link.removeAttribute('href');
+      link.classList.toggle('d-none', !published);
+    });
+  }
+
   var githubPublishPreviewToken = null;
 
   function clearGithubPublishPreview(message) {
@@ -3409,14 +3438,126 @@
     notice.classList.remove('d-none');
   }
 
+  var githubBranchRequest = 0;
+  var githubBranchTimer = null;
+
+  function githubBranchValue() {
+    var select = document.getElementById('github-branch-name');
+    var newName = document.getElementById('github-new-branch-name');
+    return select && select.value === '<new>'
+      ? (newName && newName.value) || ''
+      : (select && select.value) || '';
+  }
+
+  function updateGithubNewBranchInput() {
+    var select = document.getElementById('github-branch-name');
+    var newName = document.getElementById('github-new-branch-name');
+    if (!newName) return;
+    var isNew = !!select && select.value === '<new>';
+    newName.classList.toggle('d-none', !isNew);
+    newName.disabled = !isNew;
+    newName.required = isNew;
+  }
+
+  function resetGithubBranchChoices(label) {
+    githubBranchRequest += 1;
+    var select = document.getElementById('github-branch-name');
+    var retry = document.getElementById('github-branch-retry');
+    var preview = document.getElementById('github-publish-preview-button');
+    if (select) {
+      select.disabled = true;
+      select.replaceChildren();
+      var placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = label;
+      select.appendChild(placeholder);
+      select.value = '';
+    }
+    if (retry) retry.classList.add('d-none');
+    if (preview) preview.disabled = true;
+    updateGithubNewBranchInput();
+  }
+
+  function loadGithubBranches(savedBranch) {
+    resetGithubBranchChoices('Loading branches…');
+    var request = githubBranchRequest;
+    var owner = document.getElementById('github-owner');
+    var packageInput = document.getElementById('github-package-name');
+    var select = document.getElementById('github-branch-name');
+    var newName = document.getElementById('github-new-branch-name');
+    var retry = document.getElementById('github-branch-retry');
+    var preview = document.getElementById('github-publish-preview-button');
+    if (!owner || !owner.value || !packageInput || !packageInput.value.trim()) {
+      resetGithubBranchChoices('Choose a repository to load branches');
+      return;
+    }
+    apiGet(
+      '/api/github/branches?project=' +
+        encodeURIComponent(state.project) +
+        '&owner=' +
+        encodeURIComponent(owner.value) +
+        '&package=' +
+        encodeURIComponent(packageInput.value.trim()),
+    )
+      .then(function (res) {
+        if (request !== githubBranchRequest) return;
+        if (!res.success || !res.data) {
+          throw new Error(
+            (res.error && res.error.message) ||
+              'Unable to load GitHub branches.',
+          );
+        }
+        var data = res.data;
+        select.replaceChildren();
+        if (newName) newName.value = '';
+        (data.branches || []).forEach(function (branch) {
+          var option = document.createElement('option');
+          option.value = branch;
+          option.textContent = branch;
+          select.appendChild(option);
+        });
+        var newOption = document.createElement('option');
+        newOption.value = '<new>';
+        newOption.textContent = 'New branch...';
+        select.appendChild(newOption);
+        var existing = data.branches || [];
+        if (savedBranch && existing.includes(savedBranch)) {
+          select.value = savedBranch;
+        } else if (savedBranch || !existing.length) {
+          select.value = '<new>';
+          if (newName)
+            newName.value = savedBranch || data.default_branch || 'main';
+        } else if (existing.includes(data.default_branch)) {
+          select.value = data.default_branch;
+        } else {
+          select.value = existing[0];
+        }
+        select.disabled = false;
+        updateGithubNewBranchInput();
+        if (preview) preview.disabled = false;
+      })
+      .catch(function (error) {
+        if (request !== githubBranchRequest) return;
+        resetGithubBranchChoices('Unable to load branches');
+        if (retry) retry.classList.remove('d-none');
+        setGithubPublishStatus(
+          error && error.message
+            ? error.message
+            : 'Unable to load GitHub branches.',
+          'danger',
+        );
+      });
+  }
+
   function applyGithubIntegrationStatus(data) {
     var submit = document.getElementById('github-publish-submit');
-    var previewButton = document.getElementById(
-      'github-publish-preview-button',
-    );
     var configure = document.getElementById('github-configure-link');
     var packageInput = document.getElementById('github-package-name');
     var ownerSelect = document.getElementById('github-owner');
+    var sync = data && data.sync;
+    if (githubBranchTimer) clearTimeout(githubBranchTimer);
+    resetGithubBranchChoices('Choose a repository to load branches');
+    showGithubPublishedTarget(sync);
     githubWorkflowAccessByOwner = {};
     showGithubWorkflowAccess();
     if (ownerSelect && !(data && data.enabled && data.connected)) {
@@ -3426,9 +3567,8 @@
       unavailable.textContent = 'Connect GitHub to choose an account';
       ownerSelect.appendChild(unavailable);
     }
-    if (packageInput && data && data.default_package) {
-      packageInput.value = data.default_package;
-    }
+    if (packageInput && data)
+      packageInput.value = (sync && sync.package) || data.default_package || '';
     if (configure) {
       configure.classList.toggle('d-none', !(data && data.configure_url));
       if (data && data.configure_url) configure.href = data.configure_url;
@@ -3470,6 +3610,21 @@
         option.disabled = owner.available === false;
         ownerSelect.appendChild(option);
       });
+      if (sync && sync.owner) {
+        var savedOwner = (data.owners || []).find(function (owner) {
+          return owner.login.toLowerCase() === sync.owner.toLowerCase();
+        });
+        if (savedOwner && savedOwner.available !== false) {
+          ownerSelect.value = savedOwner.login;
+        } else {
+          var unavailableOwner = document.createElement('option');
+          unavailableOwner.value = '';
+          unavailableOwner.textContent = sync.owner + ' (unavailable)';
+          unavailableOwner.disabled = true;
+          ownerSelect.prepend(unavailableOwner);
+          ownerSelect.value = '';
+        }
+      }
       ownerSelect.disabled = !(data.owners && data.owners.length);
     }
     showGithubWorkflowAccess();
@@ -3497,11 +3652,18 @@
       );
     }
     if (submit) submit.disabled = true;
-    if (previewButton) previewButton.disabled = false;
     setGithubPublishStatus(
       'Connected. Choose the target and preview the files before publishing.',
       'success',
     );
+    if (sync && sync.owner && (!ownerSelect || !ownerSelect.value)) {
+      setGithubPublishStatus(
+        'The saved GitHub owner is unavailable. Choose an account before publishing.',
+        'warning',
+      );
+    } else {
+      loadGithubBranches(sync && sync.branch);
+    }
   }
 
   function refreshGithubSyncAction() {
@@ -3613,20 +3775,19 @@
         var modal = getOrCreateBootstrapModal('github-publish-modal');
         var submit = document.getElementById('github-publish-submit');
         var configure = document.getElementById('github-configure-link');
-        var repositoryLink = document.getElementById('github-repository-link');
-        var commitLink = document.getElementById('github-commit-link');
         var previewButton = document.getElementById(
           'github-publish-preview-button',
         );
         var ownerSelect = document.getElementById('github-owner');
+        if (githubBranchTimer) clearTimeout(githubBranchTimer);
+        resetGithubBranchChoices('Choose a repository to load branches');
         if (submit) submit.disabled = true;
         if (previewButton) previewButton.disabled = true;
         clearGithubPublishPreview();
         if (configure) configure.classList.add('d-none');
         githubWorkflowAccessByOwner = {};
         showGithubWorkflowAccess();
-        if (repositoryLink) repositoryLink.classList.add('d-none');
-        if (commitLink) commitLink.classList.add('d-none');
+        showGithubPublishedTarget(null);
         if (ownerSelect) {
           ownerSelect.disabled = true;
           ownerSelect.replaceChildren();
@@ -3678,43 +3839,78 @@
     var ownerSelect = document.getElementById('github-owner');
     var packageInput = document.getElementById('github-package-name');
     var branchInput = document.getElementById('github-branch-name');
+    var newBranchInput = document.getElementById('github-new-branch-name');
+    var branchRetry = document.getElementById('github-branch-retry');
     var previewButton = document.getElementById(
       'github-publish-preview-button',
     );
     if (ownerSelect)
       ownerSelect.addEventListener('change', function () {
+        if (githubBranchTimer) clearTimeout(githubBranchTimer);
         showGithubWorkflowAccess();
         clearGithubPublishPreview(
           'Target changed. Preview the repository changes again.',
         );
+        loadGithubBranches();
       });
-    [packageInput, branchInput].forEach(function (input) {
-      if (input)
-        input.addEventListener('input', function () {
-          clearGithubPublishPreview(
-            'Target changed. Preview the repository changes again.',
-          );
-        });
-    });
+    if (packageInput)
+      packageInput.addEventListener('input', function () {
+        clearGithubPublishPreview(
+          'Target changed. Preview the repository changes again.',
+        );
+        resetGithubBranchChoices('Loading branches…');
+        if (githubBranchTimer) clearTimeout(githubBranchTimer);
+        githubBranchTimer = setTimeout(loadGithubBranches, 350);
+      });
+    if (branchInput)
+      branchInput.addEventListener('change', function () {
+        updateGithubNewBranchInput();
+        clearGithubPublishPreview(
+          'Target changed. Preview the repository changes again.',
+        );
+      });
+    if (branchRetry)
+      branchRetry.addEventListener('click', function () {
+        loadGithubBranches();
+      });
+    if (newBranchInput)
+      newBranchInput.addEventListener('input', function () {
+        clearGithubPublishPreview(
+          'Target changed. Preview the repository changes again.',
+        );
+      });
     if (previewButton)
       previewButton.addEventListener('click', function () {
         if (!state.project || !form.reportValidity()) return;
         var owner = document.getElementById('github-owner');
         var packageName = document.getElementById('github-package-name');
-        var branch = document.getElementById('github-branch-name');
+        var selectedOwner = owner ? owner.value : '';
+        var selectedPackage = packageName ? packageName.value : '';
+        var selectedBranch = githubBranchValue();
+        var branchRequest = githubBranchRequest;
+        function targetUnchanged() {
+          return (
+            branchRequest === githubBranchRequest &&
+            selectedOwner === (owner ? owner.value : '') &&
+            selectedPackage === (packageName ? packageName.value : '') &&
+            selectedBranch === githubBranchValue()
+          );
+        }
         previewButton.disabled = true;
         clearGithubPublishPreview();
         setGithubPublishStatus('Building the package preview…', 'info');
         saveDirtyGithubEditors()
           .then(function () {
+            if (!targetUnchanged()) return null;
             return apiPost('/api/github/publish/preview', {
               project: state.project,
-              owner: owner ? owner.value : '',
-              package: packageName ? packageName.value : '',
-              branch: branch ? branch.value : '',
+              owner: selectedOwner,
+              package: selectedPackage,
+              branch: selectedBranch,
             });
           })
           .then(function (res) {
+            if (!targetUnchanged()) return;
             if (!res.success || !res.data) {
               throw new Error(
                 (res.error && res.error.message) ||
@@ -3730,6 +3926,7 @@
             );
           })
           .catch(function (error) {
+            if (!targetUnchanged()) return;
             setGithubPublishStatus(
               error && error.message
                 ? error.message
@@ -3738,7 +3935,8 @@
             );
           })
           .finally(function () {
-            previewButton.disabled = false;
+            var select = document.getElementById('github-branch-name');
+            previewButton.disabled = !select || select.disabled;
           });
       });
     form.addEventListener('submit', function (event) {
@@ -3746,11 +3944,8 @@
       if (!state.project) return;
       var packageInput = document.getElementById('github-package-name');
       var ownerSelect = document.getElementById('github-owner');
-      var branchInput = document.getElementById('github-branch-name');
       var messageInput = document.getElementById('github-commit-message');
       var submit = document.getElementById('github-publish-submit');
-      var repositoryLink = document.getElementById('github-repository-link');
-      var commitLink = document.getElementById('github-commit-link');
       if (!form.reportValidity()) return;
       if (!githubPublishPreviewToken) {
         setGithubPublishStatus(
@@ -3767,7 +3962,7 @@
             project: state.project,
             owner: ownerSelect ? ownerSelect.value : '',
             package: packageInput ? packageInput.value : '',
-            branch: branchInput ? branchInput.value : '',
+            branch: githubBranchValue(),
             commit_message: messageInput ? messageInput.value : '',
             preview_token: githubPublishPreviewToken,
           });
@@ -3789,14 +3984,7 @@
           setGithubPublishStatus('Queued for publishing to GitHub…', 'info');
           return _pollGithubPublishJob(res.data.job_url).then(
             function (result) {
-              if (repositoryLink && result.repository_url) {
-                repositoryLink.href = result.repository_url;
-                repositoryLink.classList.remove('d-none');
-              }
-              if (commitLink && result.commit_url) {
-                commitLink.href = result.commit_url;
-                commitLink.classList.remove('d-none');
-              }
+              showGithubPublishedTarget({ published: true, ...result });
               var fileCount = result.files_committed;
               var published =
                 typeof fileCount === 'number'

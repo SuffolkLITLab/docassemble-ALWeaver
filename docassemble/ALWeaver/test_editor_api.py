@@ -343,6 +343,63 @@ class _FakeRedis:
 
 
 class TestEditorGithubApi(unittest.TestCase):
+    def test_github_branches_lists_selected_repository(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=42),
+            patch.object(
+                api_editor,
+                "get_native_github_integration",
+                return_value={"enabled": True, "connected": True},
+            ),
+            patch.object(
+                api_editor,
+                "get_github_repository_branches",
+                return_value={
+                    "repository_exists": True,
+                    "default_branch": "main",
+                    "branches": ["main", "feature/housing"],
+                },
+            ) as branches,
+        ):
+            response = api_editor.app.test_client().get(
+                "/al/editor/api/github/branches",
+                query_string={
+                    "project": "Housing",
+                    "owner": "LegalAid",
+                    "package": "HousingForms",
+                },
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.get_json()["data"]["branches"], ["main", "feature/housing"]
+        )
+        branches.assert_called_once_with(
+            owner="LegalAid", repository="docassemble-HousingForms", user_id=42
+        )
+
+    def test_github_branches_requires_connected_account(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=42),
+            patch.object(
+                api_editor,
+                "get_native_github_integration",
+                return_value={"enabled": True, "connected": False},
+            ),
+            patch.object(api_editor, "get_github_repository_branches") as branches,
+        ):
+            response = api_editor.app.test_client().get(
+                "/al/editor/api/github/branches",
+                query_string={
+                    "project": "Housing",
+                    "owner": "LegalAid",
+                    "package": "HousingForms",
+                },
+            )
+        self.assertEqual(response.status_code, 409)
+        branches.assert_not_called()
+
     def test_github_publish_preview_shows_target_and_text_diff_without_persisting_manifest(
         self,
     ):
@@ -723,6 +780,77 @@ class TestEditorGithubApi(unittest.TestCase):
         self.assertEqual(data["owners"], [])
         self.assertEqual(data["configure_url"], "/al/editor/github/authorize")
 
+    def test_status_returns_last_published_target_and_commit(self):
+        commit = "a" * 40
+        sync = {
+            "package": "HousingForms",
+            "repository_url": "https://github.com/LegalAid/docassemble-HousingForms",
+            "branch": "feature/housing",
+            "commit": commit,
+        }
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "find_project_github_sync", return_value=sync),
+            patch.object(
+                api_editor,
+                "get_native_github_integration",
+                return_value={"enabled": True, "connected": True},
+            ),
+            patch.object(
+                api_editor,
+                "get_github_publish_owners",
+                return_value=[{"login": "LegalAid", "type": "organization"}],
+            ),
+            patch.object(
+                api_editor, "get_github_workflow_access", return_value={"owners": {}}
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/github/status?project=Housing"
+            ):
+                response = api_editor.editor_api_github_status()
+
+        self.assertEqual(response.status_code, 200)
+        saved = response.get_json()["data"]["sync"]
+        self.assertEqual(saved["package"], "HousingForms")
+        self.assertEqual(saved["owner"], "LegalAid")
+        self.assertEqual(saved["branch"], "feature/housing")
+        self.assertTrue(saved["published"])
+        self.assertEqual(
+            saved["commit_url"],
+            "https://github.com/LegalAid/docassemble-HousingForms/commit/" + commit,
+        )
+
+    def test_status_does_not_claim_an_unpublished_manifest_was_published(self):
+        sync = {
+            "package": "HousingForms",
+            "repository_url": "https://github.com/LegalAid/docassemble-HousingForms",
+            "branch": "feature/housing",
+            "commit": "",
+        }
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "find_project_github_sync", return_value=sync),
+            patch.object(
+                api_editor,
+                "get_native_github_integration",
+                return_value={"enabled": False, "connected": False},
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/github/status?project=Housing"
+            ):
+                response = api_editor.editor_api_github_status()
+
+        self.assertEqual(response.status_code, 200)
+        saved = response.get_json()["data"]["sync"]
+        self.assertEqual(saved["package"], "HousingForms")
+        self.assertEqual(saved["branch"], "feature/housing")
+        self.assertFalse(saved["published"])
+        self.assertIsNone(saved["commit_url"])
+
     def test_status_marks_each_owner_with_its_workflow_access(self):
         access = {
             "token_type": "github_app",
@@ -959,7 +1087,6 @@ class TestEditorGithubApi(unittest.TestCase):
             package_name="HousingForms",
             author_name="Ada",
             author_email="ada@example.com",
-            github_url="https://github.com/LegalAid/docassemble-HousingForms",
             dependencies=["docassemble.AssemblyLine"],
         )
         self.assertEqual(

@@ -1288,6 +1288,53 @@ def get_github_publish_owners(*, user_id: Optional[int] = None) -> List[Dict[str
     return owners
 
 
+def get_github_repository_branches(
+    *, owner: str, repository: str, user_id: Optional[int] = None
+) -> Dict[str, Any]:
+    """List all branches of one repository through the connected GitHub account."""
+    http = _github_authorized_http(user_id=user_id)
+    base_url = (
+        "https://api.github.com/repos/"
+        f"{quote(owner, safe='')}/{quote(repository, safe='')}"
+    )
+    response, repo_info = _github_json_request(http, base_url)
+    status = int(response.get("status", 0))
+    if status == 404:
+        return {"repository_exists": False, "default_branch": "main", "branches": []}
+    if status != 200 or not isinstance(repo_info, dict):
+        raise DocassembleCompatibilityError(
+            _github_error_message(repo_info, "GitHub could not read the repository")
+        )
+
+    branches: List[str] = []
+    url: Optional[str] = f"{base_url}/branches?per_page=100"
+    while url:
+        response, payload = _github_json_request(http, url)
+        if int(response.get("status", 0)) != 200 or not isinstance(payload, list):
+            raise DocassembleCompatibilityError(
+                _github_error_message(payload, "GitHub could not list branches")
+            )
+        branches.extend(
+            str(branch["name"])
+            for branch in payload
+            if isinstance(branch, dict) and branch.get("name")
+        )
+        next_match = re.search(
+            r'<([^>]+)>;\s*rel="next"', str(response.get("link") or "")
+        )
+        next_url = next_match.group(1) if next_match else None
+        if next_url and not next_url.startswith(f"{base_url}/branches?"):
+            raise DocassembleCompatibilityError(
+                "GitHub returned an invalid branch page"
+            )
+        url = next_url
+    return {
+        "repository_exists": True,
+        "default_branch": str(repo_info.get("default_branch") or "main"),
+        "branches": list(dict.fromkeys(branches)),
+    }
+
+
 WORKFLOW_ACCESS_GRANTED = "granted"
 WORKFLOW_ACCESS_UNKNOWN = "unknown"
 WORKFLOW_ACCESS_MISSING_SCOPE = "missing_scope"

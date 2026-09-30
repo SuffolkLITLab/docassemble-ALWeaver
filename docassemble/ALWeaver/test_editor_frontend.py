@@ -10,6 +10,7 @@ import unittest
 
 NODE_TESTS = (
     "test_editor_controls.js",
+    "test_editor_github_publish.js",
     "test_editor_expressions.js",
     "test_editor_attachments.js",
     "test_editor_order_lookup.js",
@@ -47,6 +48,13 @@ class _TemplateCollector(HTMLParser):
 
 
 class TestEditorFrontend(unittest.TestCase):
+    def test_github_branch_picker_has_new_branch_field_without_helper_text(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        self.assertRegex(template, r'<select[^>]+id="github-branch-name"')
+        self.assertIn('id="github-new-branch-name"', template)
+        self.assertIn('aria-label="New branch name"', template)
+        self.assertNotIn("Existing branches are updated and missing branches", template)
+
     def test_comfortable_editor_controls_remain_accessible(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
         editor = (self.package_dir / "data/static/editor.js").read_text()
@@ -217,6 +225,29 @@ class TestEditorFrontend(unittest.TestCase):
             "https://assemblyline.suffolklitlab.org/docs/components/ALKiln/setup/",
             source,
         )
+
+    def test_github_commit_message_supports_multiple_lines(self):
+        root = Path(__file__).parent / "data"
+        template = (root / "templates/editor.html").read_text()
+        css = (root / "static/editor.css").read_text()
+        editor = (root / "static/editor.js").read_text()
+        control = re.search(
+            r'<textarea\b(?=[^>]*\bid="github-commit-message")([^>]*)>([^<]*)</textarea>',
+            template,
+        )
+        self.assertIsNotNone(control)
+        attributes, default = control.groups()
+        self.assertIn('id="github-commit-message"', attributes)
+        self.assertIn('name="commit_message"', attributes)
+        self.assertIn('rows="2"', attributes)
+        self.assertIn('maxlength="500"', attributes)
+        self.assertIn("required", attributes)
+        self.assertEqual(default, "Update from Weaver")
+        self.assertIn(
+            ".github-commit-message-wrap textarea {\n  resize: vertical;", css
+        )
+        self.assertIn(".github-commit-message-wrap::after", css)
+        self.assertIn("commit_message: messageInput ? messageInput.value : ''", editor)
 
     def test_upload_generation_warnings_are_shown_to_the_author(self):
         source = (Path(__file__).parent / "data/static/editor.js").read_text()

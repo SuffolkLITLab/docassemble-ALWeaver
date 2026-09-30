@@ -1603,6 +1603,32 @@ body {
   height: 320px;
 }
 
+.github-commit-message-wrap {
+  position: relative;
+}
+
+.github-commit-message-wrap textarea {
+  resize: vertical;
+}
+
+/* Keep the resize corner visible even when the browser hides its native grip. */
+.github-commit-message-wrap::after {
+  content: '';
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 16px;
+  height: 16px;
+  background: repeating-linear-gradient(
+    135deg,
+    transparent 0 3px,
+    #6c757d 3px 4px,
+    transparent 4px 7px
+  );
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+  pointer-events: none;
+}
+
 .editor-source-container .cm-scroller {
   overflow: auto;
   overscroll-behavior: contain;
