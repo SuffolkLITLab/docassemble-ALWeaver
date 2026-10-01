@@ -1114,6 +1114,64 @@ class TestEditorGithubApi(unittest.TestCase):
         )
         self.assertEqual(sent["options"]["task_id"], payload["job_id"])
 
+    def test_publish_without_a_preview_queues_the_commit(self):
+        """Previewing is optional; the worker still guards synced branches."""
+        sent = {}
+
+        def fake_send_task(task_name, kwargs=None, **options):
+            sent["kwargs"] = kwargs
+            return types.SimpleNamespace(id="celery-task-1")
+
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "_editor_async_is_configured", return_value=True),
+            patch.object(api_editor, "r", _FakeRedis()),
+            patch.object(
+                api_editor,
+                "workerapp",
+                types.SimpleNamespace(send_task=fake_send_task),
+            ),
+            patch.object(
+                api_editor,
+                "get_native_github_integration",
+                return_value={"enabled": True, "connected": True},
+            ),
+            patch.object(
+                api_editor,
+                "get_github_publish_owners",
+                return_value=[{"login": "ada", "type": "user"}],
+            ),
+            patch.object(
+                api_editor,
+                "prepare_project_github_package",
+                return_value={
+                    "package": "HousingForms",
+                    "repository": "docassemble-HousingForms",
+                },
+            ),
+            patch.object(api_editor, "build_github_package_snapshot") as build_snapshot,
+            patch.object(api_editor, "_editor_user_designator", return_value="Ada"),
+            patch.object(api_editor, "repository_dependency_names", return_value=[]),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/github/publish",
+                method="POST",
+                json={
+                    "project": "Housing",
+                    "owner": "ada",
+                    "package": "HousingForms",
+                    "branch": "main",
+                    "commit_message": "Update interview",
+                },
+            ):
+                response = api_editor.editor_api_github_publish()
+
+        self.assertEqual(response.status_code, 202, response.get_json())
+        build_snapshot.assert_not_called()
+        self.assertIsNone(sent["kwargs"]["expected_remote_sha"])
+        self.assertIsNone(sent["kwargs"]["expected_source_revision"])
+
     def test_publish_refuses_when_celery_is_not_configured(self):
         with (
             patch.object(api_editor, "_editor_auth_check", return_value=True),

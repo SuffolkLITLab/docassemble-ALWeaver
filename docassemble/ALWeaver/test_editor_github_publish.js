@@ -67,7 +67,11 @@ const context = {
 vm.createContext(context);
 context.githubBranchRequest = 0;
 context.githubBranchTimer = null;
+context.githubPublishBlocked = false;
+context.githubPreviewInFlight = false;
+context.githubPublishInFlight = false;
 for (const name of [
+  'updateGithubPublishSubmit',
   'setGithubPublishStatus',
   'showGithubPublishedTarget',
   'githubBranchValue',
@@ -119,6 +123,9 @@ assert.strictEqual(elements['github-repository-link'].href, repositoryUrl);
 assert.strictEqual(elements['github-commit-link'].href, sync.commit_url);
 assert.ok(!elements['github-publish-existing'].classList.contains('d-none'));
 assert.ok(elements['github-publish-existing'].textContent.includes('Last published'));
+// Publishing does not wait for a preview once the target branch is loaded.
+assert.strictEqual(elements['github-publish-submit'].disabled, false);
+assert.strictEqual(elements['github-publish-preview-button'].disabled, false);
 
 context.applyGithubIntegrationStatus({ ...connected, sync: null });
 await Promise.resolve();

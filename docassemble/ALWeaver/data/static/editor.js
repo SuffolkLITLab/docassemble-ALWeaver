@@ -3272,14 +3272,31 @@
   }
 
   var githubPublishPreviewToken = null;
+  var githubPublishBlocked = false;
+  var githubPreviewInFlight = false;
+  var githubPublishInFlight = false;
 
-  function clearGithubPublishPreview(message) {
-    githubPublishPreviewToken = null;
-    var preview = document.getElementById('github-publish-preview');
+  // Previewing is optional: Publish needs only a loaded target branch. It is
+  // held while a preview or publish is running, and after a preview found
+  // unpulled commits on the branch.
+  function updateGithubPublishSubmit() {
     var submit = document.getElementById('github-publish-submit');
+    var select = document.getElementById('github-branch-name');
+    if (!submit) return;
+    submit.disabled =
+      !select ||
+      select.disabled ||
+      githubPublishBlocked ||
+      githubPreviewInFlight ||
+      githubPublishInFlight;
+  }
+
+  function clearGithubPublishPreview() {
+    githubPublishPreviewToken = null;
+    githubPublishBlocked = false;
+    var preview = document.getElementById('github-publish-preview');
     if (preview) preview.hidden = true;
-    if (submit) submit.disabled = true;
-    if (message) setGithubPublishStatus(message, 'secondary');
+    updateGithubPublishSubmit();
   }
 
   function renderGithubPublishPreview(data) {
@@ -3351,9 +3368,8 @@
     }
     preview.hidden = false;
     githubPublishPreviewToken = data.preview_token || null;
-    var submit = document.getElementById('github-publish-submit');
-    if (submit)
-      submit.disabled = !githubPublishPreviewToken || data.remote_advanced;
+    githubPublishBlocked = Boolean(data.remote_advanced);
+    updateGithubPublishSubmit();
   }
 
   function _pollGithubPublishJob(jobUrl) {
@@ -3511,6 +3527,7 @@
     }
     if (retry) retry.classList.add('d-none');
     if (preview) preview.disabled = true;
+    updateGithubPublishSubmit();
     updateGithubNewBranchInput();
   }
 
@@ -3571,6 +3588,7 @@
         select.disabled = false;
         updateGithubNewBranchInput();
         if (preview) preview.disabled = false;
+        updateGithubPublishSubmit();
       })
       .catch(function (error) {
         if (request !== githubBranchRequest) return;
@@ -3586,7 +3604,6 @@
   }
 
   function applyGithubIntegrationStatus(data) {
-    var submit = document.getElementById('github-publish-submit');
     var configure = document.getElementById('github-configure-link');
     var packageInput = document.getElementById('github-package-name');
     var ownerSelect = document.getElementById('github-owner');
@@ -3613,7 +3630,6 @@
         "Docassemble's GitHub integration is not enabled on this server.",
         'warning',
       );
-      if (submit) submit.disabled = true;
       return;
     }
     if (!data.connected) {
@@ -3621,7 +3637,6 @@
         'Connect your GitHub account in Docassemble before publishing.',
         'warning',
       );
-      if (submit) submit.disabled = true;
       return;
     }
     if (data.async_configured === false) {
@@ -3630,7 +3645,6 @@
           'Publishing runs in the Celery worker, which is not configured on this server.',
         'warning',
       );
-      if (submit) submit.disabled = true;
       return;
     }
     if (ownerSelect) {
@@ -3668,7 +3682,6 @@
         'GitHub did not return an account or organization that can own the repository.',
         'warning',
       );
-      if (submit) submit.disabled = true;
       return;
     }
     if (
@@ -3686,11 +3699,6 @@
         'success',
       );
     }
-    if (submit) submit.disabled = true;
-    setGithubPublishStatus(
-      'Connected. Choose the target and preview the files before publishing.',
-      'success',
-    );
     if (sync && sync.owner && (!ownerSelect || !ownerSelect.value)) {
       setGithubPublishStatus(
         'The saved GitHub owner is unavailable. Choose an account before publishing.',
@@ -3808,15 +3816,9 @@
       function (canContinue) {
         if (!canContinue) return;
         var modal = getOrCreateBootstrapModal('github-publish-modal');
-        var submit = document.getElementById('github-publish-submit');
         var configure = document.getElementById('github-configure-link');
-        var previewButton = document.getElementById(
-          'github-publish-preview-button',
-        );
         var ownerSelect = document.getElementById('github-owner');
         resetGithubBranchChoices('Choose a repository to load branches');
-        if (submit) submit.disabled = true;
-        if (previewButton) previewButton.disabled = true;
         clearGithubPublishPreview();
         if (configure) configure.classList.add('d-none');
         githubWorkflowAccessByOwner = {};
@@ -3878,34 +3880,29 @@
     var previewButton = document.getElementById(
       'github-publish-preview-button',
     );
-    function githubTargetChanged() {
-      clearGithubPublishPreview(
-        'Target changed. Preview the repository changes again.',
-      );
-    }
     if (ownerSelect)
       ownerSelect.addEventListener('change', function () {
         showGithubWorkflowAccess();
-        githubTargetChanged();
+        clearGithubPublishPreview();
         loadGithubBranches();
       });
     if (packageInput)
       packageInput.addEventListener('input', function () {
-        githubTargetChanged();
+        clearGithubPublishPreview();
         resetGithubBranchChoices('Loading branches…');
         githubBranchTimer = setTimeout(loadGithubBranches, 350);
       });
     if (branchInput)
       branchInput.addEventListener('change', function () {
         updateGithubNewBranchInput();
-        githubTargetChanged();
+        clearGithubPublishPreview();
       });
     if (branchRetry)
       branchRetry.addEventListener('click', function () {
         loadGithubBranches();
       });
     if (newBranchInput)
-      newBranchInput.addEventListener('input', githubTargetChanged);
+      newBranchInput.addEventListener('input', clearGithubPublishPreview);
     if (previewButton)
       previewButton.addEventListener('click', function () {
         if (!state.project || !form.reportValidity()) return;
@@ -3924,6 +3921,7 @@
           );
         }
         previewButton.disabled = true;
+        githubPreviewInFlight = true;
         clearGithubPublishPreview();
         setGithubPublishStatus('Building the package preview…', 'info');
         saveDirtyGithubEditors()
@@ -3948,7 +3946,7 @@
             setGithubPublishStatus(
               res.data.remote_advanced
                 ? 'The selected branch has newer remote commits. Pull and reconcile before publishing.'
-                : 'Review the target and file diff, then choose Publish to GitHub.',
+                : 'Review the file changes, then choose Publish to GitHub.',
               res.data.remote_advanced ? 'danger' : 'success',
             );
           })
@@ -3964,6 +3962,8 @@
           .finally(function () {
             var select = document.getElementById('github-branch-name');
             previewButton.disabled = !select || select.disabled;
+            githubPreviewInFlight = false;
+            updateGithubPublishSubmit();
           });
       });
     form.addEventListener('submit', function (event) {
@@ -3972,16 +3972,9 @@
       var packageInput = document.getElementById('github-package-name');
       var ownerSelect = document.getElementById('github-owner');
       var messageInput = document.getElementById('github-commit-message');
-      var submit = document.getElementById('github-publish-submit');
       if (!form.reportValidity()) return;
-      if (!githubPublishPreviewToken) {
-        setGithubPublishStatus(
-          'Preview the repository changes before publishing.',
-          'warning',
-        );
-        return;
-      }
-      if (submit) submit.disabled = true;
+      githubPublishInFlight = true;
+      updateGithubPublishSubmit();
       setGithubPublishStatus('Preparing the project for GitHub…', 'info');
       saveDirtyGithubEditors()
         .then(function () {
@@ -4001,13 +3994,8 @@
                 'Unable to start GitHub publishing.',
               'danger',
             );
-            if (submit) submit.disabled = false;
-            clearGithubPublishPreview(
-              'Preview expired or changed. Review the current files before publishing.',
-            );
             return;
           }
-          clearGithubPublishPreview();
           setGithubPublishStatus('Queued for publishing to GitHub…', 'info');
           return _pollGithubPublishJob(res.data.job_url).then(
             function (result) {
@@ -4048,10 +4036,6 @@
                   statusElement.appendChild(guidance);
                 }
               }
-              if (submit) submit.disabled = false;
-              clearGithubPublishPreview(
-                'Publish completed. Preview the latest branch again before another commit.',
-              );
             },
           );
         })
@@ -4062,10 +4046,10 @@
               : 'Unable to start GitHub publishing.',
             'danger',
           );
-          if (submit) submit.disabled = false;
-          clearGithubPublishPreview(
-            'Publish did not start. Preview the current files before trying again.',
-          );
+        })
+        .finally(function () {
+          githubPublishInFlight = false;
+          clearGithubPublishPreview();
         });
     });
   }
@@ -4176,9 +4160,7 @@
         throw new Error(message);
       }
       setGithubRepoStatus(statusElementId, 'Saved.', 'success');
-      clearGithubPublishPreview(
-        'Repository settings changed. Preview the package again before publishing.',
-      );
+      clearGithubPublishPreview();
       renderGithubRepositoryConfig(res.data, { resetEditors: false });
       return res.data;
     });

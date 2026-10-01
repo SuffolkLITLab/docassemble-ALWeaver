@@ -2711,9 +2711,9 @@ def _sign_github_publish_preview(data: Dict[str, Any]) -> str:
 
 def _verify_github_publish_preview(token: Any) -> Dict[str, Any]:
     secret = getattr(app, "secret_key", None)
-    if not secret or not isinstance(token, str):
-        raise ValueError("Preview the repository changes before publishing")
     try:
+        if not secret or not isinstance(token, str):
+            raise ValueError
         encoded_body, encoded_signature = token.split(".", 1)
         body = base64.urlsafe_b64decode(encoded_body + "=" * (-len(encoded_body) % 4))
         signature = base64.urlsafe_b64decode(
@@ -2943,8 +2943,14 @@ def editor_api_github_publish() -> Response:
             )
         repository = f"docassemble-{package}"
         repository_url = f"https://github.com/{selected_owner['login']}/{repository}"
-        preview = _verify_github_publish_preview(post_data.get("preview_token"))
-        if (
+        # A preview is optional. When the browser sends one, hold the publish
+        # to what the user reviewed; either way the worker refuses to replace
+        # commits pushed since the last sync.
+        preview_token = post_data.get("preview_token")
+        preview = (
+            _verify_github_publish_preview(preview_token) if preview_token else None
+        )
+        if preview is not None and (
             preview.get("user_id") != uid
             or preview.get("project") != project
             or preview.get("package") != package
@@ -2968,30 +2974,32 @@ def editor_api_github_publish() -> Response:
             author_email=author_email,
             dependencies=repository_dependency_names(uid, project, package),
         )
-        package_info, manifest_path = load_project_github_manifest(
-            user_id=uid,
-            project_name=project,
-            package_name=package,
-        )
-        repository_files = repository_publish_files(
-            uid, project, package, manifest=package_info
-        )
-        current_snapshot = build_github_package_snapshot(
-            package=package,
-            project=project,
-            user_id=uid,
-            package_info=package_info,
-            author_name=author_name,
-            author_email=author_email,
-            manifest_path=manifest_path,
-            extra_repository_files=repository_files["files"],
-        )
-        if github_package_snapshot_revision(current_snapshot) != preview.get(
-            "source_revision"
-        ):
-            raise ValueError(
-                "The Playground package changed after its publish preview. Preview the current files again."
+        if preview is not None:
+            package_info, manifest_path = load_project_github_manifest(
+                user_id=uid,
+                project_name=project,
+                package_name=package,
             )
+            repository_files = repository_publish_files(
+                uid, project, package, manifest=package_info
+            )
+            current_snapshot = build_github_package_snapshot(
+                package=package,
+                project=project,
+                user_id=uid,
+                package_info=package_info,
+                author_name=author_name,
+                author_email=author_email,
+                manifest_path=manifest_path,
+                extra_repository_files=repository_files["files"],
+            )
+            if github_package_snapshot_revision(current_snapshot) != preview.get(
+                "source_revision"
+            ):
+                raise ValueError(
+                    "The Playground package changed after its publish preview. Preview the current files again."
+                )
+        reviewed = preview or {}
         queued = _start_github_publish_job(
             uid=uid,
             request_id=request_id,
@@ -3005,8 +3013,8 @@ def editor_api_github_publish() -> Response:
             branch=branch,
             commit_message=commit_message,
             repository_url=repository_url,
-            expected_remote_sha=str(preview.get("remote_sha") or "") or None,
-            expected_source_revision=str(preview.get("source_revision") or ""),
+            expected_remote_sha=reviewed.get("remote_sha") or None,
+            expected_source_revision=reviewed.get("source_revision"),
         )
         return jsonify_with_status(
             {
