@@ -67,6 +67,23 @@ def normalize_project_name(
     return candidate
 
 
+def github_project_name(repository: str, branch: str = "") -> str:
+    """Name a project after a GitHub repository and branch: ALWeaver + main
+    becomes ALWeaverMain. Each word is capitalized before
+    normalize_project_name strips everything else. An anonymous read of the
+    default branch only knows it as HEAD, which is left out."""
+    if branch == "HEAD":
+        branch = ""
+    words = re.split(
+        r"[^A-Za-z0-9]+",
+        f"{re.sub(r'^docassemble-', '', repository, flags=re.IGNORECASE)} {branch}",
+    )
+    return normalize_project_name(
+        "".join(word[:1].upper() + word[1:] for word in words),
+        fallback="GitHubProject",
+    )
+
+
 def next_available_project_name(base_name: str, existing_names: Iterable[str]) -> str:
     """Append or increment a numeric suffix until the project name is unique."""
 

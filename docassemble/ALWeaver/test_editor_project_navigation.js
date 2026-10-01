@@ -18,7 +18,11 @@ const context = {
   esc: escapeAttribute,
 };
 vm.createContext(context);
-for (const name of ['getProjectCardMenuHtml', 'renderProjectSelector']) {
+for (const name of [
+  '_accordionSection',
+  'getProjectCardMenuHtml',
+  'renderProjectSelector',
+]) {
   const start = source.indexOf(`  function ${name}(`);
   assert.ok(start >= 0);
   vm.runInContext(
@@ -34,6 +38,12 @@ function cards() {
 }
 context.renderProjectSelector();
 assert.deepEqual(cards(), ['default', 'One', 'Two']);
+// Create from GitHub starts collapsed unless a link asked for it.
+assert.match(canvas.innerHTML, /id="project-github-import-panel" class="accordion-collapse collapse"/);
+context.state.openGithubImport = true;
+context.renderProjectSelector();
+assert.match(canvas.innerHTML, /id="project-github-import-panel" class="accordion-collapse collapse show"/);
+context.state.openGithubImport = false;
 assert.ok(!canvas.innerHTML.includes('Recent projects'));
 assert.equal(context.getProjectCardMenuHtml('default'), '');
 assert.ok(

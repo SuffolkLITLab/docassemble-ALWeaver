@@ -1065,6 +1065,96 @@ def normalize_github_repository_url(raw_url: str) -> Dict[str, str]:
     }
 
 
+def is_github_package_path(path: str) -> bool:
+    """Whether a repository path is part of the docassemble package Weaver syncs."""
+    return bool(
+        re.fullmatch(
+            r"docassemble/[^/]+/data/(questions|templates|static|sources)/[^/]+",
+            path,
+        )
+        or re.fullmatch(r"docassemble/[^/]+/[^/]+\.py", path)
+        # Weaver keeps its workflow and dependency settings in step with
+        # these repository files.
+        or path in {"pyproject.toml", "setup.py"}
+        or re.fullmatch(r"\.github/workflows/[^/]+\.ya?ml", path)
+    )
+
+
+def _github_http(*, user_id: Optional[int] = None) -> Tuple[Any, bool]:
+    """Return a GitHub HTTP client and whether it is anonymous.
+
+    Public repositories can be read without a GitHub connection, so callers
+    that only read fall back to an anonymous client.
+    """
+    try:
+        return _github_authorized_http(user_id=user_id), False
+    except GithubCredentialError:
+        return importlib.import_module("httplib2").Http(), True
+
+
+def _github_repository_api_url(repository: Dict[str, str]) -> str:
+    return (
+        "https://api.github.com/repos/"
+        f"{quote(repository['owner'], safe='')}/{quote(repository['repository'], safe='')}"
+    )
+
+
+def get_github_branch_head(
+    *, repository_url: str, ref: str, user_id: Optional[int] = None
+) -> Dict[str, Any]:
+    """Read a branch's head commit and file paths without downloading files.
+
+    Shaped like a missing-ref repository snapshot, with every file's content
+    left empty, for checks that only need the head and which paths exist.
+    """
+    repository = normalize_github_repository_url(repository_url)
+    http, _anonymous = _github_http(user_id=user_id)
+    base_url = _github_repository_api_url(repository)
+    response, commit = _github_json_request(
+        http, f"{base_url}/commits/{quote(ref, safe='')}"
+    )
+    status = int(response.get("status", 0))
+    if status != 200 or not isinstance(commit, dict):
+        if not _github_ref_is_missing(status, commit):
+            raise DocassembleCompatibilityError(
+                _github_error_message(commit, f"GitHub could not read {ref}")
+            )
+        response, repo_info = _github_json_request(http, base_url)
+        exists = int(response.get("status", 0)) == 200 and isinstance(repo_info, dict)
+        return {
+            **repository,
+            "branch": ref,
+            "sha": "",
+            "files": {},
+            "missing": True,
+            "repository_exists": exists,
+            "default_branch": str(
+                (repo_info if exists else {}).get("default_branch") or "main"
+            ),
+        }
+    tree_sha = str(((commit.get("commit") or {}).get("tree") or {}).get("sha") or "")
+    response, tree = _github_json_request(
+        http, f"{base_url}/git/trees/{quote(tree_sha, safe='')}?recursive=1"
+    )
+    if int(response.get("status", 0)) != 200 or not isinstance(tree, dict):
+        raise DocassembleCompatibilityError(
+            _github_error_message(tree, f"GitHub could not list the files on {ref}")
+        )
+    # GitHub truncates trees past 100,000 entries, far beyond any
+    # docassemble package.
+    return {
+        **repository,
+        "branch": ref,
+        "sha": str(commit.get("sha") or ""),
+        "files": {
+            str(item["path"]): b""
+            for item in tree.get("tree") or []
+            if isinstance(item, dict) and item.get("type") == "blob"
+        },
+        "missing": False,
+    }
+
+
 def get_github_repository_snapshot(
     *,
     repository_url: str,
@@ -1079,18 +1169,8 @@ def get_github_repository_snapshot(
     never limited to repositories owned by the connected GitHub account.
     """
     repository = normalize_github_repository_url(repository_url)
-    anonymous = False
-    try:
-        http = _github_authorized_http(user_id=user_id)
-    except GithubCredentialError:
-        httplib2 = importlib.import_module("httplib2")
-        http = httplib2.Http()
-        anonymous = True
-
-    base_url = (
-        "https://api.github.com/repos/"
-        f"{quote(repository['owner'], safe='')}/{quote(repository['repository'], safe='')}"
-    )
+    http, anonymous = _github_http(user_id=user_id)
+    base_url = _github_repository_api_url(repository)
     if anonymous:
         selected_ref = str(ref or "HEAD").strip()
         if not re.fullmatch(
@@ -1224,17 +1304,7 @@ def get_github_repository_snapshot(
                         "The repository contains nested files under a docassemble data directory; "
                         "move them directly into questions, templates, static, or sources before importing"
                     )
-                if not include_all_files and not (
-                    re.fullmatch(
-                        r"docassemble/[^/]+/data/(questions|templates|static|sources)/[^/]+",
-                        path,
-                    )
-                    or re.fullmatch(r"docassemble/[^/]+/[^/]+\.py", path)
-                    # Weaver keeps its workflow and dependency settings in
-                    # step with these repository files.
-                    or path in {"pyproject.toml", "setup.py"}
-                    or re.fullmatch(r"\.github/workflows/[^/]+\.ya?ml", path)
-                ):
+                if not include_all_files and not is_github_package_path(path):
                     continue
                 if member.size > 25 * 1024 * 1024:
                     raise DocassembleCompatibilityError(
@@ -1293,10 +1363,21 @@ def get_github_publish_owners(*, user_id: Optional[int] = None) -> List[Dict[str
 
 
 def get_github_repository_branches(
-    *, owner: str, repository: str, user_id: Optional[int] = None
+    *,
+    owner: str,
+    repository: str,
+    user_id: Optional[int] = None,
+    allow_anonymous: bool = False,
 ) -> Dict[str, Any]:
-    """List all branches of one repository through the connected GitHub account."""
-    http = _github_authorized_http(user_id=user_id)
+    """List all branches of one repository through the connected GitHub account.
+
+    With ``allow_anonymous``, a user without a GitHub connection can still
+    list a public repository's branches, as the Playground's pull page can.
+    """
+    if allow_anonymous:
+        http, _anonymous = _github_http(user_id=user_id)
+    else:
+        http = _github_authorized_http(user_id=user_id)
     base_url = (
         "https://api.github.com/repos/"
         f"{quote(owner, safe='')}/{quote(repository, safe='')}"
@@ -1334,6 +1415,27 @@ def get_github_repository_branches(
         "default_branch": str(repo_info.get("default_branch") or "main"),
         "branches": list(dict.fromkeys(branches)),
     }
+
+
+def get_github_merge_base(
+    *, repository_url: str, base: str, head: str, user_id: Optional[int] = None
+) -> Optional[str]:
+    """Return the newest commit ``base`` and ``head`` share, or None if none."""
+    repository = normalize_github_repository_url(repository_url)
+    http, _anonymous = _github_http(user_id=user_id)
+    response, comparison = _github_json_request(
+        http,
+        f"{_github_repository_api_url(repository)}"
+        f"/compare/{quote(base, safe='')}...{quote(head, safe='')}",
+    )
+    status = int(response.get("status", 0))
+    if status == 404:
+        return None
+    if status != 200 or not isinstance(comparison, dict):
+        raise DocassembleCompatibilityError(
+            _github_error_message(comparison, "GitHub could not compare the branches")
+        )
+    return str((comparison.get("merge_base_commit") or {}).get("sha") or "") or None
 
 
 WORKFLOW_ACCESS_GRANTED = "granted"

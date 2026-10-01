@@ -176,6 +176,9 @@ def _load_api_editor_for_tests():
     playground_publish.normalize_github_package_name = lambda raw_name: str(
         raw_name
     ).strip()
+    playground_publish.github_project_name = lambda repository, branch="": (
+        "GitHubProject"
+    )
     playground_publish.normalize_project_name = lambda raw_name, **kwargs: str(
         raw_name
     ).strip()
@@ -378,6 +381,41 @@ class TestEditorGithubApi(unittest.TestCase):
             owner="LegalAid", repository="docassemble-HousingForms", user_id=42
         )
 
+    def test_github_branches_lists_any_repository_by_url_without_a_connection(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=42),
+            patch.object(api_editor, "get_native_github_integration") as integration,
+            patch.object(
+                api_editor,
+                "get_github_repository_branches",
+                return_value={
+                    "repository_exists": True,
+                    "default_branch": "main",
+                    "branches": ["main", "draft"],
+                },
+            ) as branches,
+        ):
+            response = api_editor.app.test_client().get(
+                "/al/editor/api/github/branches",
+                query_string={
+                    "repository_url": "https://github.com/LegalAid/docassemble-Forms.git"
+                },
+            )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        data = response.get_json()["data"]
+        self.assertEqual(data["branches"], ["main", "draft"])
+        self.assertEqual(
+            data["repository_url"], "https://github.com/LegalAid/docassemble-Forms"
+        )
+        branches.assert_called_once_with(
+            owner="LegalAid",
+            repository="docassemble-Forms",
+            user_id=42,
+            allow_anonymous=True,
+        )
+        integration.assert_not_called()
+
     def test_github_branches_requires_connected_account(self):
         with (
             patch.object(api_editor, "_editor_auth_check", return_value=True),
@@ -575,23 +613,112 @@ class TestEditorGithubApi(unittest.TestCase):
             patch.object(api_editor, "find_project_github_sync", return_value=sync),
             patch.object(
                 api_editor,
-                "get_github_repository_snapshot",
+                "get_github_branch_head",
                 return_value={"missing": True, "repository_exists": True, "sha": ""},
             ) as get_remote,
         ):
             api_editor._assert_github_publish_branch_is_current(
                 uid=7,
                 project="Housing",
-                package="forms",
                 repository_url="https://github.com/ada/docassemble-forms",
                 branch="draft",
             )
         get_remote.assert_called_once_with(
             repository_url="https://github.com/ada/docassemble-forms",
-            user_id=7,
             ref="draft",
-            allow_missing=True,
+            user_id=7,
         )
+
+    def test_publish_after_preview_checks_the_reviewed_head_once(self):
+        url = "https://github.com/ada/docassemble-forms"
+        sync = {"repository_url": url, "branch": "main", "commit": "synced-sha"}
+        files = {"docassemble/forms/data/questions/main.yml": b""}
+        new_branch = {
+            "missing": True,
+            "repository_exists": True,
+            "default_branch": "main",
+            "sha": "",
+        }
+        cases = [
+            ("unchanged", [{"sha": "synced-sha", "files": files}], "synced-sha", None),
+            (
+                "moved",
+                [{"sha": "synced-sha", "files": files}],
+                "previewed-sha",
+                "changed after the publish preview",
+            ),
+            (
+                "new branch from the default",
+                [new_branch, {"sha": "main-sha", "files": files}],
+                "main-sha",
+                None,
+            ),
+        ]
+        for label, heads, expected_sha, error in cases:
+            with self.subTest(label):
+                with (
+                    patch.object(
+                        api_editor, "find_project_github_sync", return_value=sync
+                    ),
+                    patch.object(
+                        api_editor, "get_github_branch_head", side_effect=heads
+                    ) as head,
+                ):
+                    check = lambda: api_editor._assert_github_publish_branch_is_current(
+                        uid=7,
+                        project="Housing",
+                        repository_url=url,
+                        branch="draft" if len(heads) > 1 else "main",
+                        expected_remote_sha=expected_sha,
+                    )
+                    if error:
+                        with self.assertRaisesRegex(ValueError, error):
+                            check()
+                    else:
+                        check()
+                self.assertEqual(head.call_count, len(heads))
+
+    def test_publishing_to_an_existing_branch_requires_its_head_to_be_pulled(self):
+        url = "https://github.com/ada/docassemble-forms"
+        sync = {"repository_url": url, "branch": "main", "commit": "synced-sha"}
+        other_repo = {**sync, "repository_url": "https://github.com/ada/other"}
+        files = {"docassemble/forms/data/questions/main.yml": b"---\n"}
+        head = {"sha": "synced-sha", "files": files}
+        newer = {"sha": "newer-sha", "files": files}
+        readme_only = {"sha": "init-sha", "files": {"README.md": b"# forms\n"}}
+        cases = [
+            ("new branch", sync, "draft", {"missing": True, "sha": ""}, None),
+            ("new repository", None, "main", {"missing": True, "sha": ""}, None),
+            ("initialized with a README", None, "main", readme_only, None),
+            ("synced head", sync, "main", head, None),
+            ("other branch at the synced commit", sync, "draft", head, None),
+            ("synced branch advanced", sync, "main", newer, "has advanced"),
+            ("never synced", None, "main", head, "Create a project"),
+            (
+                "synced to another repository",
+                other_repo,
+                "main",
+                head,
+                "Create a project",
+            ),
+            ("other branch elsewhere", sync, "draft", newer, "Pull from GitHub"),
+            (
+                "no recorded commit",
+                {**sync, "commit": ""},
+                "main",
+                head,
+                "has advanced",
+            ),
+        ]
+        for label, project_sync, branch, remote, expected in cases:
+            with self.subTest(label):
+                message = api_editor._github_branch_unpulled_message(
+                    project_sync, repository_url=url, branch=branch, remote=remote
+                )
+                if expected is None:
+                    self.assertIsNone(message)
+                else:
+                    self.assertIn(expected, message)
 
     def test_github_authorization_requires_editor_access(self):
         with (
@@ -709,6 +836,86 @@ class TestEditorGithubApi(unittest.TestCase):
             7, "Housing", "HousingForms", remote["files"], base["files"]
         )
         self.assertIs(merge.call_args.kwargs["remote_snapshot"], remote)
+
+    def test_pull_merges_another_branch_from_its_common_commit(self):
+        sync = {
+            "package": "HousingForms",
+            "repository_url": "https://github.com/LegalAid/docassemble-HousingForms",
+            "branch": "main",
+            "commit": "synced-sha",
+        }
+        remote = {"sha": "draft-sha", "branch": "draft", "files": {}}
+        base = {"sha": "fork-sha", "branch": "fork-sha", "files": {}}
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "find_project_github_sync", return_value=sync),
+            patch.object(
+                api_editor, "get_github_repository_snapshot", side_effect=[remote, base]
+            ) as snapshots,
+            patch.object(
+                api_editor, "get_github_merge_base", return_value="fork-sha"
+            ) as merge_base,
+            patch.object(
+                api_editor,
+                "merge_github_snapshot",
+                return_value={"merged": True, "files": 3, "commit": "draft-sha"},
+            ) as merge,
+            patch.object(api_editor, "adopt_repository_snapshot"),
+            patch.object(api_editor, "_reconcile_project_modules"),
+            patch.object(api_editor, "_restart_state_payload", return_value={}),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/github/pull",
+                method="POST",
+                json={"project": "Housing", "branch": "draft"},
+            ):
+                response = api_editor.editor_api_github_pull()
+
+        self.assertTrue(response.get_json()["success"], response.get_json())
+        self.assertEqual(snapshots.call_args_list[0].kwargs["ref"], "draft")
+        self.assertEqual(snapshots.call_args_list[1].kwargs["ref"], "fork-sha")
+        merge_base.assert_called_once_with(
+            repository_url=sync["repository_url"],
+            base="synced-sha",
+            head="draft-sha",
+            user_id=7,
+        )
+        self.assertIs(merge.call_args.kwargs["base_snapshot"], base)
+        self.assertIs(merge.call_args.kwargs["remote_snapshot"], remote)
+
+    def test_pull_refuses_a_branch_with_no_shared_history(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "find_project_github_sync",
+                return_value={
+                    "package": "HousingForms",
+                    "repository_url": "https://github.com/LegalAid/docassemble-HousingForms",
+                    "branch": "main",
+                    "commit": "synced-sha",
+                },
+            ),
+            patch.object(
+                api_editor,
+                "get_github_repository_snapshot",
+                return_value={"sha": "orphan-sha", "branch": "orphan", "files": {}},
+            ),
+            patch.object(api_editor, "get_github_merge_base", return_value=None),
+            patch.object(api_editor, "merge_github_snapshot") as merge,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/github/pull",
+                method="POST",
+                json={"project": "Housing", "branch": "orphan"},
+            ):
+                response = api_editor.editor_api_github_pull()
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Create a project", response.get_json()["error"]["message"])
+        merge.assert_not_called()
 
     def test_pull_reports_conflicts_without_claiming_success(self):
         with (
@@ -1114,6 +1321,64 @@ class TestEditorGithubApi(unittest.TestCase):
         )
         self.assertEqual(sent["options"]["task_id"], payload["job_id"])
 
+    def test_publish_without_a_preview_queues_the_commit(self):
+        """Previewing is optional; the worker still guards synced branches."""
+        sent = {}
+
+        def fake_send_task(task_name, kwargs=None, **options):
+            sent["kwargs"] = kwargs
+            return types.SimpleNamespace(id="celery-task-1")
+
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "_editor_async_is_configured", return_value=True),
+            patch.object(api_editor, "r", _FakeRedis()),
+            patch.object(
+                api_editor,
+                "workerapp",
+                types.SimpleNamespace(send_task=fake_send_task),
+            ),
+            patch.object(
+                api_editor,
+                "get_native_github_integration",
+                return_value={"enabled": True, "connected": True},
+            ),
+            patch.object(
+                api_editor,
+                "get_github_publish_owners",
+                return_value=[{"login": "ada", "type": "user"}],
+            ),
+            patch.object(
+                api_editor,
+                "prepare_project_github_package",
+                return_value={
+                    "package": "HousingForms",
+                    "repository": "docassemble-HousingForms",
+                },
+            ),
+            patch.object(api_editor, "build_github_package_snapshot") as build_snapshot,
+            patch.object(api_editor, "_editor_user_designator", return_value="Ada"),
+            patch.object(api_editor, "repository_dependency_names", return_value=[]),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/github/publish",
+                method="POST",
+                json={
+                    "project": "Housing",
+                    "owner": "ada",
+                    "package": "HousingForms",
+                    "branch": "main",
+                    "commit_message": "Update interview",
+                },
+            ):
+                response = api_editor.editor_api_github_publish()
+
+        self.assertEqual(response.status_code, 202, response.get_json())
+        build_snapshot.assert_not_called()
+        self.assertIsNone(sent["kwargs"]["expected_remote_sha"])
+        self.assertIsNone(sent["kwargs"]["expected_source_revision"])
+
     def test_publish_refuses_when_celery_is_not_configured(self):
         with (
             patch.object(api_editor, "_editor_auth_check", return_value=True),
@@ -1148,6 +1413,11 @@ class TestEditorGithubApi(unittest.TestCase):
         redis = _FakeRedis()
         with (
             patch.object(api_editor, "r", redis),
+            patch.object(
+                api_editor,
+                "get_github_branch_head",
+                return_value={"missing": True, "repository_exists": False, "sha": ""},
+            ),
             patch.object(
                 api_editor,
                 "load_project_github_manifest",
@@ -1276,6 +1546,11 @@ class TestEditorGithubApi(unittest.TestCase):
             patch.object(api_editor, "r", _FakeRedis()),
             patch.object(
                 api_editor,
+                "get_github_branch_head",
+                return_value={"missing": True, "repository_exists": False, "sha": ""},
+            ),
+            patch.object(
+                api_editor,
                 "ensure_github_repository",
                 side_effect=api_editor.GithubCredentialError(
                     "The GitHub connection has expired; reconnect it in Docassemble"
@@ -1310,13 +1585,16 @@ class TestEditorGithubApi(unittest.TestCase):
             "branch": "feature/github",
             "commit": "base-sha",
         }
-        remote = {"sha": "remote-newer-sha", "files": {"README.md": b"newer"}}
+        remote = {
+            "sha": "remote-newer-sha",
+            "files": {"docassemble/HousingForms/data/questions/main.yml": b"newer"},
+        }
         redis = _FakeRedis()
         with (
             patch.object(api_editor, "r", redis),
             patch.object(api_editor, "find_project_github_sync", return_value=sync),
             patch.object(
-                api_editor, "get_github_repository_snapshot", return_value=remote
+                api_editor, "get_github_branch_head", return_value=remote
             ) as read_remote,
             patch.object(api_editor, "ensure_github_repository") as ensure_repository,
             patch.object(api_editor, "publish_github_package") as publish,
@@ -1344,9 +1622,8 @@ class TestEditorGithubApi(unittest.TestCase):
         self.assertIn("Pull the remote changes", state["error"]["message"])
         read_remote.assert_called_once_with(
             repository_url="https://github.com/LegalAid/docassemble-HousingForms",
-            user_id=7,
             ref="feature/github",
-            allow_missing=True,
+            user_id=7,
         )
         ensure_repository.assert_not_called()
         publish.assert_not_called()
@@ -1803,7 +2080,8 @@ class TestEditorApiFileCreation(unittest.TestCase):
     def test_github_import_derives_project_name_from_repository(self):
         snapshot = {
             "url": "https://github.com/OtherOrg/docassemble-PublicForms",
-            "branch": "HEAD",
+            "repository": "docassemble-PublicForms",
+            "branch": "feature/x",
             "sha": "remote-sha",
             "files": {},
         }
@@ -1817,6 +2095,9 @@ class TestEditorApiFileCreation(unittest.TestCase):
                 side_effect=lambda base, existing: base,
             ),
             patch.object(api_editor, "create_project") as create,
+            patch.object(
+                api_editor, "github_project_name", return_value="PublicFormsX"
+            ) as name,
             patch.object(
                 api_editor, "get_github_repository_snapshot", return_value=snapshot
             ),
@@ -1843,12 +2124,14 @@ class TestEditorApiFileCreation(unittest.TestCase):
                 response = api_editor.editor_api_new_project()
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get_json()["data"]["project"], "PublicForms")
-        create.assert_called_once_with(7, "PublicForms")
+        self.assertEqual(response.get_json()["data"]["project"], "PublicFormsX")
+        create.assert_called_once_with(7, "PublicFormsX")
+        name.assert_called_once_with("docassemble-PublicForms", "feature/x")
 
     def test_new_project_can_import_any_github_repository_url(self):
         snapshot = {
             "url": "https://github.com/OtherOrg/docassemble-PublicForms",
+            "repository": "docassemble-PublicForms",
             "branch": "main",
             "sha": "remote-sha",
             "files": {},
@@ -1899,6 +2182,30 @@ class TestEditorApiFileCreation(unittest.TestCase):
         adopt.assert_called_once_with(
             7, "PublicForms", "PublicForms", snapshot["files"]
         )
+
+    def test_failed_github_read_creates_no_project(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "create_project") as create,
+            patch.object(
+                api_editor,
+                "get_github_repository_snapshot",
+                side_effect=ValueError("GitHub repository was not found"),
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/new-project",
+                method="POST",
+                json={
+                    "project_name": "",
+                    "github_url": "https://github.com/OtherOrg/docassemble-Missing",
+                },
+            ):
+                response = api_editor.editor_api_new_project()
+
+        self.assertGreaterEqual(response.status_code, 400)
+        create.assert_not_called()
 
     def test_save_file_accepts_intentionally_empty_source(self):
         with (

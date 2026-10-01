@@ -127,9 +127,12 @@ from .docassemble_compat import (
     get_csrf,
     get_flask_app,
     get_github_publish_owners,
+    get_github_branch_head,
+    get_github_merge_base,
     get_github_repository_branches,
     get_github_workflow_access,
     get_github_repository_snapshot,
+    is_github_package_path,
     build_github_package_snapshot,
     github_package_snapshot_revision,
     github_authorization_url,
@@ -332,6 +335,7 @@ from .playground_publish import (
     create_project,
     get_list_of_projects,
     find_project_github_sync,
+    github_project_name,
     import_github_snapshot,
     merge_github_snapshot,
     next_available_project_name,
@@ -2602,12 +2606,31 @@ def editor_api_github_status() -> Response:
 
 @app.route(f"{EDITOR_BASE_PATH}/api/github/branches", methods=["GET"])
 def editor_api_github_branches() -> Response:
-    """List existing branches for the selected GitHub publish target."""
+    """List a GitHub repository's branches.
+
+    Either ``repository_url`` (any repository, read anonymously when GitHub is
+    not connected) or the ``owner`` and ``package`` of a publish target.
+    """
     request_id = str(uuid.uuid4())
     if not _editor_auth_check():
         return _auth_fail(request_id)
     try:
         uid = _current_user_id()
+        if request.args.get("repository_url"):
+            repository = normalize_github_repository_url(request.args["repository_url"])
+            branches = get_github_repository_branches(
+                owner=repository["owner"],
+                repository=repository["repository"],
+                user_id=uid,
+                allow_anonymous=True,
+            )
+            return jsonify(
+                {
+                    "success": True,
+                    "request_id": request_id,
+                    "data": {"repository_url": repository["url"], **branches},
+                }
+            )
         project = _normalize_project(request.args.get("project"))
         package = normalize_github_package_name(request.args.get("package"))
         owner = str(request.args.get("owner") or "").strip()
@@ -2711,9 +2734,9 @@ def _sign_github_publish_preview(data: Dict[str, Any]) -> str:
 
 def _verify_github_publish_preview(token: Any) -> Dict[str, Any]:
     secret = getattr(app, "secret_key", None)
-    if not secret or not isinstance(token, str):
-        raise ValueError("Preview the repository changes before publishing")
     try:
+        if not secret or not isinstance(token, str):
+            raise ValueError
         encoded_body, encoded_signature = token.split(".", 1)
         body = base64.urlsafe_b64decode(encoded_body + "=" * (-len(encoded_body) % 4))
         signature = base64.urlsafe_b64decode(
@@ -2943,8 +2966,14 @@ def editor_api_github_publish() -> Response:
             )
         repository = f"docassemble-{package}"
         repository_url = f"https://github.com/{selected_owner['login']}/{repository}"
-        preview = _verify_github_publish_preview(post_data.get("preview_token"))
-        if (
+        # A preview is optional. When the browser sends one, hold the publish
+        # to what the user reviewed. Either way the worker refuses a branch
+        # with commits this project has not pulled.
+        preview_token = post_data.get("preview_token")
+        preview = (
+            _verify_github_publish_preview(preview_token) if preview_token else None
+        )
+        if preview is not None and (
             preview.get("user_id") != uid
             or preview.get("project") != project
             or preview.get("package") != package
@@ -2968,30 +2997,32 @@ def editor_api_github_publish() -> Response:
             author_email=author_email,
             dependencies=repository_dependency_names(uid, project, package),
         )
-        package_info, manifest_path = load_project_github_manifest(
-            user_id=uid,
-            project_name=project,
-            package_name=package,
-        )
-        repository_files = repository_publish_files(
-            uid, project, package, manifest=package_info
-        )
-        current_snapshot = build_github_package_snapshot(
-            package=package,
-            project=project,
-            user_id=uid,
-            package_info=package_info,
-            author_name=author_name,
-            author_email=author_email,
-            manifest_path=manifest_path,
-            extra_repository_files=repository_files["files"],
-        )
-        if github_package_snapshot_revision(current_snapshot) != preview.get(
-            "source_revision"
-        ):
-            raise ValueError(
-                "The Playground package changed after its publish preview. Preview the current files again."
+        if preview is not None:
+            package_info, manifest_path = load_project_github_manifest(
+                user_id=uid,
+                project_name=project,
+                package_name=package,
             )
+            repository_files = repository_publish_files(
+                uid, project, package, manifest=package_info
+            )
+            current_snapshot = build_github_package_snapshot(
+                package=package,
+                project=project,
+                user_id=uid,
+                package_info=package_info,
+                author_name=author_name,
+                author_email=author_email,
+                manifest_path=manifest_path,
+                extra_repository_files=repository_files["files"],
+            )
+            if github_package_snapshot_revision(current_snapshot) != preview.get(
+                "source_revision"
+            ):
+                raise ValueError(
+                    "The Playground package changed after its publish preview. Preview the current files again."
+                )
+        reviewed = preview or {}
         queued = _start_github_publish_job(
             uid=uid,
             request_id=request_id,
@@ -3005,8 +3036,8 @@ def editor_api_github_publish() -> Response:
             branch=branch,
             commit_message=commit_message,
             repository_url=repository_url,
-            expected_remote_sha=str(preview.get("remote_sha") or "") or None,
-            expected_source_revision=str(preview.get("source_revision") or ""),
+            expected_remote_sha=reviewed.get("remote_sha") or None,
+            expected_source_revision=reviewed.get("source_revision"),
         )
         return jsonify_with_status(
             {
@@ -3107,7 +3138,12 @@ def editor_api_github_publish_job(job_id: str) -> Response:
 
 @app.route(f"{EDITOR_BASE_PATH}/api/github/pull", methods=["POST"])
 def editor_api_github_pull() -> Response:
-    """Merge upstream GitHub changes into an already-synced project."""
+    """Merge a branch of the project's GitHub repository into the project.
+
+    ``branch`` defaults to the synced branch. Pulling another branch merges
+    from the commit it shares with the last sync, and a clean merge moves the
+    project's sync to that branch so it can be published to.
+    """
     request_id = str(uuid.uuid4())
     if not _editor_auth_check():
         return _auth_fail(request_id)
@@ -3128,12 +3164,29 @@ def editor_api_github_pull() -> Response:
                 },
                 409,
             )
+        branch = (
+            _normalize_git_branch(post_data["branch"])
+            if post_data.get("branch")
+            else sync["branch"]
+        )
         remote = get_github_repository_snapshot(
-            repository_url=sync["repository_url"], user_id=uid, ref=sync["branch"]
+            repository_url=sync["repository_url"], user_id=uid, ref=branch
         )
         # Older manifests did not record the published commit. Establishing the
         # current head as the base is safe and makes all later pulls mergeable.
-        base_ref = sync.get("commit") or remote["sha"]
+        base_ref: Optional[str] = sync.get("commit") or remote["sha"]
+        if sync.get("commit") and branch != sync["branch"]:
+            base_ref = get_github_merge_base(
+                repository_url=sync["repository_url"],
+                base=sync["commit"],
+                head=remote["sha"],
+                user_id=uid,
+            )
+            if not base_ref:
+                raise ValueError(
+                    f"GitHub branch {branch!r} shares no history with this "
+                    "project. Create a project from that branch instead."
+                )
         base = (
             remote
             if base_ref == remote["sha"]
@@ -3157,7 +3210,7 @@ def editor_api_github_pull() -> Response:
                     "error": {
                         "type": "merge_conflict",
                         "message": "GitHub changes conflict with local edits. No files were changed.",
-                        "details": {"conflicts": conflicts},
+                        "details": {"conflicts": conflicts, "branch": branch},
                     },
                 },
                 409,
@@ -11228,14 +11281,11 @@ def editor_api_github_publish_preview() -> Response:
             },
             managed_paths=set(repository_files["managed_paths"]),
         )
-        sync = find_project_github_sync(user_id=uid, project_name=project)
-        remote_advanced = bool(
-            sync
-            and sync.get("commit")
-            and str(sync.get("repository_url") or "").rstrip("/").casefold()
-            == repository_url.rstrip("/").casefold()
-            and str(sync.get("branch") or "") == branch
-            and target_sha != str(sync["commit"])
+        unpulled = _github_branch_unpulled_message(
+            find_project_github_sync(user_id=uid, project_name=project),
+            repository_url=repository_url,
+            branch=branch,
+            remote=remote,
         )
         source_revision = github_package_snapshot_revision(local_files)
         preview = {
@@ -11261,7 +11311,7 @@ def editor_api_github_publish_preview() -> Response:
                     "branch": branch,
                     "remote_sha": target_sha,
                     "source_revision": source_revision,
-                    "remote_advanced": remote_advanced,
+                    "unpulled": unpulled,
                     "repository_missing": bool(remote.get("missing")),
                     "files": target_files,
                     "changes": changes,
@@ -11299,67 +11349,88 @@ def editor_api_github_publish_preview() -> Response:
         )
 
 
+def _github_branch_unpulled_message(
+    sync: Optional[Dict[str, Any]],
+    *,
+    repository_url: str,
+    branch: str,
+    remote: Dict[str, Any],
+) -> Optional[str]:
+    """Explain why publishing to ``branch`` would undo commits, if it would.
+
+    Like ``git push``, a publish to an existing branch must build on what the
+    project last pulled: the branch head has to be the commit Weaver last
+    synchronized from that repository. Each publish replaces the branch's
+    files, so building on any other head would silently revert its changes.
+    A new branch, or one holding no package files yet (such as a repository
+    GitHub initialized with only a README), has nothing to undo.
+    """
+    if remote.get("missing") or not any(
+        is_github_package_path(path) for path in remote.get("files") or {}
+    ):
+        return None
+    synced = (
+        sync
+        if sync
+        and str(sync.get("repository_url") or "").rstrip("/").casefold()
+        == repository_url.rstrip("/").casefold()
+        else None
+    )
+    if synced and synced.get("commit") and remote.get("sha") == synced["commit"]:
+        return None
+    if synced and synced.get("branch") == branch:
+        return (
+            f"GitHub branch {branch!r} has advanced since this project was last "
+            "synchronized. Pull the remote changes and resolve them in the "
+            "project before publishing again."
+        )
+    advice = (
+        "Use Pull from GitHub to merge that branch into this project"
+        if synced
+        else "Create a project from that branch to bring its changes over"
+    )
+    return (
+        f"GitHub branch {branch!r} has commits this project has not pulled. "
+        f"{advice}, or publish to a new branch."
+    )
+
+
 def _assert_github_publish_branch_is_current(
     *,
     uid: int,
     project: str,
-    package: str,
     repository_url: str,
     branch: str,
+    expected_remote_sha: Optional[str] = None,
 ) -> None:
-    """Refuse a publish that would replace commits added since the last sync.
-
-    Publishing replaces the managed repository tree with the current Playground
-    package. If the linked branch advanced after Weaver last synchronized it,
-    doing that would silently discard remote edits. Require an explicit pull and
-    reconciliation before allowing another publish to that same branch.
-    """
-    sync = find_project_github_sync(user_id=uid, project_name=project)
-    if not sync or not sync.get("commit"):
-        return
-    same_target = (
-        str(sync.get("package") or "").casefold() == package.casefold()
-        and str(sync.get("repository_url") or "").rstrip("/").casefold()
-        == repository_url.rstrip("/").casefold()
-        and str(sync.get("branch") or "") == branch
+    """Refuse a publish that would revert commits the project does not have,
+    or, after a preview, one whose branch moved since it was reviewed."""
+    remote = get_github_branch_head(
+        repository_url=repository_url, ref=branch, user_id=uid
     )
-    if not same_target:
-        return
-    remote = get_github_repository_snapshot(
-        repository_url=repository_url, user_id=uid, ref=branch, allow_missing=True
-    )
-    # A deleted target has no commits to overwrite. The preview and publish
-    # operation may recreate it from the repository's current default branch.
-    if remote.get("missing"):
-        return
-    remote_sha = str(remote.get("sha") or "")
-    if remote_sha != str(sync["commit"]):
-        raise ValueError(
-            f"GitHub branch {branch!r} has advanced since this project was last "
-            "synchronized. Pull the remote changes and resolve them in the "
-            "project before publishing again; no files were published."
-        )
-
-
-def _github_publish_preview_parent_sha(
-    *, uid: int, repository_url: str, branch: str
-) -> str:
-    remote = get_github_repository_snapshot(
+    message = _github_branch_unpulled_message(
+        find_project_github_sync(user_id=uid, project_name=project),
         repository_url=repository_url,
-        user_id=uid,
-        ref=branch,
-        allow_missing=True,
+        branch=branch,
+        remote=remote,
     )
+    if message:
+        raise ValueError(f"{message} No files were published.")
+    if expected_remote_sha is None:
+        return
+    # A new branch is created from the default branch, as the preview showed.
+    parent = remote
     if remote.get("missing") and remote.get("repository_exists"):
-        base_branch = str(remote.get("default_branch") or "main")
-        base = get_github_repository_snapshot(
+        parent = get_github_branch_head(
             repository_url=repository_url,
+            ref=str(remote.get("default_branch") or "main"),
             user_id=uid,
-            ref=base_branch,
-            allow_missing=True,
         )
-        return str(base.get("sha") or "")
-    return str(remote.get("sha") or "")
+    if str(parent.get("sha") or "") != expected_remote_sha:
+        raise ValueError(
+            f"GitHub branch {branch!r} changed after the publish preview. "
+            "Review its latest changes before publishing; no files were committed."
+        )
 
 
 def _complete_github_publish_job(
@@ -11408,19 +11479,10 @@ def _complete_github_publish_job(
         _assert_github_publish_branch_is_current(
             uid=uid,
             project=project,
-            package=package,
             repository_url=repository_url,
             branch=branch,
+            expected_remote_sha=expected_remote_sha,
         )
-        if expected_remote_sha is not None:
-            current_remote_sha = _github_publish_preview_parent_sha(
-                uid=uid, repository_url=repository_url, branch=branch
-            )
-            if current_remote_sha != expected_remote_sha:
-                raise ValueError(
-                    f"GitHub branch {branch!r} changed after the publish preview. "
-                    "Review its latest changes before publishing; no files were committed."
-                )
         github_repository = ensure_github_repository(
             owner=owner,
             repository=repository,
@@ -11671,9 +11733,19 @@ def _new_project_from_template(uid: int, request_id: str) -> Response:
     template_id = post_data.get("template_id")
     github_url = str(post_data.get("github_url") or "").strip()
     create_test = parse_bool(post_data.get("create_test"), default=True)
-    if github_url and not str(raw_name or "").strip():
-        repository = normalize_github_repository_url(github_url)["repository"]
-        raw_name = re.sub(r"^docassemble-", "", repository, flags=re.IGNORECASE)
+    snapshot: Dict[str, Any] = {}
+    if github_url:
+        # Read the repository first, so a bad URL or branch never leaves an
+        # empty project behind.
+        snapshot = get_github_repository_snapshot(
+            repository_url=github_url,
+            user_id=uid,
+            ref=str(post_data.get("github_branch") or "").strip() or None,
+        )
+        if not str(raw_name or "").strip():
+            raw_name = github_project_name(
+                snapshot["repository"], str(snapshot.get("branch") or "")
+            )
 
     base_name = normalize_project_name(raw_name)
     existing = get_list_of_projects(uid)
@@ -11682,11 +11754,6 @@ def _new_project_from_template(uid: int, request_id: str) -> Response:
 
     if github_url:
         try:
-            snapshot = get_github_repository_snapshot(
-                repository_url=github_url,
-                user_id=uid,
-                ref=str(post_data.get("github_branch") or "").strip() or None,
-            )
             imported = import_github_snapshot(
                 user_id=uid, project_name=project_name, snapshot=snapshot
             )

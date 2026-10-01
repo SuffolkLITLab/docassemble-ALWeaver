@@ -388,6 +388,107 @@ class TestNativeGithubCompatibility(unittest.TestCase):
         self.assertEqual(result["files"], {})
         self.assertEqual(len(http.calls), 2)
 
+    def test_branch_listing_reads_public_repositories_anonymously(self):
+        class FakeHttp:
+            def request(self, url, method, headers=None, body=None):
+                if url.endswith("/branches?per_page=100"):
+                    return {"status": "200"}, b'[{"name":"main"},{"name":"draft"}]'
+                return {"status": "200"}, b'{"default_branch":"main"}'
+
+        httplib2 = types.SimpleNamespace(Http=FakeHttp)
+        with (
+            patch.object(
+                docassemble_compat,
+                "_github_authorized_http",
+                side_effect=docassemble_compat.GithubCredentialError("not connected"),
+            ),
+            patch.object(
+                docassemble_compat.importlib, "import_module", return_value=httplib2
+            ),
+        ):
+            with self.assertRaises(docassemble_compat.GithubCredentialError):
+                docassemble_compat.get_github_repository_branches(
+                    owner="Example", repository="docassemble-Forms"
+                )
+            result = docassemble_compat.get_github_repository_branches(
+                owner="Example", repository="docassemble-Forms", allow_anonymous=True
+            )
+        self.assertEqual(result["branches"], ["main", "draft"])
+
+    def test_branch_head_lists_paths_without_downloading_files(self):
+        class FakeHttp:
+            def __init__(self):
+                self.urls = []
+
+            def request(self, url, method, headers=None, body=None):
+                self.urls.append(url)
+                if "/commits/" in url:
+                    if url.endswith("/commits/new"):
+                        return {
+                            "status": "422"
+                        }, b'{"message":"No commit found for SHA: new"}'
+                    return {
+                        "status": "200"
+                    }, b'{"sha":"head-sha","commit":{"tree":{"sha":"tree-sha"}}}'
+                if "/git/trees/" in url:
+                    return {"status": "200"}, (
+                        b'{"tree":[{"path":"README.md","type":"blob"},'
+                        b'{"path":"docassemble","type":"tree"},'
+                        b'{"path":"setup.py","type":"blob"}]}'
+                    )
+                return {"status": "200"}, b'{"default_branch":"trunk"}'
+
+        http = FakeHttp()
+        url = "https://github.com/Example/docassemble-Forms"
+        with patch.object(
+            docassemble_compat, "_github_authorized_http", return_value=http
+        ):
+            head = docassemble_compat.get_github_branch_head(
+                repository_url=url, ref="main", user_id=7
+            )
+            missing = docassemble_compat.get_github_branch_head(
+                repository_url=url, ref="new", user_id=7
+            )
+        self.assertEqual(head["sha"], "head-sha")
+        self.assertEqual(set(head["files"]), {"README.md", "setup.py"})
+        self.assertFalse(head["missing"])
+        self.assertTrue(missing["missing"])
+        self.assertTrue(missing["repository_exists"])
+        self.assertEqual(missing["default_branch"], "trunk")
+        self.assertFalse(any("tarball" in u or "codeload" in u for u in http.urls))
+
+    def test_merge_base_reads_github_compare(self):
+        class FakeHttp:
+            def __init__(self, status, body):
+                self.status, self.body, self.urls = status, body, []
+
+            def request(self, url, method, headers=None, body=None):
+                self.urls.append(url)
+                return {"status": self.status}, self.body
+
+        shared = FakeHttp("200", b'{"merge_base_commit":{"sha":"fork-sha"}}')
+        unrelated = FakeHttp("404", b'{"message":"No common ancestor"}')
+        for http, expected in ((shared, "fork-sha"), (unrelated, None)):
+            with patch.object(
+                docassemble_compat, "_github_authorized_http", return_value=http
+            ):
+                self.assertEqual(
+                    docassemble_compat.get_github_merge_base(
+                        repository_url="https://github.com/Example/docassemble-Forms",
+                        base="synced-sha",
+                        head="feature/x",
+                        user_id=7,
+                    ),
+                    expected,
+                )
+        self.assertEqual(
+            shared.urls,
+            [
+                "https://api.github.com/repos/Example/docassemble-Forms"
+                "/compare/synced-sha...feature%2Fx"
+            ],
+        )
+
     def test_unrelated_github_422_is_not_treated_as_missing_branch(self):
         class FakeHttp:
             def request(self, url, method, headers=None, body=None):

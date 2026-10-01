@@ -67,7 +67,11 @@ const context = {
 vm.createContext(context);
 context.githubBranchRequest = 0;
 context.githubBranchTimer = null;
+context.githubPublishBlocked = false;
+context.githubPreviewInFlight = false;
+context.githubPublishInFlight = false;
 for (const name of [
+  'updateGithubPublishButtons',
   'setGithubPublishStatus',
   'showGithubPublishedTarget',
   'githubBranchValue',
@@ -119,6 +123,9 @@ assert.strictEqual(elements['github-repository-link'].href, repositoryUrl);
 assert.strictEqual(elements['github-commit-link'].href, sync.commit_url);
 assert.ok(!elements['github-publish-existing'].classList.contains('d-none'));
 assert.ok(elements['github-publish-existing'].textContent.includes('Last published'));
+// Publishing does not wait for a preview once the target branch is loaded.
+assert.strictEqual(elements['github-publish-submit'].disabled, false);
+assert.strictEqual(elements['github-publish-preview-button'].disabled, false);
 
 context.applyGithubIntegrationStatus({ ...connected, sync: null });
 await Promise.resolve();
@@ -184,6 +191,62 @@ context.applyGithubIntegrationStatus({
 });
 assert.strictEqual(elements['github-repository-link'].href, repositoryUrl);
 assert.ok(!elements['github-publish-existing'].classList.contains('d-none'));
+
+// Branch dropdowns for pulling: labelled with the branch names, preferring
+// the given branch, then the repository default.
+for (const name of ['githubBranchOption', 'loadGithubBranchOptions']) {
+  const start = source.indexOf(`  function ${name}(`);
+  assert.ok(start >= 0, name);
+  vm.runInContext(
+    source.slice(start, source.indexOf('\n  }\n', start) + 5),
+    context,
+  );
+}
+context.githubBranchListRequests = {};
+const lookups = [];
+let reply = { branches: ['main', 'draft', 'feature/x'], default_branch: 'main' };
+context.runtimeApiClient = {
+  get: async (url) => {
+    lookups.push(url);
+    return { success: true, data: reply };
+  },
+};
+const select = {
+  id: 'pull-branch',
+  value: '',
+  disabled: false,
+  options: [],
+  replaceChildren(...options) {
+    this.options = options;
+  },
+};
+await context.loadGithubBranchOptions(
+  select,
+  'https://github.com/LegalAid/docassemble-Forms',
+  'draft',
+);
+assert.deepStrictEqual(lookups, [
+  '/api/github/branches?repository_url=https%3A%2F%2Fgithub.com%2FLegalAid%2Fdocassemble-Forms',
+]);
+assert.deepStrictEqual(
+  select.options.map((option) => [option.value, option.textContent]),
+  [
+    ['main', 'main'],
+    ['draft', 'draft'],
+    ['feature/x', 'feature/x'],
+  ],
+);
+assert.strictEqual(select.value, 'draft');
+assert.strictEqual(select.disabled, false);
+await context.loadGithubBranchOptions(select, 'https://github.com/a/b', 'gone');
+assert.strictEqual(select.value, 'main');
+reply = { branches: [], repository_exists: false };
+await assert.rejects(
+  context.loadGithubBranchOptions(select, 'https://github.com/a/missing'),
+  /did not list any branches/,
+);
+assert.ok(select.disabled);
+assert.strictEqual(select.options[0].textContent, 'No branches found');
 }
 
 run().catch((error) => {

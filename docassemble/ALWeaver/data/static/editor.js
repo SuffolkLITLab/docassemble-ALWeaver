@@ -3122,9 +3122,10 @@
     onError: showApiError,
   });
 
-  // Runtime inspector renders its own inline, aria-live status.  Keep its
-  // failures out of the editor-wide floating error banner so one failure is
-  // announced exactly once.
+  // For callers that report failures themselves, such as the runtime
+  // inspector's inline, aria-live status, or that can ignore them. Keeping
+  // them out of the editor-wide floating error banner announces a failure
+  // at most once.
   var runtimeApiClient = window.ALWeaverApiClient.createClient({
     baseUrl: API,
     csrfToken: BOOT.csrfToken || null,
@@ -3272,14 +3273,33 @@
   }
 
   var githubPublishPreviewToken = null;
+  var githubPublishBlocked = false;
+  var githubPreviewInFlight = false;
+  var githubPublishInFlight = false;
 
-  function clearGithubPublishPreview(message) {
-    githubPublishPreviewToken = null;
-    var preview = document.getElementById('github-publish-preview');
+  // Previewing is optional: Preview and Publish both need only a loaded
+  // target branch. Publish is also held while a preview or publish is
+  // running, and after a preview found unpulled commits on the branch.
+  function updateGithubPublishButtons() {
+    var select = document.getElementById('github-branch-name');
+    var preview = document.getElementById('github-publish-preview-button');
     var submit = document.getElementById('github-publish-submit');
+    var noTarget = !select || select.disabled;
+    if (preview) preview.disabled = noTarget || githubPreviewInFlight;
+    if (submit)
+      submit.disabled =
+        noTarget ||
+        githubPublishBlocked ||
+        githubPreviewInFlight ||
+        githubPublishInFlight;
+  }
+
+  function clearGithubPublishPreview() {
+    githubPublishPreviewToken = null;
+    githubPublishBlocked = false;
+    var preview = document.getElementById('github-publish-preview');
     if (preview) preview.hidden = true;
-    if (submit) submit.disabled = true;
-    if (message) setGithubPublishStatus(message, 'secondary');
+    updateGithubPublishButtons();
   }
 
   function renderGithubPublishPreview(data) {
@@ -3306,9 +3326,8 @@
       summary.textContent =
         'The repository or branch is not available yet. The preview shows the files Weaver will add; GitHub will check access when you publish.';
       summary.className = 'alert alert-warning py-2';
-    } else if (data.remote_advanced) {
-      summary.textContent =
-        'This branch has advanced since Weaver last synchronized it. Pull and reconcile those changes before publishing.';
+    } else if (data.unpulled) {
+      summary.textContent = data.unpulled;
       summary.className = 'alert alert-danger py-2';
     } else {
       summary.textContent =
@@ -3351,9 +3370,8 @@
     }
     preview.hidden = false;
     githubPublishPreviewToken = data.preview_token || null;
-    var submit = document.getElementById('github-publish-submit');
-    if (submit)
-      submit.disabled = !githubPublishPreviewToken || data.remote_advanced;
+    githubPublishBlocked = Boolean(data.unpulled);
+    updateGithubPublishButtons();
   }
 
   function _pollGithubPublishJob(jobUrl) {
@@ -3499,7 +3517,6 @@
     clearTimeout(githubBranchTimer);
     var select = document.getElementById('github-branch-name');
     var retry = document.getElementById('github-branch-retry');
-    var preview = document.getElementById('github-publish-preview-button');
     if (select) {
       select.disabled = true;
       select.replaceChildren();
@@ -3510,7 +3527,7 @@
       select.value = '';
     }
     if (retry) retry.classList.add('d-none');
-    if (preview) preview.disabled = true;
+    updateGithubPublishButtons();
     updateGithubNewBranchInput();
   }
 
@@ -3526,7 +3543,6 @@
     var select = document.getElementById('github-branch-name');
     var newName = document.getElementById('github-new-branch-name');
     var retry = document.getElementById('github-branch-retry');
-    var preview = document.getElementById('github-publish-preview-button');
     apiGet(
       '/api/github/branches?project=' +
         encodeURIComponent(state.project) +
@@ -3570,7 +3586,7 @@
         }
         select.disabled = false;
         updateGithubNewBranchInput();
-        if (preview) preview.disabled = false;
+        updateGithubPublishButtons();
       })
       .catch(function (error) {
         if (request !== githubBranchRequest) return;
@@ -3586,7 +3602,6 @@
   }
 
   function applyGithubIntegrationStatus(data) {
-    var submit = document.getElementById('github-publish-submit');
     var configure = document.getElementById('github-configure-link');
     var packageInput = document.getElementById('github-package-name');
     var ownerSelect = document.getElementById('github-owner');
@@ -3613,7 +3628,6 @@
         "Docassemble's GitHub integration is not enabled on this server.",
         'warning',
       );
-      if (submit) submit.disabled = true;
       return;
     }
     if (!data.connected) {
@@ -3621,7 +3635,6 @@
         'Connect your GitHub account in Docassemble before publishing.',
         'warning',
       );
-      if (submit) submit.disabled = true;
       return;
     }
     if (data.async_configured === false) {
@@ -3630,7 +3643,6 @@
           'Publishing runs in the Celery worker, which is not configured on this server.',
         'warning',
       );
-      if (submit) submit.disabled = true;
       return;
     }
     if (ownerSelect) {
@@ -3668,7 +3680,6 @@
         'GitHub did not return an account or organization that can own the repository.',
         'warning',
       );
-      if (submit) submit.disabled = true;
       return;
     }
     if (
@@ -3686,11 +3697,6 @@
         'success',
       );
     }
-    if (submit) submit.disabled = true;
-    setGithubPublishStatus(
-      'Connected. Choose the target and preview the files before publishing.',
-      'success',
-    );
     if (sync && sync.owner && (!ownerSelect || !ownerSelect.value)) {
       setGithubPublishStatus(
         'The saved GitHub owner is unavailable. Choose an account before publishing.',
@@ -3749,43 +3755,225 @@
       });
   }
 
-  function pullGithubProject(projectName) {
-    if (!projectName || !state.projectSyncs[projectName]) return;
-    if (
-      !window.confirm(
-        'Merge GitHub changes into "' +
-          projectName +
-          '"? Local changes will be preserved when they do not conflict.',
+  // Fill a branch <select> from a GitHub repository URL. Like the
+  // Playground's pull page, callers look branches up once per committed URL
+  // (the input's change event), not on every keystroke. Public repositories
+  // list without a GitHub connection.
+  var githubBranchListRequests = {};
+
+  function githubBranchOption(value, label) {
+    var option = document.createElement('option');
+    option.value = value;
+    option.textContent = label || value;
+    return option;
+  }
+
+  function loadGithubBranchOptions(select, repositoryUrl, preferred) {
+    var request = (githubBranchListRequests[select.id] || 0) + 1;
+    githubBranchListRequests[select.id] = request;
+    function current() {
+      return githubBranchListRequests[select.id] === request;
+    }
+    select.disabled = true;
+    select.replaceChildren(githubBranchOption('', 'Loading branches…'));
+    return runtimeApiClient
+      .get(
+        '/api/github/branches?repository_url=' +
+          encodeURIComponent(repositoryUrl),
       )
-    )
-      return;
-    apiPost('/api/github/pull', { project: projectName })
       .then(function (res) {
-        if (!res.success) {
-          window.alert(
+        if (!current()) return null;
+        var data = (res.success && res.data) || {};
+        var names = data.branches || [];
+        if (!names.length) {
+          throw new Error(
             (res.error && res.error.message) ||
-              'Unable to pull changes from GitHub.',
+              'GitHub did not list any branches. Check that the repository exists and that you can access it.',
           );
-          return;
         }
-        _showSuccessBanner(
-          'Merged GitHub changes into "' + esc(projectName) + '".',
+        select.replaceChildren.apply(
+          select,
+          names.map(function (name) {
+            return githubBranchOption(name);
+          }),
         );
-        if (
-          state.project === projectName &&
-          state.canvasMode !== 'project-selector'
-        ) {
-          loadFiles();
-        } else {
-          reloadProjectList().then(renderCanvas);
-        }
+        select.value =
+          [preferred, data.default_branch].find(function (name) {
+            return name && names.includes(name);
+          }) || names[0];
+        select.disabled = false;
+        return data;
       })
       .catch(function (error) {
-        window.alert(
+        if (!current()) return null;
+        select.replaceChildren(githubBranchOption('', 'No branches found'));
+        throw error;
+      });
+  }
+
+  var githubPullProject = null;
+
+  function setGithubPullBusy(busy) {
+    ['github-pull-submit', 'github-pull-create'].forEach(function (id) {
+      var button = document.getElementById(id);
+      if (button) button.disabled = busy;
+    });
+  }
+
+  // Pull merges a branch of the project's repository into the project.
+  // "Create project from branch" imports it separately instead, for changes
+  // that need to be integrated by hand.
+  function pullGithubProject(projectName) {
+    var sync = state.projectSyncs[projectName];
+    if (!projectName || !sync) return;
+    githubPullProject = projectName;
+    var project = document.getElementById('github-pull-project');
+    var repository = document.getElementById('github-pull-repository');
+    var branch = document.getElementById('github-pull-branch');
+    if (project) project.textContent = projectName;
+    if (repository) {
+      repository.href = sync.repository_url;
+      repository.textContent = sync.repository_url.replace(
+        /^https:\/\/github\.com\//,
+        '',
+      );
+    }
+    setGithubRepoStatus('github-pull-status', '');
+    setGithubPullBusy(true);
+    var modal = getOrCreateBootstrapModal('github-pull-modal');
+    if (modal) modal.show();
+    if (!branch) return;
+    loadGithubBranchOptions(branch, sync.repository_url, sync.branch)
+      .then(function (data) {
+        if (data && githubPullProject === projectName) setGithubPullBusy(false);
+      })
+      .catch(function (error) {
+        if (githubPullProject !== projectName) return;
+        setGithubRepoStatus(
+          'github-pull-status',
           error && error.message
             ? error.message
-            : 'Unable to pull changes from GitHub.',
+            : 'Unable to list the repository branches.',
+          'danger',
         );
+      });
+  }
+
+  function openCreatedGithubProject(data) {
+    _showSuccessBanner('Created "' + esc(data.project) + '" from GitHub.');
+    state.project = data.project;
+    state.filename = data.filename;
+    state.canvasMode = 'question';
+    return reloadProjectList().then(function () {
+      return loadFiles();
+    });
+  }
+
+  function initGithubPull() {
+    var form = document.getElementById('github-pull-form');
+    var create = document.getElementById('github-pull-create');
+    var branchInput = document.getElementById('github-pull-branch');
+    if (!form || !branchInput) return;
+    function hide() {
+      var modal = getOrCreateBootstrapModal('github-pull-modal');
+      if (modal) modal.hide();
+    }
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      var projectName = githubPullProject;
+      var branch = branchInput.value.trim();
+      if (!projectName || !form.reportValidity()) return;
+      setGithubPullBusy(true);
+      setGithubRepoStatus(
+        'github-pull-status',
+        'Merging ' + branch + ' into this project…',
+        'info',
+      );
+      apiPost('/api/github/pull', { project: projectName, branch: branch })
+        .then(function (res) {
+          if (!res.success) {
+            var conflicts =
+              (res.error && res.error.details && res.error.details.conflicts) ||
+              [];
+            setGithubRepoStatus(
+              'github-pull-status',
+              ((res.error && res.error.message) ||
+                'Unable to pull changes from GitHub.') +
+                (conflicts.length
+                  ? ' Conflicting files: ' +
+                    conflicts.join(', ') +
+                    '. Create a project from the branch to integrate them by hand.'
+                  : ''),
+              'danger',
+            );
+            return;
+          }
+          hide();
+          _showSuccessBanner(
+            'Merged ' + esc(branch) + ' into "' + esc(projectName) + '".',
+          );
+          if (
+            state.project === projectName &&
+            state.canvasMode !== 'project-selector'
+          ) {
+            loadFiles();
+          } else {
+            reloadProjectList().then(renderCanvas);
+          }
+        })
+        .catch(function (error) {
+          setGithubRepoStatus(
+            'github-pull-status',
+            error && error.message
+              ? error.message
+              : 'Unable to pull changes from GitHub.',
+            'danger',
+          );
+        })
+        .finally(function () {
+          setGithubPullBusy(false);
+        });
+    });
+    if (create)
+      create.addEventListener('click', function () {
+        var projectName = githubPullProject;
+        var sync = projectName && state.projectSyncs[projectName];
+        var branch = branchInput.value.trim();
+        if (!sync || !form.reportValidity()) return;
+        setGithubPullBusy(true);
+        setGithubRepoStatus(
+          'github-pull-status',
+          'Creating a project from ' + branch + '…',
+          'info',
+        );
+        apiPost('/api/new-project', {
+          // Blank: named after the repository and branch, like ALWeaverMain.
+          project_name: '',
+          github_url: sync.repository_url,
+          github_branch: branch,
+        })
+          .then(function (res) {
+            if (!res.success || !res.data) {
+              throw new Error(
+                (res.error && res.error.message) ||
+                  'Unable to create the project from GitHub.',
+              );
+            }
+            hide();
+            return openCreatedGithubProject(res.data);
+          })
+          .catch(function (error) {
+            setGithubRepoStatus(
+              'github-pull-status',
+              error && error.message
+                ? error.message
+                : 'Unable to create the project from GitHub.',
+              'danger',
+            );
+          })
+          .finally(function () {
+            setGithubPullBusy(false);
+          });
       });
   }
 
@@ -3808,15 +3996,9 @@
       function (canContinue) {
         if (!canContinue) return;
         var modal = getOrCreateBootstrapModal('github-publish-modal');
-        var submit = document.getElementById('github-publish-submit');
         var configure = document.getElementById('github-configure-link');
-        var previewButton = document.getElementById(
-          'github-publish-preview-button',
-        );
         var ownerSelect = document.getElementById('github-owner');
         resetGithubBranchChoices('Choose a repository to load branches');
-        if (submit) submit.disabled = true;
-        if (previewButton) previewButton.disabled = true;
         clearGithubPublishPreview();
         if (configure) configure.classList.add('d-none');
         githubWorkflowAccessByOwner = {};
@@ -3878,34 +4060,29 @@
     var previewButton = document.getElementById(
       'github-publish-preview-button',
     );
-    function githubTargetChanged() {
-      clearGithubPublishPreview(
-        'Target changed. Preview the repository changes again.',
-      );
-    }
     if (ownerSelect)
       ownerSelect.addEventListener('change', function () {
         showGithubWorkflowAccess();
-        githubTargetChanged();
+        clearGithubPublishPreview();
         loadGithubBranches();
       });
     if (packageInput)
       packageInput.addEventListener('input', function () {
-        githubTargetChanged();
+        clearGithubPublishPreview();
         resetGithubBranchChoices('Loading branches…');
         githubBranchTimer = setTimeout(loadGithubBranches, 350);
       });
     if (branchInput)
       branchInput.addEventListener('change', function () {
         updateGithubNewBranchInput();
-        githubTargetChanged();
+        clearGithubPublishPreview();
       });
     if (branchRetry)
       branchRetry.addEventListener('click', function () {
         loadGithubBranches();
       });
     if (newBranchInput)
-      newBranchInput.addEventListener('input', githubTargetChanged);
+      newBranchInput.addEventListener('input', clearGithubPublishPreview);
     if (previewButton)
       previewButton.addEventListener('click', function () {
         if (!state.project || !form.reportValidity()) return;
@@ -3923,7 +4100,7 @@
             selectedBranch === githubBranchValue()
           );
         }
-        previewButton.disabled = true;
+        githubPreviewInFlight = true;
         clearGithubPublishPreview();
         setGithubPublishStatus('Building the package preview…', 'info');
         saveDirtyGithubEditors()
@@ -3946,10 +4123,10 @@
             }
             renderGithubPublishPreview(res.data);
             setGithubPublishStatus(
-              res.data.remote_advanced
-                ? 'The selected branch has newer remote commits. Pull and reconcile before publishing.'
-                : 'Review the target and file diff, then choose Publish to GitHub.',
-              res.data.remote_advanced ? 'danger' : 'success',
+              res.data.unpulled
+                ? 'This branch cannot be published to yet.'
+                : 'Review the file changes, then choose Publish to GitHub.',
+              res.data.unpulled ? 'danger' : 'success',
             );
           })
           .catch(function (error) {
@@ -3962,8 +4139,8 @@
             );
           })
           .finally(function () {
-            var select = document.getElementById('github-branch-name');
-            previewButton.disabled = !select || select.disabled;
+            githubPreviewInFlight = false;
+            updateGithubPublishButtons();
           });
       });
     form.addEventListener('submit', function (event) {
@@ -3972,16 +4149,9 @@
       var packageInput = document.getElementById('github-package-name');
       var ownerSelect = document.getElementById('github-owner');
       var messageInput = document.getElementById('github-commit-message');
-      var submit = document.getElementById('github-publish-submit');
       if (!form.reportValidity()) return;
-      if (!githubPublishPreviewToken) {
-        setGithubPublishStatus(
-          'Preview the repository changes before publishing.',
-          'warning',
-        );
-        return;
-      }
-      if (submit) submit.disabled = true;
+      githubPublishInFlight = true;
+      updateGithubPublishButtons();
       setGithubPublishStatus('Preparing the project for GitHub…', 'info');
       saveDirtyGithubEditors()
         .then(function () {
@@ -4001,13 +4171,8 @@
                 'Unable to start GitHub publishing.',
               'danger',
             );
-            if (submit) submit.disabled = false;
-            clearGithubPublishPreview(
-              'Preview expired or changed. Review the current files before publishing.',
-            );
             return;
           }
-          clearGithubPublishPreview();
           setGithubPublishStatus('Queued for publishing to GitHub…', 'info');
           return _pollGithubPublishJob(res.data.job_url).then(
             function (result) {
@@ -4048,10 +4213,6 @@
                   statusElement.appendChild(guidance);
                 }
               }
-              if (submit) submit.disabled = false;
-              clearGithubPublishPreview(
-                'Publish completed. Preview the latest branch again before another commit.',
-              );
             },
           );
         })
@@ -4062,10 +4223,10 @@
               : 'Unable to start GitHub publishing.',
             'danger',
           );
-          if (submit) submit.disabled = false;
-          clearGithubPublishPreview(
-            'Publish did not start. Preview the current files before trying again.',
-          );
+        })
+        .finally(function () {
+          githubPublishInFlight = false;
+          clearGithubPublishPreview();
         });
     });
   }
@@ -4176,9 +4337,7 @@
         throw new Error(message);
       }
       setGithubRepoStatus(statusElementId, 'Saved.', 'success');
-      clearGithubPublishPreview(
-        'Repository settings changed. Preview the package again before publishing.',
-      );
+      clearGithubPublishPreview();
       renderGithubRepositoryConfig(res.data, { resetEditors: false });
       return res.data;
     });
@@ -10260,7 +10419,7 @@
       html +=
         '<li><button type="button" class="dropdown-item" data-project-action="pull-github" data-project-name="' +
         projectId +
-        '"><i class="fa-solid fa-code-pull-request me-2" aria-hidden="true"></i>Pull changes from GitHub</button></li>';
+        '"><i class="fa-solid fa-code-pull-request me-2" aria-hidden="true"></i>Pull from GitHub…</button></li>';
       html += '<li><hr class="dropdown-divider"></li>';
     }
     if (projectName !== 'default') {
@@ -12562,20 +12721,31 @@
       esc(state.projectSearchQuery) +
       '">';
     html += '</div></div>';
-    html +=
-      '<div class="editor-card"><div class="editor-card-header">Create from GitHub</div><div class="editor-card-body">';
-    html +=
+    // Collapsed unless asked for: most visits are to open a project.
+    var githubImportHtml =
       '<p class="text-muted small mb-3">Enter any public GitHub docassemble repository, or a private repository available through your connected account. Weaver will create the project and pull its files in one step.</p>';
-    html += '<div class="row g-2 align-items-end">';
-    html +=
-      '<div class="col-12 col-lg-7"><label class="editor-tiny" for="project-github-import-url">GitHub repository URL</label><input class="form-control form-control-sm mt-1" id="project-github-import-url" type="url" placeholder="https://github.com/owner/docassemble-package"></div>';
-    html +=
-      '<div class="col-12 col-lg-3"><label class="editor-tiny" for="project-github-import-name">Project name (optional)</label><input class="form-control form-control-sm mt-1" id="project-github-import-name"><div class="text-muted small mt-1">Leave blank to name the project after the repository.</div></div>';
-    html +=
+    githubImportHtml += '<div class="row g-2 align-items-end">';
+    githubImportHtml +=
+      '<div class="col-12 col-lg-5"><label class="editor-tiny" for="project-github-import-url">GitHub repository URL</label><input class="form-control form-control-sm mt-1" id="project-github-import-url" type="url" aria-describedby="project-github-import-hint"></div>';
+    githubImportHtml +=
+      '<div class="col-12 col-lg-2"><label class="editor-tiny" for="project-github-import-branch">Branch</label><select class="form-select form-select-sm mt-1 font-monospace" id="project-github-import-branch" aria-describedby="project-github-import-hint" disabled><option value="">Enter a repository first</option></select></div>';
+    githubImportHtml +=
+      '<div class="col-12 col-lg-3"><label class="editor-tiny" for="project-github-import-name">Project name (optional)</label><input class="form-control form-control-sm mt-1" id="project-github-import-name" aria-describedby="project-github-import-hint"></div>';
+    githubImportHtml +=
       '<div class="col-12 col-lg-2 d-grid"><button type="button" class="btn btn-sm btn-outline-primary" id="project-github-import-submit">Create and pull</button></div>';
+    githubImportHtml +=
+      '</div><div class="text-muted small mt-1" id="project-github-import-hint">For example, https://github.com/owner/docassemble-package. Branches load once you enter the URL. Leave the project name blank to name the project after the repository and branch.</div>';
+    githubImportHtml +=
+      '<div class="alert py-2 mt-3 mb-0 d-none" id="project-github-import-status" role="status" aria-live="polite"></div>';
     html +=
-      '</div><div class="alert py-2 mt-3 mb-0 d-none" id="project-github-import-status" role="status" aria-live="polite"></div>';
-    html += '</div></div>';
+      '<div class="accordion" id="project-github-import-accordion">' +
+      _accordionSection(
+        'project-github-import',
+        'Create from GitHub',
+        Boolean(state.openGithubImport),
+        githubImportHtml,
+      ) +
+      '</div>';
 
     if (recent.length > 0) {
       html += '<div class="editor-project-section">';
@@ -16841,8 +17011,12 @@
   var _suggestedValues = {};
 
   function _newProjectSection(id, title, expanded, bodyHtml) {
-    var headingId = 'new-project-heading-' + id;
-    var panelId = 'new-project-panel-' + id;
+    return _accordionSection('new-project-' + id, title, expanded, bodyHtml);
+  }
+
+  function _accordionSection(idPrefix, title, expanded, bodyHtml) {
+    var headingId = idPrefix + '-heading';
+    var panelId = idPrefix + '-panel';
     var html = '<div class="accordion-item">';
     html += '<h2 class="accordion-header" id="' + headingId + '">';
     html +=
@@ -16905,10 +17079,7 @@
       'files',
       'Template files',
       true,
-      '<div class="mb-3"><label class="editor-tiny" for="new-project-github-url">GitHub repository URL (optional)</label>' +
-        '<input class="form-control form-control-sm mt-1" id="new-project-github-url" type="url" placeholder="https://github.com/owner/docassemble-package">' +
-        '<div class="text-muted small mt-1">Import from any public GitHub repository, or a private repository available through your connected account.</div></div>' +
-        '<div class="text-muted small text-center mb-3">or upload a document</div>' +
+      '<p class="text-muted small mb-3">Importing an existing docassemble package? <button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-action="open-github-import">Create it from GitHub</button> instead.</p>' +
         '<div class="editor-dropzone" id="upload-dropzone">' +
         '<div class="editor-dropzone-icon">&#128196;</div>' +
         '<div style="font-weight:600">Drag &amp; drop PDF or DOCX files here</div>' +
@@ -17134,21 +17305,21 @@
     var shortTitle = title.slice(0, 25);
     var projectName = _projectNameFromTitle(title);
 
-    // Only fill a field the author has not touched. `_suggestedValues` records
-    // what we put there, so replacing the first document updates a suggestion
-    // but never overwrites something typed by hand.
-    function suggest(elementId, value) {
-      var input = document.getElementById(elementId);
-      if (!input || !value) return;
-      var current = String(input.value || '').trim();
-      if (current && current !== _suggestedValues[elementId]) return;
-      input.value = value;
-      _suggestedValues[elementId] = value;
-    }
+    _suggestNewProjectValue('new-project-name', projectName);
+    _suggestNewProjectValue('new-project-title', title);
+    _suggestNewProjectValue('new-project-short-title', shortTitle);
+  }
 
-    suggest('new-project-name', projectName);
-    suggest('new-project-title', title);
-    suggest('new-project-short-title', shortTitle);
+  // Only fill a field the author has not touched. `_suggestedValues` records
+  // what we put there, so a new document or repository updates a suggestion
+  // but never overwrites something typed by hand.
+  function _suggestNewProjectValue(elementId, value) {
+    var input = document.getElementById(elementId);
+    if (!input || !value) return;
+    var current = String(input.value || '').trim();
+    if (current && current !== _suggestedValues[elementId]) return;
+    input.value = value;
+    _suggestedValues[elementId] = value;
   }
 
   // A filing's documents come out in the order they are listed, and the first
@@ -20346,8 +20517,14 @@
       var importStatus = document.getElementById(
         'project-github-import-status',
       );
+      var importBranchSelect = document.getElementById(
+        'project-github-import-branch',
+      );
       var importUrl = importUrlInput ? importUrlInput.value.trim() : '';
       var importName = importNameInput ? importNameInput.value.trim() : '';
+      var importBranch = importBranchSelect
+        ? importBranchSelect.value.trim()
+        : '';
       if (!importUrl) {
         if (importStatus) {
           importStatus.className = 'alert alert-warning py-2 mt-3 mb-0';
@@ -20364,6 +20541,7 @@
       apiPost('/api/new-project', {
         project_name: importName,
         github_url: importUrl,
+        github_branch: importBranch,
       })
         .then(function (res) {
           if (!res.success || !res.data) {
@@ -20372,15 +20550,7 @@
                 'Unable to create the project from GitHub.',
             );
           }
-          _showSuccessBanner(
-            'Created "' + esc(res.data.project) + '" from GitHub.',
-          );
-          state.project = res.data.project;
-          state.filename = res.data.filename;
-          state.canvasMode = 'question';
-          return reloadProjectList().then(function () {
-            return loadFiles();
-          });
+          return openCreatedGithubProject(res.data);
         })
         .catch(function (error) {
           target.disabled = false;
@@ -22446,6 +22616,20 @@
       return;
     }
 
+    if (target.closest('[data-action="open-github-import"]')) {
+      _hideUploadProgressModal();
+      _uploadedFiles = [];
+      state.canvasMode = 'project-selector';
+      state.openGithubImport = true;
+      renderCanvas();
+      state.openGithubImport = false;
+      var githubImportUrl = document.getElementById(
+        'project-github-import-url',
+      );
+      if (githubImportUrl) githubImportUrl.focus();
+      return;
+    }
+
     if (target.id === 'cancel-new-project') {
       _hideUploadProgressModal();
       state.canvasMode = 'project-selector';
@@ -22592,7 +22776,6 @@
       var separateMainOrderInput = document.getElementById(
         'new-project-separate-main-order',
       );
-      var githubUrlInput = document.getElementById('new-project-github-url');
       var filenameInput = document.getElementById('new-project-filename');
       var titleInput = document.getElementById('new-project-title');
       var shortTitleInput = document.getElementById('new-project-short-title');
@@ -22625,18 +22808,7 @@
         ? copyBaselineQuestionsInput.checked
         : true;
       var createTest = createTestInput ? createTestInput.checked : true;
-      var githubUrl = githubUrlInput ? githubUrlInput.value.trim() : '';
-      if (githubUrl && _uploadedFiles.length > 0) {
-        window.alert(
-          'Choose either a GitHub repository or uploaded documents, not both.',
-        );
-        return;
-      }
-      _showUploadProgressModal(
-        githubUrl
-          ? 'Importing the GitHub repository…'
-          : 'This may take a minute or two. Please wait.',
-      );
+      _showUploadProgressModal('This may take a minute or two. Please wait.');
 
       if (_uploadedFiles.length > 0) {
         var formData = new FormData();
@@ -22785,7 +22957,6 @@
           help_page_url: helpPageUrl,
           help_page_title: helpPageTitle,
           use_llm_assist: useLlmAssist,
-          github_url: githubUrl,
           create_test: createTest,
         })
           .then(function (res) {
@@ -22938,6 +23109,37 @@
   });
 
   document.addEventListener('change', function (e) {
+    // The repository URL looks its branches up when the URL is committed,
+    // as the Playground's pull page does.
+    if (e.target.id === 'project-github-import-url') {
+      var branchSelect = document.getElementById(
+        'project-github-import-branch',
+      );
+      var branchStatus = document.getElementById(
+        'project-github-import-status',
+      );
+      var repositoryUrl = e.target.value.trim();
+      if (branchStatus) branchStatus.className = 'alert d-none';
+      if (!branchSelect) return;
+      if (!repositoryUrl) {
+        branchSelect.disabled = true;
+        branchSelect.replaceChildren(
+          githubBranchOption('', 'Enter a repository first'),
+        );
+        return;
+      }
+      loadGithubBranchOptions(branchSelect, repositoryUrl).catch(
+        function (error) {
+          if (!branchStatus) return;
+          branchStatus.className = 'alert alert-warning py-2 mt-3 mb-0';
+          branchStatus.textContent =
+            error && error.message
+              ? error.message
+              : 'Unable to list the repository branches.';
+        },
+      );
+      return;
+    }
     if (e.target.matches('[data-order-list-for]') && e.target.value) {
       var iterableInput = document.getElementById(
         e.target.dataset.orderListFor,
@@ -23756,6 +23958,7 @@
     }
     initProjectSearch();
     initGithubPublishing();
+    initGithubPull();
     renderSystemChecks();
     state.validationDock = readValidationDock();
     applyValidationDock();
