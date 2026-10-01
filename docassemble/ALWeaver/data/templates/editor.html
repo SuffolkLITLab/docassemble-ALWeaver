@@ -48,7 +48,7 @@
               <li><button type="button" class="dropdown-item" data-action="open-standard-playground"><i class="fa-solid fa-flask fa-fw me-2" aria-hidden="true"></i>Open in Playground</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-tests-overview"><i class="fa-solid fa-vial-circle-check fa-fw me-2" aria-hidden="true"></i>Tests</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-github-publish"><i class="fa-brands fa-github fa-fw me-2" aria-hidden="true"></i>Commit to GitHub</button></li>
-              <li class="d-none js-github-pull-menu-item"><button type="button" class="dropdown-item" data-action="pull-github"><i class="fa-solid fa-code-pull-request fa-fw me-2" aria-hidden="true"></i>Pull changes from GitHub</button></li>
+              <li class="d-none js-github-pull-menu-item"><button type="button" class="dropdown-item" data-action="pull-github"><i class="fa-solid fa-code-pull-request fa-fw me-2" aria-hidden="true"></i>Pull from GitHub&hellip;</button></li>
               <li><hr class="dropdown-divider"></li>
               <li><button type="button" class="dropdown-item" data-action="open-project-selector"><i class="fa-solid fa-folder-open fa-fw me-2" aria-hidden="true"></i>Switch project</button></li>
             </ul>
@@ -94,7 +94,7 @@
               <li><button type="button" class="dropdown-item" data-action="open-standard-playground"><i class="fa-solid fa-flask fa-fw me-2" aria-hidden="true"></i>Open in Playground</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-tests-overview"><i class="fa-solid fa-vial-circle-check fa-fw me-2" aria-hidden="true"></i>Tests</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-github-publish"><i class="fa-brands fa-github fa-fw me-2" aria-hidden="true"></i>Commit to GitHub</button></li>
-              <li class="d-none js-github-pull-menu-item" id="github-pull-menu-item"><button type="button" class="dropdown-item" data-action="pull-github"><i class="fa-solid fa-code-pull-request fa-fw me-2" aria-hidden="true"></i>Pull changes from GitHub</button></li>
+              <li class="d-none js-github-pull-menu-item" id="github-pull-menu-item"><button type="button" class="dropdown-item" data-action="pull-github"><i class="fa-solid fa-code-pull-request fa-fw me-2" aria-hidden="true"></i>Pull from GitHub&hellip;</button></li>
               <li><hr class="dropdown-divider"></li>
               <li><button type="button" class="dropdown-item" data-action="open-project-selector"><i class="fa-solid fa-folder-open fa-fw me-2" aria-hidden="true"></i>Switch project</button></li>
             </ul>
@@ -420,6 +420,38 @@
 </div>
 
 <!-- Project-wide find / replace -->
+<!-- Pull a branch of the project's GitHub repository -->
+<div class="modal fade" id="github-pull-modal" tabindex="-1"
+     aria-labelledby="github-pull-title">
+  <div class="modal-dialog">
+    <form class="modal-content" id="github-pull-form">
+      <div class="modal-header">
+        <div>
+          <div class="editor-tiny" id="github-pull-project"></div>
+          <h5 class="modal-title mt-1" id="github-pull-title">Pull from GitHub</h5>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted mb-3">Repository: <a id="github-pull-repository" target="_blank" rel="noopener"></a></p>
+        <label class="form-label" for="github-pull-branch">Branch</label>
+        <input class="form-control font-monospace" id="github-pull-branch" list="github-pull-branches"
+               autocomplete="off" maxlength="255" required>
+        <datalist id="github-pull-branches"></datalist>
+        <div class="form-text">Pull merges that branch into this project; pulling a different branch makes it the one this project publishes to. To integrate a branch by hand instead, create a separate project from it.</div>
+        <div class="alert py-2 mt-3 mb-0 d-none" id="github-pull-status" role="status" aria-live="polite"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-sm btn-outline-primary" id="github-pull-create">Create project from branch</button>
+        <button type="submit" class="btn btn-sm btn-primary" id="github-pull-submit">
+          <i class="fa-solid fa-code-pull-request me-1" aria-hidden="true"></i>Pull
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div class="modal fade" id="project-search-modal" tabindex="-1"
      aria-labelledby="project-search-title">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">

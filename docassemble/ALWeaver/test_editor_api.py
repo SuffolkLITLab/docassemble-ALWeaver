@@ -607,15 +607,15 @@ class TestEditorGithubApi(unittest.TestCase):
             ("synced head", sync, "main", head, None),
             ("other branch at the synced commit", sync, "draft", head, None),
             ("synced branch advanced", sync, "main", newer, "has advanced"),
-            ("never synced", None, "main", head, "has not pulled"),
+            ("never synced", None, "main", head, "Create a project"),
             (
                 "synced to another repository",
                 other_repo,
                 "main",
                 head,
-                "has not pulled",
+                "Create a project",
             ),
-            ("other branch elsewhere", sync, "draft", newer, "has not pulled"),
+            ("other branch elsewhere", sync, "draft", newer, "Pull from GitHub"),
             (
                 "no recorded commit",
                 {**sync, "commit": ""},
@@ -750,6 +750,86 @@ class TestEditorGithubApi(unittest.TestCase):
             7, "Housing", "HousingForms", remote["files"], base["files"]
         )
         self.assertIs(merge.call_args.kwargs["remote_snapshot"], remote)
+
+    def test_pull_merges_another_branch_from_its_common_commit(self):
+        sync = {
+            "package": "HousingForms",
+            "repository_url": "https://github.com/LegalAid/docassemble-HousingForms",
+            "branch": "main",
+            "commit": "synced-sha",
+        }
+        remote = {"sha": "draft-sha", "branch": "draft", "files": {}}
+        base = {"sha": "fork-sha", "branch": "fork-sha", "files": {}}
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "find_project_github_sync", return_value=sync),
+            patch.object(
+                api_editor, "get_github_repository_snapshot", side_effect=[remote, base]
+            ) as snapshots,
+            patch.object(
+                api_editor, "get_github_merge_base", return_value="fork-sha"
+            ) as merge_base,
+            patch.object(
+                api_editor,
+                "merge_github_snapshot",
+                return_value={"merged": True, "files": 3, "commit": "draft-sha"},
+            ) as merge,
+            patch.object(api_editor, "adopt_repository_snapshot"),
+            patch.object(api_editor, "_reconcile_project_modules"),
+            patch.object(api_editor, "_restart_state_payload", return_value={}),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/github/pull",
+                method="POST",
+                json={"project": "Housing", "branch": "draft"},
+            ):
+                response = api_editor.editor_api_github_pull()
+
+        self.assertTrue(response.get_json()["success"], response.get_json())
+        self.assertEqual(snapshots.call_args_list[0].kwargs["ref"], "draft")
+        self.assertEqual(snapshots.call_args_list[1].kwargs["ref"], "fork-sha")
+        merge_base.assert_called_once_with(
+            repository_url=sync["repository_url"],
+            base="synced-sha",
+            head="draft-sha",
+            user_id=7,
+        )
+        self.assertIs(merge.call_args.kwargs["base_snapshot"], base)
+        self.assertIs(merge.call_args.kwargs["remote_snapshot"], remote)
+
+    def test_pull_refuses_a_branch_with_no_shared_history(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "find_project_github_sync",
+                return_value={
+                    "package": "HousingForms",
+                    "repository_url": "https://github.com/LegalAid/docassemble-HousingForms",
+                    "branch": "main",
+                    "commit": "synced-sha",
+                },
+            ),
+            patch.object(
+                api_editor,
+                "get_github_repository_snapshot",
+                return_value={"sha": "orphan-sha", "branch": "orphan", "files": {}},
+            ),
+            patch.object(api_editor, "get_github_merge_base", return_value=None),
+            patch.object(api_editor, "merge_github_snapshot") as merge,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/github/pull",
+                method="POST",
+                json={"project": "Housing", "branch": "orphan"},
+            ):
+                response = api_editor.editor_api_github_pull()
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Create a project", response.get_json()["error"]["message"])
+        merge.assert_not_called()
 
     def test_pull_reports_conflicts_without_claiming_success(self):
         with (

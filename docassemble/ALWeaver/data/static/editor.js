@@ -3122,9 +3122,10 @@
     onError: showApiError,
   });
 
-  // Runtime inspector renders its own inline, aria-live status.  Keep its
-  // failures out of the editor-wide floating error banner so one failure is
-  // announced exactly once.
+  // For callers that report failures themselves, such as the runtime
+  // inspector's inline, aria-live status, or that can ignore them. Keeping
+  // them out of the editor-wide floating error banner announces a failure
+  // at most once.
   var runtimeApiClient = window.ALWeaverApiClient.createClient({
     baseUrl: API,
     csrfToken: BOOT.csrfToken || null,
@@ -3756,43 +3757,178 @@
       });
   }
 
+  var githubPullProject = null;
+
+  function setGithubPullStatus(message, kind) {
+    var status = document.getElementById('github-pull-status');
+    if (!status) return;
+    status.className =
+      'alert py-2 mt-3 mb-0' + (message ? ' alert-' + kind : ' d-none');
+    status.textContent = message || '';
+  }
+
+  function setGithubPullBusy(busy) {
+    ['github-pull-submit', 'github-pull-create'].forEach(function (id) {
+      var button = document.getElementById(id);
+      if (button) button.disabled = busy;
+    });
+  }
+
+  // Pull merges a branch of the project's repository into the project.
+  // "Create project from branch" imports it separately instead, for changes
+  // that need to be integrated by hand.
   function pullGithubProject(projectName) {
-    if (!projectName || !state.projectSyncs[projectName]) return;
-    if (
-      !window.confirm(
-        'Merge GitHub changes into "' +
-          projectName +
-          '"? Local changes will be preserved when they do not conflict.',
+    var sync = state.projectSyncs[projectName];
+    if (!projectName || !sync) return;
+    githubPullProject = projectName;
+    var project = document.getElementById('github-pull-project');
+    var repository = document.getElementById('github-pull-repository');
+    var branch = document.getElementById('github-pull-branch');
+    var branches = document.getElementById('github-pull-branches');
+    if (project) project.textContent = projectName;
+    if (repository) {
+      repository.href = sync.repository_url;
+      repository.textContent = sync.repository_url.replace(
+        /^https:\/\/github\.com\//,
+        '',
+      );
+    }
+    if (branch) branch.value = sync.branch || '';
+    if (branches) branches.replaceChildren();
+    setGithubPullStatus('', '');
+    setGithubPullBusy(false);
+    var modal = getOrCreateBootstrapModal('github-pull-modal');
+    if (modal) modal.show();
+    // Suggestions only: a public repository can be pulled without a GitHub
+    // connection, so typing a branch name always works.
+    var target = /^https:\/\/github\.com\/([^/]+)\/docassemble-([^/]+)$/i.exec(
+      sync.repository_url,
+    );
+    if (!target || !branches) return;
+    runtimeApiClient
+      .get(
+        '/api/github/branches?project=' +
+          encodeURIComponent(projectName) +
+          '&owner=' +
+          encodeURIComponent(target[1]) +
+          '&package=' +
+          encodeURIComponent(target[2]),
       )
-    )
-      return;
-    apiPost('/api/github/pull', { project: projectName })
       .then(function (res) {
-        if (!res.success) {
-          window.alert(
-            (res.error && res.error.message) ||
-              'Unable to pull changes from GitHub.',
-          );
+        if (githubPullProject !== projectName || !res.success || !res.data)
           return;
-        }
-        _showSuccessBanner(
-          'Merged GitHub changes into "' + esc(projectName) + '".',
-        );
-        if (
-          state.project === projectName &&
-          state.canvasMode !== 'project-selector'
-        ) {
-          loadFiles();
-        } else {
-          reloadProjectList().then(renderCanvas);
-        }
+        (res.data.branches || []).forEach(function (name) {
+          var option = document.createElement('option');
+          option.value = name;
+          branches.appendChild(option);
+        });
       })
-      .catch(function (error) {
-        window.alert(
-          error && error.message
-            ? error.message
-            : 'Unable to pull changes from GitHub.',
-        );
+      .catch(function () {});
+  }
+
+  function openCreatedGithubProject(data) {
+    _showSuccessBanner('Created "' + esc(data.project) + '" from GitHub.');
+    state.project = data.project;
+    state.filename = data.filename;
+    state.canvasMode = 'question';
+    return reloadProjectList().then(function () {
+      return loadFiles();
+    });
+  }
+
+  function initGithubPull() {
+    var form = document.getElementById('github-pull-form');
+    var create = document.getElementById('github-pull-create');
+    var branchInput = document.getElementById('github-pull-branch');
+    if (!form || !branchInput) return;
+    function hide() {
+      var modal = getOrCreateBootstrapModal('github-pull-modal');
+      if (modal) modal.hide();
+    }
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      var projectName = githubPullProject;
+      var branch = branchInput.value.trim();
+      if (!projectName || !form.reportValidity()) return;
+      setGithubPullBusy(true);
+      setGithubPullStatus('Merging ' + branch + ' into this project…', 'info');
+      apiPost('/api/github/pull', { project: projectName, branch: branch })
+        .then(function (res) {
+          if (!res.success) {
+            var conflicts =
+              (res.error && res.error.details && res.error.details.conflicts) ||
+              [];
+            setGithubPullStatus(
+              ((res.error && res.error.message) ||
+                'Unable to pull changes from GitHub.') +
+                (conflicts.length
+                  ? ' Conflicting files: ' +
+                    conflicts.join(', ') +
+                    '. Create a project from the branch to integrate them by hand.'
+                  : ''),
+              'danger',
+            );
+            return;
+          }
+          hide();
+          _showSuccessBanner(
+            'Merged ' + esc(branch) + ' into "' + esc(projectName) + '".',
+          );
+          if (
+            state.project === projectName &&
+            state.canvasMode !== 'project-selector'
+          ) {
+            loadFiles();
+          } else {
+            reloadProjectList().then(renderCanvas);
+          }
+        })
+        .catch(function (error) {
+          setGithubPullStatus(
+            error && error.message
+              ? error.message
+              : 'Unable to pull changes from GitHub.',
+            'danger',
+          );
+        })
+        .finally(function () {
+          setGithubPullBusy(false);
+        });
+    });
+    if (create)
+      create.addEventListener('click', function () {
+        var projectName = githubPullProject;
+        var sync = projectName && state.projectSyncs[projectName];
+        var branch = branchInput.value.trim();
+        if (!sync || !form.reportValidity()) return;
+        setGithubPullBusy(true);
+        setGithubPullStatus('Creating a project from ' + branch + '…', 'info');
+        apiPost('/api/new-project', {
+          project_name: projectName + ' ' + branch,
+          github_url: sync.repository_url,
+          github_branch: branch,
+        })
+          .then(function (res) {
+            if (!res.success || !res.data) {
+              throw new Error(
+                (res.error && res.error.message) ||
+                  'Unable to create the project from GitHub.',
+              );
+            }
+            hide();
+            return openCreatedGithubProject(res.data);
+          })
+          .catch(function (error) {
+            setGithubPullStatus(
+              error && error.message
+                ? error.message
+                : 'Unable to create the project from GitHub.',
+              'danger',
+            );
+          })
+          .finally(function () {
+            setGithubPullBusy(false);
+          });
       });
   }
 
@@ -10241,7 +10377,7 @@
       html +=
         '<li><button type="button" class="dropdown-item" data-project-action="pull-github" data-project-name="' +
         projectId +
-        '"><i class="fa-solid fa-code-pull-request me-2" aria-hidden="true"></i>Pull changes from GitHub</button></li>';
+        '"><i class="fa-solid fa-code-pull-request me-2" aria-hidden="true"></i>Pull from GitHub…</button></li>';
       html += '<li><hr class="dropdown-divider"></li>';
     }
     if (projectName !== 'default') {
@@ -12549,13 +12685,17 @@
       '<p class="text-muted small mb-3">Enter any public GitHub docassemble repository, or a private repository available through your connected account. Weaver will create the project and pull its files in one step.</p>';
     html += '<div class="row g-2 align-items-end">';
     html +=
-      '<div class="col-12 col-lg-7"><label class="editor-tiny" for="project-github-import-url">GitHub repository URL</label><input class="form-control form-control-sm mt-1" id="project-github-import-url" type="url" placeholder="https://github.com/owner/docassemble-package"></div>';
+      '<div class="col-12 col-lg-5"><label class="editor-tiny" for="project-github-import-url">GitHub repository URL</label><input class="form-control form-control-sm mt-1" id="project-github-import-url" type="url" placeholder="https://github.com/owner/docassemble-package"></div>';
     html +=
-      '<div class="col-12 col-lg-3"><label class="editor-tiny" for="project-github-import-name">Project name (optional)</label><input class="form-control form-control-sm mt-1" id="project-github-import-name"><div class="text-muted small mt-1">Leave blank to name the project after the repository.</div></div>';
+      '<div class="col-12 col-lg-2"><label class="editor-tiny" for="project-github-import-branch">Branch (optional)</label><input class="form-control form-control-sm mt-1 font-monospace" id="project-github-import-branch" autocomplete="off" aria-describedby="project-github-import-hint"></div>';
+    html +=
+      '<div class="col-12 col-lg-3"><label class="editor-tiny" for="project-github-import-name">Project name (optional)</label><input class="form-control form-control-sm mt-1" id="project-github-import-name" aria-describedby="project-github-import-hint"></div>';
     html +=
       '<div class="col-12 col-lg-2 d-grid"><button type="button" class="btn btn-sm btn-outline-primary" id="project-github-import-submit">Create and pull</button></div>';
     html +=
-      '</div><div class="alert py-2 mt-3 mb-0 d-none" id="project-github-import-status" role="status" aria-live="polite"></div>';
+      '</div><div class="text-muted small mt-1" id="project-github-import-hint">Leave the branch blank to use the repository\'s default branch, and the project name blank to name the project after the repository.</div>';
+    html +=
+      '<div class="alert py-2 mt-3 mb-0 d-none" id="project-github-import-status" role="status" aria-live="polite"></div>';
     html += '</div></div>';
 
     if (recent.length > 0) {
@@ -20327,8 +20467,14 @@
       var importStatus = document.getElementById(
         'project-github-import-status',
       );
+      var importBranchInput = document.getElementById(
+        'project-github-import-branch',
+      );
       var importUrl = importUrlInput ? importUrlInput.value.trim() : '';
       var importName = importNameInput ? importNameInput.value.trim() : '';
+      var importBranch = importBranchInput
+        ? importBranchInput.value.trim()
+        : '';
       if (!importUrl) {
         if (importStatus) {
           importStatus.className = 'alert alert-warning py-2 mt-3 mb-0';
@@ -20345,6 +20491,7 @@
       apiPost('/api/new-project', {
         project_name: importName,
         github_url: importUrl,
+        github_branch: importBranch,
       })
         .then(function (res) {
           if (!res.success || !res.data) {
@@ -20353,15 +20500,7 @@
                 'Unable to create the project from GitHub.',
             );
           }
-          _showSuccessBanner(
-            'Created "' + esc(res.data.project) + '" from GitHub.',
-          );
-          state.project = res.data.project;
-          state.filename = res.data.filename;
-          state.canvasMode = 'question';
-          return reloadProjectList().then(function () {
-            return loadFiles();
-          });
+          return openCreatedGithubProject(res.data);
         })
         .catch(function (error) {
           target.disabled = false;
@@ -23737,6 +23876,7 @@
     }
     initProjectSearch();
     initGithubPublishing();
+    initGithubPull();
     renderSystemChecks();
     state.validationDock = readValidationDock();
     applyValidationDock();

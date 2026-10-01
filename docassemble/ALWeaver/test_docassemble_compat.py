@@ -388,6 +388,38 @@ class TestNativeGithubCompatibility(unittest.TestCase):
         self.assertEqual(result["files"], {})
         self.assertEqual(len(http.calls), 2)
 
+    def test_merge_base_reads_github_compare(self):
+        class FakeHttp:
+            def __init__(self, status, body):
+                self.status, self.body, self.urls = status, body, []
+
+            def request(self, url, method, headers=None, body=None):
+                self.urls.append(url)
+                return {"status": self.status}, self.body
+
+        shared = FakeHttp("200", b'{"merge_base_commit":{"sha":"fork-sha"}}')
+        unrelated = FakeHttp("404", b'{"message":"No common ancestor"}')
+        for http, expected in ((shared, "fork-sha"), (unrelated, None)):
+            with patch.object(
+                docassemble_compat, "_github_authorized_http", return_value=http
+            ):
+                self.assertEqual(
+                    docassemble_compat.get_github_merge_base(
+                        repository_url="https://github.com/Example/docassemble-Forms",
+                        base="synced-sha",
+                        head="feature/x",
+                        user_id=7,
+                    ),
+                    expected,
+                )
+        self.assertEqual(
+            shared.urls,
+            [
+                "https://api.github.com/repos/Example/docassemble-Forms"
+                "/compare/synced-sha...feature%2Fx"
+            ],
+        )
+
     def test_unrelated_github_422_is_not_treated_as_missing_branch(self):
         class FakeHttp:
             def request(self, url, method, headers=None, body=None):

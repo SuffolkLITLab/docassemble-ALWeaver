@@ -127,6 +127,7 @@ from .docassemble_compat import (
     get_csrf,
     get_flask_app,
     get_github_publish_owners,
+    get_github_merge_base,
     get_github_repository_branches,
     get_github_workflow_access,
     get_github_repository_snapshot,
@@ -3116,7 +3117,12 @@ def editor_api_github_publish_job(job_id: str) -> Response:
 
 @app.route(f"{EDITOR_BASE_PATH}/api/github/pull", methods=["POST"])
 def editor_api_github_pull() -> Response:
-    """Merge upstream GitHub changes into an already-synced project."""
+    """Merge a branch of the project's GitHub repository into the project.
+
+    ``branch`` defaults to the synced branch. Pulling another branch merges
+    from the commit it shares with the last sync, and a clean merge moves the
+    project's sync to that branch so it can be published to.
+    """
     request_id = str(uuid.uuid4())
     if not _editor_auth_check():
         return _auth_fail(request_id)
@@ -3137,12 +3143,29 @@ def editor_api_github_pull() -> Response:
                 },
                 409,
             )
+        branch = (
+            _normalize_git_branch(post_data["branch"])
+            if post_data.get("branch")
+            else sync["branch"]
+        )
         remote = get_github_repository_snapshot(
-            repository_url=sync["repository_url"], user_id=uid, ref=sync["branch"]
+            repository_url=sync["repository_url"], user_id=uid, ref=branch
         )
         # Older manifests did not record the published commit. Establishing the
         # current head as the base is safe and makes all later pulls mergeable.
-        base_ref = sync.get("commit") or remote["sha"]
+        base_ref: Optional[str] = sync.get("commit") or remote["sha"]
+        if sync.get("commit") and branch != sync["branch"]:
+            base_ref = get_github_merge_base(
+                repository_url=sync["repository_url"],
+                base=sync["commit"],
+                head=remote["sha"],
+                user_id=uid,
+            )
+            if not base_ref:
+                raise ValueError(
+                    f"GitHub branch {branch!r} shares no history with this "
+                    "project. Create a project from that branch instead."
+                )
         base = (
             remote
             if base_ref == remote["sha"]
@@ -3166,7 +3189,7 @@ def editor_api_github_pull() -> Response:
                     "error": {
                         "type": "merge_conflict",
                         "message": "GitHub changes conflict with local edits. No files were changed.",
-                        "details": {"conflicts": conflicts},
+                        "details": {"conflicts": conflicts, "branch": branch},
                     },
                 },
                 409,
@@ -11339,9 +11362,16 @@ def _github_branch_unpulled_message(
             "synchronized. Pull the remote changes and resolve them in the "
             "project before publishing again."
         )
+    if sync:
+        return (
+            f"GitHub branch {branch!r} has commits this project has not pulled. "
+            "Use Pull from GitHub to merge that branch into this project, or "
+            "publish to a new branch."
+        )
     return (
         f"GitHub branch {branch!r} has commits this project has not pulled. "
-        "Publish to a new branch instead."
+        "Create a project from that branch to bring its changes over, or "
+        "publish to a new branch."
     )
 
 

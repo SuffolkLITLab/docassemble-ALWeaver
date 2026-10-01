@@ -1341,6 +1341,32 @@ def get_github_repository_branches(
     }
 
 
+def get_github_merge_base(
+    *, repository_url: str, base: str, head: str, user_id: Optional[int] = None
+) -> Optional[str]:
+    """Return the newest commit ``base`` and ``head`` share, or None if none."""
+    repository = normalize_github_repository_url(repository_url)
+    try:
+        http = _github_authorized_http(user_id=user_id)
+    except GithubCredentialError:
+        # Public repositories can be compared without a GitHub connection.
+        http = importlib.import_module("httplib2").Http()
+    response, comparison = _github_json_request(
+        http,
+        "https://api.github.com/repos/"
+        f"{quote(repository['owner'], safe='')}/{quote(repository['repository'], safe='')}"
+        f"/compare/{quote(base, safe='')}...{quote(head, safe='')}",
+    )
+    status = int(response.get("status", 0))
+    if status == 404:
+        return None
+    if status != 200 or not isinstance(comparison, dict):
+        raise DocassembleCompatibilityError(
+            _github_error_message(comparison, "GitHub could not compare the branches")
+        )
+    return str((comparison.get("merge_base_commit") or {}).get("sha") or "") or None
+
+
 WORKFLOW_ACCESS_GRANTED = "granted"
 WORKFLOW_ACCESS_UNKNOWN = "unknown"
 WORKFLOW_ACCESS_MISSING_SCOPE = "missing_scope"
