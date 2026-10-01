@@ -854,6 +854,34 @@ class TestNativeGithubCompatibility(unittest.TestCase):
             ],
         )
 
+    def test_default_github_owner_is_the_first_organization(self):
+        def default_owner(owners):
+            with patch.object(
+                docassemble_compat, "get_github_publish_owners", return_value=owners
+            ):
+                return docassemble_compat.get_default_github_owner(user_id=7)
+
+        ada = {"login": "ada", "type": "user"}
+        self.assertEqual(
+            default_owner(
+                [
+                    ada,
+                    {"login": "LegalAid", "type": "organization"},
+                    {"login": "CourtForms", "type": "organization"},
+                ]
+            ),
+            "LegalAid",
+        )
+        self.assertEqual(default_owner([ada]), "ada")
+
+    def test_default_github_owner_is_blank_without_github(self):
+        with patch.object(
+            docassemble_compat,
+            "get_github_publish_owners",
+            side_effect=docassemble_compat.GithubCredentialError("not connected"),
+        ):
+            self.assertEqual(docassemble_compat.get_default_github_owner(user_id=7), "")
+
     def test_repository_branches_include_all_pages_and_default_branch(self):
         urls = []
 

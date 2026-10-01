@@ -1362,6 +1362,26 @@ def get_github_publish_owners(*, user_id: Optional[int] = None) -> List[Dict[str
     return owners
 
 
+def get_default_github_owner(*, user_id: Optional[int] = None) -> str:
+    """The owner to suggest for a new interview's GitHub repository.
+
+    That is the user's first organization, since interviews are almost always
+    published under one, or else their personal account. It is empty when
+    GitHub isn't connected; a generated interview then falls back to the
+    server's ``github issues: default repository owner`` setting itself.
+    """
+    try:
+        owners = get_github_publish_owners(user_id=user_id)
+    except Exception:
+        # No connection, an expired credential or a GitHub outage: none of
+        # these should stop a project from being created.
+        return ""
+    return next(
+        (owner["login"] for owner in owners if owner["type"] == "organization"),
+        owners[0]["login"],
+    )
+
+
 def get_github_repository_branches(
     *,
     owner: str,

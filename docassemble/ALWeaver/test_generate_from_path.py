@@ -113,6 +113,30 @@ class TestGenerateInterviewFromPath(unittest.TestCase):
             self.assertTrue(result.package_zip_path)
             self.assertTrue(os.path.exists(result.package_zip_path))
 
+    def test_github_user_is_written_only_when_set_and_is_escaped(self):
+        """A blank github_user must not override AssemblyLine's own default,
+        and free text must stay a valid Python string literal."""
+        pdf_path = (
+            Path(__file__).parent / "test/test_petition_to_enforce_sanitary_code.pdf"
+        )
+
+        def generated_yaml(github_user):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                result = generate_interview_from_path(
+                    str(pdf_path),
+                    output_dir=tmpdir,
+                    create_package_zip=False,
+                    include_next_steps=False,
+                    interview_overrides={"github_user": github_user},
+                )
+                return Path(result.yaml_path).read_text(encoding="utf-8")
+
+        self.assertNotIn("github_user", generated_yaml("  "))
+        self.assertIn(
+            """  github_user = "O'Brien\\\\Legal"\n""",
+            generated_yaml(" O'Brien\\Legal "),
+        )
+
     def test_unfillable_pdf_reports_limited_extraction(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             pdf_path = os.path.join(tmpdir, "unfillable.pdf")

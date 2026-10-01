@@ -217,7 +217,10 @@ code: |
 ---
 code: |
   github_repo_name = 'docassemble-${ interview.package_title }'
-  github_user = '${ str(getattr(interview, "github_user", "") or "").strip() }'
+<% github_owner = str(getattr(interview, "github_user", "") or "").strip() %>\
+  % if github_owner:
+  github_user = ${ repr(github_owner) }
+  % endif
 % if intro_prompt_value:
 ---
 template: interview_short_title

@@ -113,6 +113,7 @@ except Exception:  # pragma: no cover - depends on the server's Docassemble
 
 
 from .docassemble_compat import (
+    get_default_github_owner,
     bump_interview_source_index,
     create_target_session,
     create_saved_file,
@@ -12026,6 +12027,9 @@ def _new_project_from_uploads(
         interview_overrides: Dict[str, Any] = {
             "enable_navigation": enable_navigation,
             "next_steps_enabled": include_next_steps,
+            # Feedback issues go to this owner's repository; authors can change
+            # it later in the AssemblyLine settings.
+            "github_user": get_default_github_owner(user_id=uid),
         }
         if interview_title:
             interview_overrides["title"] = interview_title

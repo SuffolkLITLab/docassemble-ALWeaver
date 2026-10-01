@@ -985,10 +985,8 @@ code: |
   background_response()
 ---
 code: |
-  try:
-    github_user_default = get_default_github_username(user_id=user_info().id if user_logged_in() else None)
-  except:
-    github_user_default = ""
+  from docassemble.ALWeaver.docassemble_compat import get_default_github_owner
+  github_user_default = get_default_github_owner(user_id=user_info().id if user_logged_in() else None)
 ---
 id: dependency question
 question: |

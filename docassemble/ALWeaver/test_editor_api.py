@@ -2607,6 +2607,7 @@ class TestEditorApiFileCreation(unittest.TestCase):
             patch.object(
                 api_editor, "next_available_project_name", return_value="DocxSmoke"
             ),
+            patch.object(api_editor, "get_default_github_owner", return_value="myorg"),
             patch.object(api_editor, "create_project") as mock_create_project,
             patch.object(api_editor, "_start_new_project_upload_job") as mock_start_job,
         ):
@@ -2677,6 +2678,10 @@ class TestEditorApiFileCreation(unittest.TestCase):
             start_kwargs["generation_options"]["interview_overrides"][
                 "next_steps_enabled"
             ]
+        )
+        self.assertEqual(
+            start_kwargs["generation_options"]["interview_overrides"]["github_user"],
+            "myorg",
         )
         self.assertEqual(len(start_kwargs["uploaded_files"]), 1)
         self.assertEqual(start_kwargs["uploaded_files"][0]["filename"], docx_path.name)
@@ -3411,6 +3416,7 @@ class TestEditorNewProjectPartialArtifacts(unittest.TestCase):
             patch.object(
                 api_editor, "next_available_project_name", return_value="Meta"
             ),
+            patch.object(api_editor, "get_default_github_owner", return_value=""),
             patch.object(api_editor, "create_project"),
             patch.object(api_editor, "_start_new_project_upload_job") as mock_start_job,
         ):
@@ -6245,6 +6251,7 @@ class TestEditorProjectFileNaming(unittest.TestCase):
             patch.object(
                 api_editor, "next_available_project_name", return_value="Collision"
             ),
+            patch.object(api_editor, "get_default_github_owner", return_value=""),
             patch.object(api_editor, "create_project"),
             patch.object(
                 api_editor, "validate_upload_metadata", side_effect=validate_upload

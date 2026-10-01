@@ -17,7 +17,6 @@ __all__ = [
     "get_matching_deps",
     "get_output_mako_choices",
     "get_output_mako_package_and_path",
-    "get_default_github_username",
 ]
 
 
@@ -338,53 +337,3 @@ def advertise_capabilities(
         "minimum_version": minimum_version,
     }
     _get_capabilities(refresh=True)
-
-
-def get_default_github_username(user_id: Optional[int] = None) -> str:
-    """Return the best candidate GitHub username/organization for a new interview.
-
-    Priority order:
-    1. The first GitHub **organization** the user belongs to (most common place
-       to publish AssemblyLine interviews for a team).
-    2. The user's personal GitHub account login.
-    3. The server-wide ``github issues: default repository owner`` configuration
-       key (set by an administrator in the Docassemble config).
-    4. An empty string when nothing is available.
-
-    All GitHub API errors are swallowed so this function always returns a safe
-    default even when the user has not connected a GitHub account.
-    """
-    try:
-        from docassemble.ALWeaver.docassemble_compat import get_github_publish_owners
-
-        owners = get_github_publish_owners(user_id=user_id)
-        # Prefer org over personal account: org is first priority per issue #650.
-        first_org = next(
-            (o["login"] for o in owners if o.get("type") == "organization"),
-            None,
-        )
-        if first_org:
-            return str(first_org)
-        # Fall back to personal account (always present when connected).
-        personal = next(
-            (o["login"] for o in owners if o.get("type") == "user"),
-            None,
-        )
-        if personal:
-            return str(personal)
-    except Exception:
-        pass
-
-    # Second tier: server configuration set by the administrator.
-    try:
-        from docassemble.base.util import get_config
-
-        server_default = (
-            get_config("github issues", {}).get("default repository owner") or ""
-        )
-        if server_default:
-            return str(server_default).strip()
-    except Exception:
-        pass
-
-    return ""
