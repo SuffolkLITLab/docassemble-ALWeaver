@@ -2945,8 +2945,8 @@ def editor_api_github_publish() -> Response:
         repository = f"docassemble-{package}"
         repository_url = f"https://github.com/{selected_owner['login']}/{repository}"
         # A preview is optional. When the browser sends one, hold the publish
-        # to what the user reviewed. Without one, the worker only refuses to
-        # replace commits pushed to this project's last-synced branch.
+        # to what the user reviewed. Either way the worker refuses a branch
+        # with commits this project has not pulled.
         preview_token = post_data.get("preview_token")
         preview = (
             _verify_github_publish_preview(preview_token) if preview_token else None
