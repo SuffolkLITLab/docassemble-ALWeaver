@@ -3323,9 +3323,8 @@
       summary.textContent =
         'The repository or branch is not available yet. The preview shows the files Weaver will add; GitHub will check access when you publish.';
       summary.className = 'alert alert-warning py-2';
-    } else if (data.remote_advanced) {
-      summary.textContent =
-        'This branch has advanced since Weaver last synchronized it. Pull and reconcile those changes before publishing.';
+    } else if (data.unpulled) {
+      summary.textContent = data.unpulled;
       summary.className = 'alert alert-danger py-2';
     } else {
       summary.textContent =
@@ -3368,7 +3367,7 @@
     }
     preview.hidden = false;
     githubPublishPreviewToken = data.preview_token || null;
-    githubPublishBlocked = Boolean(data.remote_advanced);
+    githubPublishBlocked = Boolean(data.unpulled);
     updateGithubPublishSubmit();
   }
 
@@ -3944,10 +3943,10 @@
             }
             renderGithubPublishPreview(res.data);
             setGithubPublishStatus(
-              res.data.remote_advanced
-                ? 'The selected branch has newer remote commits. Pull and reconcile before publishing.'
+              res.data.unpulled
+                ? 'This branch cannot be published to yet.'
                 : 'Review the file changes, then choose Publish to GitHub.',
-              res.data.remote_advanced ? 'danger' : 'success',
+              res.data.unpulled ? 'danger' : 'success',
             );
           })
           .catch(function (error) {

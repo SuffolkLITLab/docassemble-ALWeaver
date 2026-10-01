@@ -130,6 +130,7 @@ from .docassemble_compat import (
     get_github_repository_branches,
     get_github_workflow_access,
     get_github_repository_snapshot,
+    is_github_package_path,
     build_github_package_snapshot,
     github_package_snapshot_revision,
     github_authorization_url,
@@ -11236,14 +11237,11 @@ def editor_api_github_publish_preview() -> Response:
             },
             managed_paths=set(repository_files["managed_paths"]),
         )
-        sync = find_project_github_sync(user_id=uid, project_name=project)
-        remote_advanced = bool(
-            sync
-            and sync.get("commit")
-            and str(sync.get("repository_url") or "").rstrip("/").casefold()
-            == repository_url.rstrip("/").casefold()
-            and str(sync.get("branch") or "") == branch
-            and target_sha != str(sync["commit"])
+        unpulled = _github_branch_unpulled_message(
+            find_project_github_sync(user_id=uid, project_name=project),
+            repository_url=repository_url,
+            branch=branch,
+            remote=remote,
         )
         source_revision = github_package_snapshot_revision(local_files)
         preview = {
@@ -11269,7 +11267,7 @@ def editor_api_github_publish_preview() -> Response:
                     "branch": branch,
                     "remote_sha": target_sha,
                     "source_revision": source_revision,
-                    "remote_advanced": remote_advanced,
+                    "unpulled": unpulled,
                     "repository_missing": bool(remote.get("missing")),
                     "files": target_files,
                     "changes": changes,
@@ -11307,46 +11305,64 @@ def editor_api_github_publish_preview() -> Response:
         )
 
 
+def _github_branch_unpulled_message(
+    sync: Optional[Dict[str, Any]],
+    *,
+    repository_url: str,
+    branch: str,
+    remote: Dict[str, Any],
+) -> Optional[str]:
+    """Explain why publishing to ``branch`` would undo commits, if it would.
+
+    Like ``git push``, a publish to an existing branch must build on what the
+    project last pulled: the branch head has to be the commit Weaver last
+    synchronized from that repository. Each publish replaces the branch's
+    files, so building on any other head would silently revert its changes.
+    A new branch, or one holding no package files yet (such as a repository
+    GitHub initialized with only a README), has nothing to undo.
+    """
+    if remote.get("missing") or not any(
+        is_github_package_path(path) for path in remote.get("files") or {}
+    ):
+        return None
+    if not (
+        sync
+        and str(sync.get("repository_url") or "").rstrip("/").casefold()
+        == repository_url.rstrip("/").casefold()
+    ):
+        sync = None
+    if sync and sync.get("commit") and remote.get("sha") == sync["commit"]:
+        return None
+    if sync and sync.get("branch") == branch:
+        return (
+            f"GitHub branch {branch!r} has advanced since this project was last "
+            "synchronized. Pull the remote changes and resolve them in the "
+            "project before publishing again."
+        )
+    return (
+        f"GitHub branch {branch!r} has commits this project has not pulled. "
+        "Publish to a new branch instead."
+    )
+
+
 def _assert_github_publish_branch_is_current(
     *,
     uid: int,
     project: str,
-    package: str,
     repository_url: str,
     branch: str,
 ) -> None:
-    """Refuse a publish that would replace commits added since the last sync.
-
-    Publishing replaces the managed repository tree with the current Playground
-    package. If the linked branch advanced after Weaver last synchronized it,
-    doing that would silently discard remote edits. Require an explicit pull and
-    reconciliation before allowing another publish to that same branch.
-    """
-    sync = find_project_github_sync(user_id=uid, project_name=project)
-    if not sync or not sync.get("commit"):
-        return
-    same_target = (
-        str(sync.get("package") or "").casefold() == package.casefold()
-        and str(sync.get("repository_url") or "").rstrip("/").casefold()
-        == repository_url.rstrip("/").casefold()
-        and str(sync.get("branch") or "") == branch
+    """Refuse a publish that would revert commits the project does not have."""
+    message = _github_branch_unpulled_message(
+        find_project_github_sync(user_id=uid, project_name=project),
+        repository_url=repository_url,
+        branch=branch,
+        remote=get_github_repository_snapshot(
+            repository_url=repository_url, user_id=uid, ref=branch, allow_missing=True
+        ),
     )
-    if not same_target:
-        return
-    remote = get_github_repository_snapshot(
-        repository_url=repository_url, user_id=uid, ref=branch, allow_missing=True
-    )
-    # A deleted target has no commits to overwrite. The preview and publish
-    # operation may recreate it from the repository's current default branch.
-    if remote.get("missing"):
-        return
-    remote_sha = str(remote.get("sha") or "")
-    if remote_sha != str(sync["commit"]):
-        raise ValueError(
-            f"GitHub branch {branch!r} has advanced since this project was last "
-            "synchronized. Pull the remote changes and resolve them in the "
-            "project before publishing again; no files were published."
-        )
+    if message:
+        raise ValueError(f"{message} No files were published.")
 
 
 def _github_publish_preview_parent_sha(
@@ -11416,7 +11432,6 @@ def _complete_github_publish_job(
         _assert_github_publish_branch_is_current(
             uid=uid,
             project=project,
-            package=package,
             repository_url=repository_url,
             branch=branch,
         )

@@ -582,7 +582,6 @@ class TestEditorGithubApi(unittest.TestCase):
             api_editor._assert_github_publish_branch_is_current(
                 uid=7,
                 project="Housing",
-                package="forms",
                 repository_url="https://github.com/ada/docassemble-forms",
                 branch="draft",
             )
@@ -592,6 +591,48 @@ class TestEditorGithubApi(unittest.TestCase):
             ref="draft",
             allow_missing=True,
         )
+
+    def test_publishing_to_an_existing_branch_requires_its_head_to_be_pulled(self):
+        url = "https://github.com/ada/docassemble-forms"
+        sync = {"repository_url": url, "branch": "main", "commit": "synced-sha"}
+        other_repo = {**sync, "repository_url": "https://github.com/ada/other"}
+        files = {"docassemble/forms/data/questions/main.yml": b"---\n"}
+        head = {"sha": "synced-sha", "files": files}
+        newer = {"sha": "newer-sha", "files": files}
+        readme_only = {"sha": "init-sha", "files": {"README.md": b"# forms\n"}}
+        cases = [
+            ("new branch", sync, "draft", {"missing": True, "sha": ""}, None),
+            ("new repository", None, "main", {"missing": True, "sha": ""}, None),
+            ("initialized with a README", None, "main", readme_only, None),
+            ("synced head", sync, "main", head, None),
+            ("other branch at the synced commit", sync, "draft", head, None),
+            ("synced branch advanced", sync, "main", newer, "has advanced"),
+            ("never synced", None, "main", head, "has not pulled"),
+            (
+                "synced to another repository",
+                other_repo,
+                "main",
+                head,
+                "has not pulled",
+            ),
+            ("other branch elsewhere", sync, "draft", newer, "has not pulled"),
+            (
+                "no recorded commit",
+                {**sync, "commit": ""},
+                "main",
+                head,
+                "has advanced",
+            ),
+        ]
+        for label, project_sync, branch, remote, expected in cases:
+            with self.subTest(label):
+                message = api_editor._github_branch_unpulled_message(
+                    project_sync, repository_url=url, branch=branch, remote=remote
+                )
+                if expected is None:
+                    self.assertIsNone(message)
+                else:
+                    self.assertIn(expected, message)
 
     def test_github_authorization_requires_editor_access(self):
         with (
@@ -1208,6 +1249,11 @@ class TestEditorGithubApi(unittest.TestCase):
             patch.object(api_editor, "r", redis),
             patch.object(
                 api_editor,
+                "get_github_repository_snapshot",
+                return_value={"missing": True, "repository_exists": False, "sha": ""},
+            ),
+            patch.object(
+                api_editor,
                 "load_project_github_manifest",
                 return_value=(dict(self.MANIFEST_INFO), self.MANIFEST_PATH),
             ) as load_manifest,
@@ -1334,6 +1380,11 @@ class TestEditorGithubApi(unittest.TestCase):
             patch.object(api_editor, "r", _FakeRedis()),
             patch.object(
                 api_editor,
+                "get_github_repository_snapshot",
+                return_value={"missing": True, "repository_exists": False, "sha": ""},
+            ),
+            patch.object(
+                api_editor,
                 "ensure_github_repository",
                 side_effect=api_editor.GithubCredentialError(
                     "The GitHub connection has expired; reconnect it in Docassemble"
@@ -1368,7 +1419,10 @@ class TestEditorGithubApi(unittest.TestCase):
             "branch": "feature/github",
             "commit": "base-sha",
         }
-        remote = {"sha": "remote-newer-sha", "files": {"README.md": b"newer"}}
+        remote = {
+            "sha": "remote-newer-sha",
+            "files": {"docassemble/HousingForms/data/questions/main.yml": b"newer"},
+        }
         redis = _FakeRedis()
         with (
             patch.object(api_editor, "r", redis),

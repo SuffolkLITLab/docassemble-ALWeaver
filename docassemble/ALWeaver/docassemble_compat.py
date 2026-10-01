@@ -1065,6 +1065,21 @@ def normalize_github_repository_url(raw_url: str) -> Dict[str, str]:
     }
 
 
+def is_github_package_path(path: str) -> bool:
+    """Whether a repository path is part of the docassemble package Weaver syncs."""
+    return bool(
+        re.fullmatch(
+            r"docassemble/[^/]+/data/(questions|templates|static|sources)/[^/]+",
+            path,
+        )
+        or re.fullmatch(r"docassemble/[^/]+/[^/]+\.py", path)
+        # Weaver keeps its workflow and dependency settings in step with
+        # these repository files.
+        or path in {"pyproject.toml", "setup.py"}
+        or re.fullmatch(r"\.github/workflows/[^/]+\.ya?ml", path)
+    )
+
+
 def get_github_repository_snapshot(
     *,
     repository_url: str,
@@ -1224,17 +1239,7 @@ def get_github_repository_snapshot(
                         "The repository contains nested files under a docassemble data directory; "
                         "move them directly into questions, templates, static, or sources before importing"
                     )
-                if not include_all_files and not (
-                    re.fullmatch(
-                        r"docassemble/[^/]+/data/(questions|templates|static|sources)/[^/]+",
-                        path,
-                    )
-                    or re.fullmatch(r"docassemble/[^/]+/[^/]+\.py", path)
-                    # Weaver keeps its workflow and dependency settings in
-                    # step with these repository files.
-                    or path in {"pyproject.toml", "setup.py"}
-                    or re.fullmatch(r"\.github/workflows/[^/]+\.ya?ml", path)
-                ):
+                if not include_all_files and not is_github_package_path(path):
                     continue
                 if member.size > 25 * 1024 * 1024:
                     raise DocassembleCompatibilityError(
