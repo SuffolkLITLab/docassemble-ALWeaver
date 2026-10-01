@@ -113,6 +113,8 @@ except Exception:  # pragma: no cover - depends on the server's Docassemble
 
 
 from .docassemble_compat import (
+    default_github_owner,
+    get_default_github_owner,
     bump_interview_source_index,
     create_target_session,
     create_saved_file,
@@ -2500,6 +2502,52 @@ def _attach_workflow_access(uid: int, owners: List[Dict[str, Any]]) -> None:
         return
     for owner in owners:
         owner["workflow_access"] = access["owners"].get(str(owner["login"]))
+
+
+def _server_github_owner() -> str:
+    """The server's ``github issues: default repository owner``, or ''.
+
+    AssemblyLine files feedback there (or with ``suffolklitlab``) when an
+    interview names no ``github_user``.
+    """
+    github_issues = _daconfig().get("github issues")
+    if not isinstance(github_issues, dict):
+        return ""
+    return str(github_issues.get("default repository owner") or "").strip()
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/github/owners", methods=["GET"])
+def editor_api_github_owners() -> Response:
+    """List the GitHub accounts a new project can be associated with.
+
+    The new-project screen offers these for "Associate with this GitHub
+    username", selecting ``default_owner``, alongside ``server_owner``, the
+    server's ``github issues: default repository owner`` setting (empty when
+    it is not set). Without a GitHub connection,
+    ``owners`` is empty.
+    """
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        owners = get_github_publish_owners(user_id=_current_user_id())
+    except GithubCredentialError:
+        owners = []
+    except Exception as exc:
+        log(f"ALWeaver editor: GitHub owners lookup failed: {exc!r}", "warning")
+        owners = []
+    server_owner = _server_github_owner()
+    return jsonify(
+        {
+            "success": True,
+            "request_id": request_id,
+            "data": {
+                "owners": owners,
+                "default_owner": default_github_owner(owners, server_owner),
+                "server_owner": server_owner,
+            },
+        }
+    )
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/github/status", methods=["GET"])
@@ -11896,6 +11944,7 @@ def _new_project_from_uploads(
     if not help_source_text:
         help_source_text = generation_notes
     use_llm_assist = parse_bool(request.form.get("use_llm_assist"), default=False)
+    github_user = request.form.get("github_user")
     output_type = request.form.get("output_type", "form").strip().lower()
     if output_type not in {"form", "survey"}:
         raise ValueError("output_type must be form or survey")
@@ -12026,6 +12075,16 @@ def _new_project_from_uploads(
         interview_overrides: Dict[str, Any] = {
             "enable_navigation": enable_navigation,
             "next_steps_enabled": include_next_steps,
+            # Feedback issues go to this owner's repository. The editor sends
+            # the author's choice, which may be blank to use the server's
+            # default; other callers get the suggestion the editor would show.
+            "github_user": (
+                github_user.strip()
+                if github_user is not None
+                else get_default_github_owner(
+                    user_id=uid, server_owner=_server_github_owner()
+                )
+            ),
         }
         if interview_title:
             interview_overrides["title"] = interview_title

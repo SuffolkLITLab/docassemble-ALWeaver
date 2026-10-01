@@ -984,6 +984,10 @@ code: |
     background_response("refresh")
   background_response()
 ---
+code: |
+  from docassemble.ALWeaver.docassemble_compat import get_default_github_owner
+  github_user_default = get_default_github_owner(user_id=user_info().id if user_logged_in() else None)
+---
 id: dependency question
 question: |
   Identity, location, and brand
@@ -1005,6 +1009,18 @@ fields:
       save this package to GitHub, it will also appear in your GitHub commit log.
   # TODO(qs): we could add email for github here too, but more complicated
   # and risks inappropriate contact by end users
+  - GitHub username or organization: interview.github_user
+    default: ${ github_user_default }
+    required: False
+    help: |
+      The GitHub account or organization that will own the repository where
+      you publish this interview. This is used to pre-fill the `github_user`
+      variable in your generated interview, which the in-interview feedback
+      form uses to file issues in the right repository.
+
+      If you belong to a GitHub organization (for example, a legal aid
+      organization), put the organization name here. Otherwise, use your
+      personal GitHub username. You can change this later.
   - note: |
       ---
       <h2 class="h5">Defaults for address fields</h2>

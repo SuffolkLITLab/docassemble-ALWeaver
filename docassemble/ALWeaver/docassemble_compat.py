@@ -1362,6 +1362,48 @@ def get_github_publish_owners(*, user_id: Optional[int] = None) -> List[Dict[str
     return owners
 
 
+def default_github_owner(owners: List[Dict[str, str]], server_owner: str = "") -> str:
+    """The owner to suggest for a new interview's GitHub repository.
+
+    ``owners`` is what :func:`get_github_publish_owners` lists, and
+    ``server_owner`` the server's ``github issues: default repository owner``.
+    The server's owner comes first when the user can push to it: people who
+    share a server usually publish there even when they belong to several
+    organizations. Otherwise it is the first organization, since interviews
+    are almost always published under one, or else the personal account.
+
+    It is empty when there are no owners; a generated interview then falls
+    back to the server's setting by itself.
+    """
+    server_login = next(
+        (
+            owner["login"]
+            for owner in owners
+            if server_owner and owner["login"].lower() == server_owner.lower()
+        ),
+        None,
+    )
+    if server_login:
+        return server_login
+    return next(
+        (owner["login"] for owner in owners if owner["type"] == "organization"),
+        owners[0]["login"] if owners else "",
+    )
+
+
+def get_default_github_owner(
+    *, user_id: Optional[int] = None, server_owner: str = ""
+) -> str:
+    """:func:`default_github_owner` for the user's connected GitHub account."""
+    try:
+        owners = get_github_publish_owners(user_id=user_id)
+    except Exception:
+        # No connection, an expired credential or a GitHub outage: none of
+        # these should stop a project from being created.
+        return ""
+    return default_github_owner(owners, server_owner)
+
+
 def get_github_repository_branches(
     *,
     owner: str,
