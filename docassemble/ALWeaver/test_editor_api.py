@@ -176,6 +176,9 @@ def _load_api_editor_for_tests():
     playground_publish.normalize_github_package_name = lambda raw_name: str(
         raw_name
     ).strip()
+    playground_publish.github_project_name = lambda repository, branch="": (
+        "GitHubProject"
+    )
     playground_publish.normalize_project_name = lambda raw_name, **kwargs: str(
         raw_name
     ).strip()
@@ -2028,9 +2031,17 @@ class TestEditorApiFileCreation(unittest.TestCase):
         )
 
     def test_github_import_derives_project_name_from_repository(self):
+        # Named after the repository and branch: an anonymous read of the
+        # default branch only knows it as HEAD, which is left out.
+        for branch, named_branch in (("HEAD", ""), ("feature/x", "feature/x")):
+            with self.subTest(branch):
+                self._import_github_project_with_default_name(branch, named_branch)
+
+    def _import_github_project_with_default_name(self, branch, named_branch):
         snapshot = {
             "url": "https://github.com/OtherOrg/docassemble-PublicForms",
-            "branch": "HEAD",
+            "repository": "docassemble-PublicForms",
+            "branch": branch,
             "sha": "remote-sha",
             "files": {},
         }
@@ -2044,6 +2055,9 @@ class TestEditorApiFileCreation(unittest.TestCase):
                 side_effect=lambda base, existing: base,
             ),
             patch.object(api_editor, "create_project") as create,
+            patch.object(
+                api_editor, "github_project_name", return_value="PublicFormsX"
+            ) as name,
             patch.object(
                 api_editor, "get_github_repository_snapshot", return_value=snapshot
             ),
@@ -2070,12 +2084,14 @@ class TestEditorApiFileCreation(unittest.TestCase):
                 response = api_editor.editor_api_new_project()
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get_json()["data"]["project"], "PublicForms")
-        create.assert_called_once_with(7, "PublicForms")
+        self.assertEqual(response.get_json()["data"]["project"], "PublicFormsX")
+        create.assert_called_once_with(7, "PublicFormsX")
+        name.assert_called_once_with("docassemble-PublicForms", named_branch)
 
     def test_new_project_can_import_any_github_repository_url(self):
         snapshot = {
             "url": "https://github.com/OtherOrg/docassemble-PublicForms",
+            "repository": "docassemble-PublicForms",
             "branch": "main",
             "sha": "remote-sha",
             "files": {},
@@ -2126,6 +2142,30 @@ class TestEditorApiFileCreation(unittest.TestCase):
         adopt.assert_called_once_with(
             7, "PublicForms", "PublicForms", snapshot["files"]
         )
+
+    def test_failed_github_read_creates_no_project(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "create_project") as create,
+            patch.object(
+                api_editor,
+                "get_github_repository_snapshot",
+                side_effect=ValueError("GitHub repository was not found"),
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/new-project",
+                method="POST",
+                json={
+                    "project_name": "",
+                    "github_url": "https://github.com/OtherOrg/docassemble-Missing",
+                },
+            ):
+                response = api_editor.editor_api_new_project()
+
+        self.assertGreaterEqual(response.status_code, 400)
+        create.assert_not_called()
 
     def test_save_file_accepts_intentionally_empty_source(self):
         with (

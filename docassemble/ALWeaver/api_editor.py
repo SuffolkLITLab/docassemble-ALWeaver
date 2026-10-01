@@ -334,6 +334,7 @@ from .playground_publish import (
     create_project,
     get_list_of_projects,
     find_project_github_sync,
+    github_project_name,
     import_github_snapshot,
     merge_github_snapshot,
     next_available_project_name,
@@ -11743,9 +11744,20 @@ def _new_project_from_template(uid: int, request_id: str) -> Response:
     template_id = post_data.get("template_id")
     github_url = str(post_data.get("github_url") or "").strip()
     create_test = parse_bool(post_data.get("create_test"), default=True)
-    if github_url and not str(raw_name or "").strip():
-        repository = normalize_github_repository_url(github_url)["repository"]
-        raw_name = re.sub(r"^docassemble-", "", repository, flags=re.IGNORECASE)
+    snapshot: Dict[str, Any] = {}
+    if github_url:
+        # Read the repository first, so a bad URL or branch never leaves an
+        # empty project behind.
+        snapshot = get_github_repository_snapshot(
+            repository_url=github_url,
+            user_id=uid,
+            ref=str(post_data.get("github_branch") or "").strip() or None,
+        )
+        if not str(raw_name or "").strip():
+            branch = str(snapshot.get("branch") or "")
+            raw_name = github_project_name(
+                snapshot["repository"], "" if branch == "HEAD" else branch
+            )
 
     base_name = normalize_project_name(raw_name)
     existing = get_list_of_projects(uid)
@@ -11754,11 +11766,6 @@ def _new_project_from_template(uid: int, request_id: str) -> Response:
 
     if github_url:
         try:
-            snapshot = get_github_repository_snapshot(
-                repository_url=github_url,
-                user_id=uid,
-                ref=str(post_data.get("github_branch") or "").strip() or None,
-            )
             imported = import_github_snapshot(
                 user_id=uid, project_name=project_name, snapshot=snapshot
             )

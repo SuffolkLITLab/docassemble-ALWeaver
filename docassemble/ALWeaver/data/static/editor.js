@@ -3946,7 +3946,8 @@
         setGithubPullBusy(true);
         setGithubPullStatus('Creating a project from ' + branch + '…', 'info');
         apiPost('/api/new-project', {
-          project_name: projectName + ' ' + branch,
+          // Blank: named after the repository and branch, like ALWeaverMain.
+          project_name: '',
           github_url: sync.repository_url,
           github_branch: branch,
         })
@@ -12727,7 +12728,7 @@
       '<p class="text-muted small mb-3">Enter any public GitHub docassemble repository, or a private repository available through your connected account. Weaver will create the project and pull its files in one step.</p>';
     html += '<div class="row g-2 align-items-end">';
     html +=
-      '<div class="col-12 col-lg-5"><label class="editor-tiny" for="project-github-import-url">GitHub repository URL</label><input class="form-control form-control-sm mt-1" id="project-github-import-url" type="url" placeholder="https://github.com/owner/docassemble-package"></div>';
+      '<div class="col-12 col-lg-5"><label class="editor-tiny" for="project-github-import-url">GitHub repository URL</label><input class="form-control form-control-sm mt-1" id="project-github-import-url" type="url" aria-describedby="project-github-import-hint"></div>';
     html +=
       '<div class="col-12 col-lg-2"><label class="editor-tiny" for="project-github-import-branch">Branch</label><select class="form-select form-select-sm mt-1 font-monospace" id="project-github-import-branch" aria-describedby="project-github-import-hint" disabled><option value="">Enter a repository first</option></select></div>';
     html +=
@@ -12735,7 +12736,7 @@
     html +=
       '<div class="col-12 col-lg-2 d-grid"><button type="button" class="btn btn-sm btn-outline-primary" id="project-github-import-submit">Create and pull</button></div>';
     html +=
-      '</div><div class="text-muted small mt-1" id="project-github-import-hint">Branches load once you enter the repository URL. Leave the project name blank to name the project after the repository.</div>';
+      '</div><div class="text-muted small mt-1" id="project-github-import-hint">For example, https://github.com/owner/docassemble-package. Branches load once you enter the URL. Leave the project name blank to name the project after the repository and branch.</div>';
     html +=
       '<div class="alert py-2 mt-3 mb-0 d-none" id="project-github-import-status" role="status" aria-live="polite"></div>';
     html += '</div></div>';
@@ -17069,8 +17070,11 @@
       'Template files',
       true,
       '<div class="mb-3"><label class="editor-tiny" for="new-project-github-url">GitHub repository URL (optional)</label>' +
-        '<input class="form-control form-control-sm mt-1" id="new-project-github-url" type="url" placeholder="https://github.com/owner/docassemble-package">' +
-        '<div class="text-muted small mt-1">Import from any public GitHub repository, or a private repository available through your connected account.</div></div>' +
+        '<input class="form-control form-control-sm mt-1" id="new-project-github-url" type="url" aria-describedby="new-project-github-hint">' +
+        '<div class="text-muted small mt-1" id="new-project-github-hint">For example, https://github.com/owner/docassemble-package. Import from any public GitHub repository, or a private repository available through your connected account.</div>' +
+        '<label class="editor-tiny mt-2" for="new-project-github-branch">Branch</label>' +
+        '<select class="form-select form-select-sm mt-1 font-monospace" id="new-project-github-branch" disabled><option value="">Enter a repository first</option></select>' +
+        '<div class="alert py-2 mt-2 mb-0 d-none" id="new-project-github-status" role="status" aria-live="polite"></div></div>' +
         '<div class="text-muted small text-center mb-3">or upload a document</div>' +
         '<div class="editor-dropzone" id="upload-dropzone">' +
         '<div class="editor-dropzone-icon">&#128196;</div>' +
@@ -17297,21 +17301,39 @@
     var shortTitle = title.slice(0, 25);
     var projectName = _projectNameFromTitle(title);
 
-    // Only fill a field the author has not touched. `_suggestedValues` records
-    // what we put there, so replacing the first document updates a suggestion
-    // but never overwrites something typed by hand.
-    function suggest(elementId, value) {
-      var input = document.getElementById(elementId);
-      if (!input || !value) return;
-      var current = String(input.value || '').trim();
-      if (current && current !== _suggestedValues[elementId]) return;
-      input.value = value;
-      _suggestedValues[elementId] = value;
-    }
+    _suggestNewProjectValue('new-project-name', projectName);
+    _suggestNewProjectValue('new-project-title', title);
+    _suggestNewProjectValue('new-project-short-title', shortTitle);
+  }
 
-    suggest('new-project-name', projectName);
-    suggest('new-project-title', title);
-    suggest('new-project-short-title', shortTitle);
+  // Only fill a field the author has not touched. `_suggestedValues` records
+  // what we put there, so a new document or repository updates a suggestion
+  // but never overwrites something typed by hand.
+  function _suggestNewProjectValue(elementId, value) {
+    var input = document.getElementById(elementId);
+    if (!input || !value) return;
+    var current = String(input.value || '').trim();
+    if (current && current !== _suggestedValues[elementId]) return;
+    input.value = value;
+    _suggestedValues[elementId] = value;
+  }
+
+  // Mirrors github_project_name: docassemble-ALWeaver on main is ALWeaverMain.
+  function _suggestProjectNameFromGithub() {
+    var url = document.getElementById('new-project-github-url');
+    var branch = document.getElementById('new-project-github-branch');
+    var match = /^https:\/\/github\.com\/[^/]+\/([^/]+?)(?:\.git)?\/?$/i.exec(
+      url ? url.value.trim() : '',
+    );
+    if (!match) return;
+    _suggestNewProjectValue(
+      'new-project-name',
+      _projectNameFromTitle(
+        match[1].replace(/^docassemble-/i, '') +
+          ' ' +
+          (branch && !branch.disabled ? branch.value : ''),
+      ),
+    );
   }
 
   // A filing's documents come out in the order they are listed, and the first
@@ -22755,6 +22777,9 @@
         'new-project-separate-main-order',
       );
       var githubUrlInput = document.getElementById('new-project-github-url');
+      var githubBranchSelect = document.getElementById(
+        'new-project-github-branch',
+      );
       var filenameInput = document.getElementById('new-project-filename');
       var titleInput = document.getElementById('new-project-title');
       var shortTitleInput = document.getElementById('new-project-short-title');
@@ -22948,6 +22973,7 @@
           help_page_title: helpPageTitle,
           use_llm_assist: useLlmAssist,
           github_url: githubUrl,
+          github_branch: githubBranchSelect ? githubBranchSelect.value : '',
           create_test: createTest,
         })
           .then(function (res) {
@@ -23100,33 +23126,49 @@
   });
 
   document.addEventListener('change', function (e) {
-    if (e.target.id === 'project-github-import-url') {
-      var importBranchSelect = document.getElementById(
+    // Repository URL fields look their branches up when the URL is
+    // committed, as the Playground's pull page does.
+    var githubBranchFields = {
+      'project-github-import-url': [
         'project-github-import-branch',
-      );
-      var importBranchStatus = document.getElementById(
         'project-github-import-status',
-      );
+      ],
+      'new-project-github-url': [
+        'new-project-github-branch',
+        'new-project-github-status',
+      ],
+    }[e.target.id];
+    if (githubBranchFields) {
+      var branchSelect = document.getElementById(githubBranchFields[0]);
+      var branchStatus = document.getElementById(githubBranchFields[1]);
+      var isNewProjectPage = e.target.id === 'new-project-github-url';
       var repositoryUrl = e.target.value.trim();
-      if (importBranchStatus) importBranchStatus.className = 'alert d-none';
-      if (!importBranchSelect) return;
+      if (branchStatus) branchStatus.className = 'alert d-none';
+      if (!branchSelect) return;
       if (!repositoryUrl) {
-        importBranchSelect.disabled = true;
-        importBranchSelect.replaceChildren(
+        branchSelect.disabled = true;
+        branchSelect.replaceChildren(
           githubBranchOption('', 'Enter a repository first'),
         );
         return;
       }
-      loadGithubBranchOptions(importBranchSelect, repositoryUrl).catch(
-        function (error) {
-          if (!importBranchStatus) return;
-          importBranchStatus.className = 'alert alert-warning py-2 mt-3 mb-0';
-          importBranchStatus.textContent =
+      if (isNewProjectPage) _suggestProjectNameFromGithub();
+      loadGithubBranchOptions(branchSelect, repositoryUrl)
+        .then(function (data) {
+          if (data && isNewProjectPage) _suggestProjectNameFromGithub();
+        })
+        .catch(function (error) {
+          if (!branchStatus) return;
+          branchStatus.className = 'alert alert-warning py-2 mt-2 mb-0';
+          branchStatus.textContent =
             error && error.message
               ? error.message
               : 'Unable to list the repository branches.';
-        },
-      );
+        });
+      return;
+    }
+    if (e.target.id === 'new-project-github-branch') {
+      _suggestProjectNameFromGithub();
       return;
     }
     if (e.target.matches('[data-order-list-for]') && e.target.value) {

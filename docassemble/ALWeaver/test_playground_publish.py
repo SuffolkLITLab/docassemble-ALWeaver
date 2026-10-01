@@ -16,6 +16,7 @@ from .playground_publish import (
     load_project_github_manifest,
     next_available_project_name,
     normalize_github_package_name,
+    github_project_name,
     normalize_project_name,
     prepare_project_github_package,
     merge_github_snapshot,
@@ -23,6 +24,21 @@ from .playground_publish import (
 
 
 class test_playground_publish(unittest.TestCase):
+    def test_github_project_name_follows_repository_and_branch(self):
+        self.assertEqual(
+            github_project_name("docassemble-ALWeaver", "main"), "ALWeaverMain"
+        )
+        self.assertEqual(
+            github_project_name(
+                "docassemble-MotionToStayEviction", "extra_code_fallback"
+            ),
+            "MotionToStayEvictionExtraCodeFallback",
+        )
+        self.assertEqual(github_project_name("Docassemble-forms", ""), "Forms")
+        self.assertEqual(
+            github_project_name("docassemble-2024forms", "v1.2"), "P2024formsV12"
+        )
+
     def test_merge_file_subprocess_failures_become_merge_conflicts(self):
         failures = (
             subprocess.TimeoutExpired(["git", "merge-file"], 30),
