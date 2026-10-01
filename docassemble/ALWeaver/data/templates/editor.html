@@ -435,9 +435,7 @@
       <div class="modal-body">
         <p class="small text-muted mb-3">Repository: <a id="github-pull-repository" target="_blank" rel="noopener"></a></p>
         <label class="form-label" for="github-pull-branch">Branch</label>
-        <input class="form-control font-monospace" id="github-pull-branch" list="github-pull-branches"
-               autocomplete="off" maxlength="255" required>
-        <datalist id="github-pull-branches"></datalist>
+        <select class="form-select font-monospace" id="github-pull-branch" required disabled></select>
         <div class="form-text">Pull merges that branch into this project; pulling a different branch makes it the one this project publishes to. To integrate a branch by hand instead, create a separate project from it.</div>
         <div class="alert py-2 mt-3 mb-0 d-none" id="github-pull-status" role="status" aria-live="polite"></div>
       </div>

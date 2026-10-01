@@ -1298,10 +1298,23 @@ def get_github_publish_owners(*, user_id: Optional[int] = None) -> List[Dict[str
 
 
 def get_github_repository_branches(
-    *, owner: str, repository: str, user_id: Optional[int] = None
+    *,
+    owner: str,
+    repository: str,
+    user_id: Optional[int] = None,
+    allow_anonymous: bool = False,
 ) -> Dict[str, Any]:
-    """List all branches of one repository through the connected GitHub account."""
-    http = _github_authorized_http(user_id=user_id)
+    """List all branches of one repository through the connected GitHub account.
+
+    With ``allow_anonymous``, a user without a GitHub connection can still
+    list a public repository's branches, as the Playground's pull page can.
+    """
+    try:
+        http = _github_authorized_http(user_id=user_id)
+    except GithubCredentialError:
+        if not allow_anonymous:
+            raise
+        http = importlib.import_module("httplib2").Http()
     base_url = (
         "https://api.github.com/repos/"
         f"{quote(owner, safe='')}/{quote(repository, safe='')}"

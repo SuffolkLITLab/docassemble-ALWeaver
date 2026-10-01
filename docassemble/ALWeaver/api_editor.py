@@ -2604,12 +2604,31 @@ def editor_api_github_status() -> Response:
 
 @app.route(f"{EDITOR_BASE_PATH}/api/github/branches", methods=["GET"])
 def editor_api_github_branches() -> Response:
-    """List existing branches for the selected GitHub publish target."""
+    """List a GitHub repository's branches.
+
+    Either ``repository_url`` (any repository, read anonymously when GitHub is
+    not connected) or the ``owner`` and ``package`` of a publish target.
+    """
     request_id = str(uuid.uuid4())
     if not _editor_auth_check():
         return _auth_fail(request_id)
     try:
         uid = _current_user_id()
+        if request.args.get("repository_url"):
+            repository = normalize_github_repository_url(request.args["repository_url"])
+            branches = get_github_repository_branches(
+                owner=repository["owner"],
+                repository=repository["repository"],
+                user_id=uid,
+                allow_anonymous=True,
+            )
+            return jsonify(
+                {
+                    "success": True,
+                    "request_id": request_id,
+                    "data": {"repository_url": repository["url"], **branches},
+                }
+            )
         project = _normalize_project(request.args.get("project"))
         package = normalize_github_package_name(request.args.get("package"))
         owner = str(request.args.get("owner") or "").strip()

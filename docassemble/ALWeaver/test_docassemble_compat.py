@@ -388,6 +388,33 @@ class TestNativeGithubCompatibility(unittest.TestCase):
         self.assertEqual(result["files"], {})
         self.assertEqual(len(http.calls), 2)
 
+    def test_branch_listing_reads_public_repositories_anonymously(self):
+        class FakeHttp:
+            def request(self, url, method, headers=None, body=None):
+                if url.endswith("/branches?per_page=100"):
+                    return {"status": "200"}, b'[{"name":"main"},{"name":"draft"}]'
+                return {"status": "200"}, b'{"default_branch":"main"}'
+
+        httplib2 = types.SimpleNamespace(Http=FakeHttp)
+        with (
+            patch.object(
+                docassemble_compat,
+                "_github_authorized_http",
+                side_effect=docassemble_compat.GithubCredentialError("not connected"),
+            ),
+            patch.object(
+                docassemble_compat.importlib, "import_module", return_value=httplib2
+            ),
+        ):
+            with self.assertRaises(docassemble_compat.GithubCredentialError):
+                docassemble_compat.get_github_repository_branches(
+                    owner="Example", repository="docassemble-Forms"
+                )
+            result = docassemble_compat.get_github_repository_branches(
+                owner="Example", repository="docassemble-Forms", allow_anonymous=True
+            )
+        self.assertEqual(result["branches"], ["main", "draft"])
+
     def test_merge_base_reads_github_compare(self):
         class FakeHttp:
             def __init__(self, status, body):

@@ -378,6 +378,41 @@ class TestEditorGithubApi(unittest.TestCase):
             owner="LegalAid", repository="docassemble-HousingForms", user_id=42
         )
 
+    def test_github_branches_lists_any_repository_by_url_without_a_connection(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=42),
+            patch.object(api_editor, "get_native_github_integration") as integration,
+            patch.object(
+                api_editor,
+                "get_github_repository_branches",
+                return_value={
+                    "repository_exists": True,
+                    "default_branch": "main",
+                    "branches": ["main", "draft"],
+                },
+            ) as branches,
+        ):
+            response = api_editor.app.test_client().get(
+                "/al/editor/api/github/branches",
+                query_string={
+                    "repository_url": "https://github.com/LegalAid/docassemble-Forms.git"
+                },
+            )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        data = response.get_json()["data"]
+        self.assertEqual(data["branches"], ["main", "draft"])
+        self.assertEqual(
+            data["repository_url"], "https://github.com/LegalAid/docassemble-Forms"
+        )
+        branches.assert_called_once_with(
+            owner="LegalAid",
+            repository="docassemble-Forms",
+            user_id=42,
+            allow_anonymous=True,
+        )
+        integration.assert_not_called()
+
     def test_github_branches_requires_connected_account(self):
         with (
             patch.object(api_editor, "_editor_auth_check", return_value=True),

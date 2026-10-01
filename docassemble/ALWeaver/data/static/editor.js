@@ -3757,6 +3757,62 @@
       });
   }
 
+  // Fill a branch <select> from a GitHub repository URL. Like the
+  // Playground's pull page, callers look branches up once per committed URL
+  // (the input's change event), not on every keystroke. Public repositories
+  // list without a GitHub connection.
+  var githubBranchListRequests = {};
+
+  function githubBranchOption(value, label) {
+    var option = document.createElement('option');
+    option.value = value;
+    option.textContent = label || value;
+    return option;
+  }
+
+  function loadGithubBranchOptions(select, repositoryUrl, preferred) {
+    var request = (githubBranchListRequests[select.id] || 0) + 1;
+    githubBranchListRequests[select.id] = request;
+    function current() {
+      return githubBranchListRequests[select.id] === request;
+    }
+    select.disabled = true;
+    select.replaceChildren(githubBranchOption('', 'Loading branches…'));
+    return runtimeApiClient
+      .get(
+        '/api/github/branches?repository_url=' +
+          encodeURIComponent(repositoryUrl),
+      )
+      .then(function (res) {
+        if (!current()) return null;
+        var data = (res.success && res.data) || {};
+        var names = data.branches || [];
+        if (!names.length) {
+          throw new Error(
+            (res.error && res.error.message) ||
+              'GitHub did not list any branches. Check that the repository exists and that you can access it.',
+          );
+        }
+        select.replaceChildren.apply(
+          select,
+          names.map(function (name) {
+            return githubBranchOption(name);
+          }),
+        );
+        select.value =
+          [preferred, data.default_branch].find(function (name) {
+            return name && names.includes(name);
+          }) || names[0];
+        select.disabled = false;
+        return data;
+      })
+      .catch(function (error) {
+        if (!current()) return null;
+        select.replaceChildren(githubBranchOption('', 'No branches found'));
+        throw error;
+      });
+  }
+
   var githubPullProject = null;
 
   function setGithubPullStatus(message, kind) {
@@ -3784,7 +3840,6 @@
     var project = document.getElementById('github-pull-project');
     var repository = document.getElementById('github-pull-repository');
     var branch = document.getElementById('github-pull-branch');
-    var branches = document.getElementById('github-pull-branches');
     if (project) project.textContent = projectName;
     if (repository) {
       repository.href = sync.repository_url;
@@ -3793,37 +3848,24 @@
         '',
       );
     }
-    if (branch) branch.value = sync.branch || '';
-    if (branches) branches.replaceChildren();
     setGithubPullStatus('', '');
-    setGithubPullBusy(false);
+    setGithubPullBusy(true);
     var modal = getOrCreateBootstrapModal('github-pull-modal');
     if (modal) modal.show();
-    // Suggestions only: a public repository can be pulled without a GitHub
-    // connection, so typing a branch name always works.
-    var target = /^https:\/\/github\.com\/([^/]+)\/docassemble-([^/]+)$/i.exec(
-      sync.repository_url,
-    );
-    if (!target || !branches) return;
-    runtimeApiClient
-      .get(
-        '/api/github/branches?project=' +
-          encodeURIComponent(projectName) +
-          '&owner=' +
-          encodeURIComponent(target[1]) +
-          '&package=' +
-          encodeURIComponent(target[2]),
-      )
-      .then(function (res) {
-        if (githubPullProject !== projectName || !res.success || !res.data)
-          return;
-        (res.data.branches || []).forEach(function (name) {
-          var option = document.createElement('option');
-          option.value = name;
-          branches.appendChild(option);
-        });
+    if (!branch) return;
+    loadGithubBranchOptions(branch, sync.repository_url, sync.branch)
+      .then(function (data) {
+        if (data && githubPullProject === projectName) setGithubPullBusy(false);
       })
-      .catch(function () {});
+      .catch(function (error) {
+        if (githubPullProject !== projectName) return;
+        setGithubPullStatus(
+          error && error.message
+            ? error.message
+            : 'Unable to list the repository branches.',
+          'danger',
+        );
+      });
   }
 
   function openCreatedGithubProject(data) {
@@ -12687,13 +12729,13 @@
     html +=
       '<div class="col-12 col-lg-5"><label class="editor-tiny" for="project-github-import-url">GitHub repository URL</label><input class="form-control form-control-sm mt-1" id="project-github-import-url" type="url" placeholder="https://github.com/owner/docassemble-package"></div>';
     html +=
-      '<div class="col-12 col-lg-2"><label class="editor-tiny" for="project-github-import-branch">Branch (optional)</label><input class="form-control form-control-sm mt-1 font-monospace" id="project-github-import-branch" autocomplete="off" aria-describedby="project-github-import-hint"></div>';
+      '<div class="col-12 col-lg-2"><label class="editor-tiny" for="project-github-import-branch">Branch</label><select class="form-select form-select-sm mt-1 font-monospace" id="project-github-import-branch" aria-describedby="project-github-import-hint" disabled><option value="">Enter a repository first</option></select></div>';
     html +=
       '<div class="col-12 col-lg-3"><label class="editor-tiny" for="project-github-import-name">Project name (optional)</label><input class="form-control form-control-sm mt-1" id="project-github-import-name" aria-describedby="project-github-import-hint"></div>';
     html +=
       '<div class="col-12 col-lg-2 d-grid"><button type="button" class="btn btn-sm btn-outline-primary" id="project-github-import-submit">Create and pull</button></div>';
     html +=
-      '</div><div class="text-muted small mt-1" id="project-github-import-hint">Leave the branch blank to use the repository\'s default branch, and the project name blank to name the project after the repository.</div>';
+      '</div><div class="text-muted small mt-1" id="project-github-import-hint">Branches load once you enter the repository URL. Leave the project name blank to name the project after the repository.</div>';
     html +=
       '<div class="alert py-2 mt-3 mb-0 d-none" id="project-github-import-status" role="status" aria-live="polite"></div>';
     html += '</div></div>';
@@ -20467,13 +20509,13 @@
       var importStatus = document.getElementById(
         'project-github-import-status',
       );
-      var importBranchInput = document.getElementById(
+      var importBranchSelect = document.getElementById(
         'project-github-import-branch',
       );
       var importUrl = importUrlInput ? importUrlInput.value.trim() : '';
       var importName = importNameInput ? importNameInput.value.trim() : '';
-      var importBranch = importBranchInput
-        ? importBranchInput.value.trim()
+      var importBranch = importBranchSelect
+        ? importBranchSelect.value.trim()
         : '';
       if (!importUrl) {
         if (importStatus) {
@@ -23058,6 +23100,35 @@
   });
 
   document.addEventListener('change', function (e) {
+    if (e.target.id === 'project-github-import-url') {
+      var importBranchSelect = document.getElementById(
+        'project-github-import-branch',
+      );
+      var importBranchStatus = document.getElementById(
+        'project-github-import-status',
+      );
+      var repositoryUrl = e.target.value.trim();
+      if (importBranchStatus) importBranchStatus.className = 'alert d-none';
+      if (!importBranchSelect) return;
+      if (!repositoryUrl) {
+        importBranchSelect.disabled = true;
+        importBranchSelect.replaceChildren(
+          githubBranchOption('', 'Enter a repository first'),
+        );
+        return;
+      }
+      loadGithubBranchOptions(importBranchSelect, repositoryUrl).catch(
+        function (error) {
+          if (!importBranchStatus) return;
+          importBranchStatus.className = 'alert alert-warning py-2 mt-3 mb-0';
+          importBranchStatus.textContent =
+            error && error.message
+              ? error.message
+              : 'Unable to list the repository branches.';
+        },
+      );
+      return;
+    }
     if (e.target.matches('[data-order-list-for]') && e.target.value) {
       var iterableInput = document.getElementById(
         e.target.dataset.orderListFor,
