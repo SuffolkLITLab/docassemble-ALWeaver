@@ -3440,6 +3440,7 @@ class TestEditorNewProjectPartialArtifacts(unittest.TestCase):
                             "list_topics": "HO-00-00-00-00, HO-05-00-00-00",
                             "interview_filename": "sanitary_code.yml",
                             "default_state": "MA",
+                            "github_user": " CourtForms ",
                             "files": (BytesIO(handle.read()), pdf_path.name),
                         },
                         content_type="multipart/form-data",
@@ -3460,6 +3461,52 @@ class TestEditorNewProjectPartialArtifacts(unittest.TestCase):
         # An explicit jurisdiction is not overwritten by the default state.
         self.assertEqual(overrides["jurisdiction"], "NAM-US-US+MA")
         self.assertEqual(overrides["state"], "MA")
+        # The author's choice wins over the suggestion.
+        self.assertEqual(overrides["github_user"], "CourtForms")
+
+    def test_github_owners_suggest_the_server_owner_or_first_organization(self):
+        owners = [
+            {"login": "ada", "type": "user"},
+            {"login": "LegalAid", "type": "organization"},
+            {"login": "SuffolkLITLab", "type": "organization"},
+        ]
+        server = {"github issues": {"default repository owner": " CourtForms "}}
+        member = {"github issues": {"default repository owner": "suffolklitlab"}}
+        for lookup, config, expected in [
+            (
+                {"return_value": owners},
+                member,
+                {
+                    "owners": owners,
+                    "default_owner": "SuffolkLITLab",
+                    "server_owner": "suffolklitlab",
+                },
+            ),
+            (
+                {"return_value": owners},
+                server,
+                {
+                    "owners": owners,
+                    "default_owner": "LegalAid",
+                    "server_owner": "CourtForms",
+                },
+            ),
+            (
+                {"side_effect": api_editor.GithubCredentialError("not connected")},
+                {},
+                {"owners": [], "default_owner": "", "server_owner": ""},
+            ),
+        ]:
+            with (
+                self.subTest(lookup=lookup),
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "_current_user_id", return_value=7),
+                patch.object(api_editor, "get_github_publish_owners", **lookup),
+                patch.object(api_editor, "_daconfig", return_value=config),
+                api_editor.app.test_client() as client,
+            ):
+                response = client.get("/al/editor/api/github/owners")
+            self.assertEqual(response.get_json()["data"], expected)
 
 
 class TestEditorKilnTestApi(unittest.TestCase):

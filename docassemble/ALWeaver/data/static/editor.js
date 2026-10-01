@@ -17107,6 +17107,9 @@
         '<div class="col-md-6"><label class="editor-tiny" for="new-project-default-state">Default state/province (optional)</label>' +
         '<input class="form-control form-control-sm mt-1" id="new-project-default-state" placeholder="MA">' +
         '<div class="text-muted small mt-1">Preselects the state in address questions and sets the jurisdiction.</div></div></div>' +
+        '<div><label class="editor-tiny" for="new-project-github-user">Associate with this GitHub username</label>' +
+        '<select class="form-select form-select-sm mt-1" id="new-project-github-user" disabled><option value="">Loading GitHub accounts…</option></select>' +
+        '<div class="text-muted small mt-1">The GitHub user or organization that will own this interview\'s <code>docassemble-</code> repository. Feedback from people using the interview is filed there as GitHub issues.</div></div>' +
         '<div class="form-check form-switch m-0">' +
         '<input class="form-check-input" type="checkbox" id="new-project-use-llm-assist" checked>' +
         '<label class="form-check-label editor-tiny" for="new-project-use-llm-assist">Use AI assistance for drafting</label>' +
@@ -17210,6 +17213,75 @@
     html += '</div>';
     canvasContent.innerHTML = html;
     _initDropzone();
+    _suggestGithubOwner();
+  }
+
+  // List the author's own GitHub account, their organizations and the server
+  // default, selecting what the server suggests: the server's owner when the
+  // author can push to it, else their first organization. A server owner the
+  // author cannot push to stays available as the last, empty-valued option,
+  // which leaves `github_user` out of the interview so AssemblyLine applies
+  // `github issues: default repository owner` (or `suffolklitlab`) itself.
+  // `data-owners-loaded` tells the submit handler the list is real.
+  function _suggestGithubOwner() {
+    function fill(data) {
+      var select = document.getElementById('new-project-github-user');
+      if (!select) return;
+      var owners = (data && data.owners) || [];
+      var serverOwner = (data && data.server_owner) || '';
+      var isServerOwner = function (owner) {
+        return (
+          !!serverOwner &&
+          owner.login.toLowerCase() === serverOwner.toLowerCase()
+        );
+      };
+      var options = owners
+        .filter(function (owner) {
+          return owner.type === 'user';
+        })
+        .concat(
+          owners.filter(function (owner) {
+            return owner.type === 'organization';
+          }),
+        )
+        .map(function (owner) {
+          var kind =
+            owner.type === 'organization' ? 'organization' : 'your account';
+          return [
+            owner.login,
+            owner.login +
+              ' (' +
+              kind +
+              (isServerOwner(owner) ? ', server default' : '') +
+              ')',
+          ];
+        });
+      if (!owners.some(isServerOwner)) {
+        options.push([
+          '',
+          serverOwner
+            ? 'Server default (' + serverOwner + ')'
+            : 'Not set (AssemblyLine falls back to suffolklitlab)',
+        ]);
+      }
+      select.replaceChildren();
+      options.forEach(function (pair) {
+        var option = document.createElement('option');
+        option.value = pair[0];
+        option.textContent = pair[1];
+        select.appendChild(option);
+      });
+      select.value = (data && data.default_owner) || '';
+      select.disabled = false;
+      select.dataset.ownersLoaded = '1';
+    }
+    apiGet('/api/github/owners')
+      .then(function (res) {
+        fill(res && res.success ? res.data : null);
+      })
+      .catch(function () {
+        fill(null);
+      });
   }
 
   // -------------------------------------------------------------------------
@@ -22787,6 +22859,7 @@
         'new-project-landing-page-url',
       );
       var listTopicsInput = document.getElementById('new-project-list-topics');
+      var githubUserInput = document.getElementById('new-project-github-user');
       var projectName = nameInput ? nameInput.value : 'NewProject';
       var notes = notesInput ? notesInput.value : '';
       var helpPageUrl = helpPageUrlInput ? helpPageUrlInput.value : '';
@@ -22869,6 +22942,11 @@
           'list_topics',
           listTopicsInput ? listTopicsInput.value.trim() : '',
         );
+        // Until the accounts load there is no choice to send; leaving it out
+        // lets the server pick the same first organization.
+        if (githubUserInput && githubUserInput.dataset.ownersLoaded) {
+          formData.append('github_user', githubUserInput.value);
+        }
         _uploadedFiles.forEach(function (f) {
           formData.append('files', f, f.name);
         });

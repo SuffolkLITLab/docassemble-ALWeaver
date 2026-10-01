@@ -873,6 +873,21 @@ class TestNativeGithubCompatibility(unittest.TestCase):
             "LegalAid",
         )
         self.assertEqual(default_owner([ada]), "ada")
+        self.assertEqual(docassemble_compat.default_github_owner([]), "")
+        orgs = [
+            ada,
+            {"login": "LegalAid", "type": "organization"},
+            {"login": "SuffolkLITLab", "type": "organization"},
+        ]
+        # The server's owner wins when the user can push to it...
+        self.assertEqual(
+            docassemble_compat.default_github_owner(orgs, "suffolklitlab"),
+            "SuffolkLITLab",
+        )
+        # ...and is ignored when they cannot.
+        self.assertEqual(
+            docassemble_compat.default_github_owner(orgs, "CourtForms"), "LegalAid"
+        )
 
     def test_default_github_owner_is_blank_without_github(self):
         with patch.object(
