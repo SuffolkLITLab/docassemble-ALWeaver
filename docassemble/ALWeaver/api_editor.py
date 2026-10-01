@@ -127,6 +127,7 @@ from .docassemble_compat import (
     get_csrf,
     get_flask_app,
     get_github_publish_owners,
+    get_github_branch_head,
     get_github_merge_base,
     get_github_repository_branches,
     get_github_workflow_access,
@@ -2627,7 +2628,16 @@ def editor_api_github_branches() -> Response:
                 {
                     "success": True,
                     "request_id": request_id,
-                    "data": {"repository_url": repository["url"], **branches},
+                    "data": {
+                        "repository_url": repository["url"],
+                        **branches,
+                        # What Create from GitHub names a project on each
+                        # branch, so the editor need not repeat the rule.
+                        "project_names": {
+                            name: github_project_name(repository["repository"], name)
+                            for name in branches["branches"]
+                        },
+                    },
                 }
             )
         project = _normalize_project(request.args.get("project"))
@@ -11368,30 +11378,29 @@ def _github_branch_unpulled_message(
         is_github_package_path(path) for path in remote.get("files") or {}
     ):
         return None
-    if not (
+    synced = (
         sync
+        if sync
         and str(sync.get("repository_url") or "").rstrip("/").casefold()
         == repository_url.rstrip("/").casefold()
-    ):
-        sync = None
-    if sync and sync.get("commit") and remote.get("sha") == sync["commit"]:
+        else None
+    )
+    if synced and synced.get("commit") and remote.get("sha") == synced["commit"]:
         return None
-    if sync and sync.get("branch") == branch:
+    if synced and synced.get("branch") == branch:
         return (
             f"GitHub branch {branch!r} has advanced since this project was last "
             "synchronized. Pull the remote changes and resolve them in the "
             "project before publishing again."
         )
-    if sync:
-        return (
-            f"GitHub branch {branch!r} has commits this project has not pulled. "
-            "Use Pull from GitHub to merge that branch into this project, or "
-            "publish to a new branch."
-        )
+    advice = (
+        "Use Pull from GitHub to merge that branch into this project"
+        if synced
+        else "Create a project from that branch to bring its changes over"
+    )
     return (
         f"GitHub branch {branch!r} has commits this project has not pulled. "
-        "Create a project from that branch to bring its changes over, or "
-        "publish to a new branch."
+        f"{advice}, or publish to a new branch."
     )
 
 
@@ -11401,39 +11410,36 @@ def _assert_github_publish_branch_is_current(
     project: str,
     repository_url: str,
     branch: str,
+    expected_remote_sha: Optional[str] = None,
 ) -> None:
-    """Refuse a publish that would revert commits the project does not have."""
+    """Refuse a publish that would revert commits the project does not have,
+    or, after a preview, one whose branch moved since it was reviewed."""
+    remote = get_github_branch_head(
+        repository_url=repository_url, ref=branch, user_id=uid
+    )
     message = _github_branch_unpulled_message(
         find_project_github_sync(user_id=uid, project_name=project),
         repository_url=repository_url,
         branch=branch,
-        remote=get_github_repository_snapshot(
-            repository_url=repository_url, user_id=uid, ref=branch, allow_missing=True
-        ),
+        remote=remote,
     )
     if message:
         raise ValueError(f"{message} No files were published.")
-
-
-def _github_publish_preview_parent_sha(
-    *, uid: int, repository_url: str, branch: str
-) -> str:
-    remote = get_github_repository_snapshot(
-        repository_url=repository_url,
-        user_id=uid,
-        ref=branch,
-        allow_missing=True,
-    )
+    if expected_remote_sha is None:
+        return
+    # A new branch is created from the default branch, as the preview showed.
+    parent = remote
     if remote.get("missing") and remote.get("repository_exists"):
-        base_branch = str(remote.get("default_branch") or "main")
-        base = get_github_repository_snapshot(
+        parent = get_github_branch_head(
             repository_url=repository_url,
+            ref=str(remote.get("default_branch") or "main"),
             user_id=uid,
-            ref=base_branch,
-            allow_missing=True,
         )
-        return str(base.get("sha") or "")
-    return str(remote.get("sha") or "")
+    if str(parent.get("sha") or "") != expected_remote_sha:
+        raise ValueError(
+            f"GitHub branch {branch!r} changed after the publish preview. "
+            "Review its latest changes before publishing; no files were committed."
+        )
 
 
 def _complete_github_publish_job(
@@ -11484,16 +11490,8 @@ def _complete_github_publish_job(
             project=project,
             repository_url=repository_url,
             branch=branch,
+            expected_remote_sha=expected_remote_sha,
         )
-        if expected_remote_sha is not None:
-            current_remote_sha = _github_publish_preview_parent_sha(
-                uid=uid, repository_url=repository_url, branch=branch
-            )
-            if current_remote_sha != expected_remote_sha:
-                raise ValueError(
-                    f"GitHub branch {branch!r} changed after the publish preview. "
-                    "Review its latest changes before publishing; no files were committed."
-                )
         github_repository = ensure_github_repository(
             owner=owner,
             repository=repository,
@@ -11754,9 +11752,8 @@ def _new_project_from_template(uid: int, request_id: str) -> Response:
             ref=str(post_data.get("github_branch") or "").strip() or None,
         )
         if not str(raw_name or "").strip():
-            branch = str(snapshot.get("branch") or "")
             raw_name = github_project_name(
-                snapshot["repository"], "" if branch == "HEAD" else branch
+                snapshot["repository"], str(snapshot.get("branch") or "")
             )
 
     base_name = normalize_project_name(raw_name)

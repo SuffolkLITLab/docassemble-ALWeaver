@@ -69,8 +69,11 @@ def normalize_project_name(
 
 def github_project_name(repository: str, branch: str = "") -> str:
     """Name a project after a GitHub repository and branch: ALWeaver + main
-    becomes ALWeaverMain. Like the editor's suggestion, each word is
-    capitalized before normalize_project_name strips everything else."""
+    becomes ALWeaverMain. Each word is capitalized before
+    normalize_project_name strips everything else. An anonymous read of the
+    default branch only knows it as HEAD, which is left out."""
+    if branch == "HEAD":
+        branch = ""
     words = re.split(
         r"[^A-Za-z0-9]+",
         f"{re.sub(r'^docassemble-', '', repository, flags=re.IGNORECASE)} {branch}",

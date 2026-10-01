@@ -419,7 +419,6 @@
   </div>
 </div>
 
-<!-- Project-wide find / replace -->
 <!-- Pull a branch of the project's GitHub repository -->
 <div class="modal fade" id="github-pull-modal" tabindex="-1"
      aria-labelledby="github-pull-title">
@@ -437,7 +436,7 @@
         <label class="form-label" for="github-pull-branch">Branch</label>
         <select class="form-select font-monospace" id="github-pull-branch" required disabled></select>
         <div class="form-text">Pull merges that branch into this project; pulling a different branch makes it the one this project publishes to. To integrate a branch by hand instead, create a separate project from it.</div>
-        <div class="alert py-2 mt-3 mb-0 d-none" id="github-pull-status" role="status" aria-live="polite"></div>
+        <div class="mt-3"><div class="alert py-2 d-none" id="github-pull-status" role="status" aria-live="polite"></div></div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -450,6 +449,7 @@
   </div>
 </div>
 
+<!-- Project-wide find / replace -->
 <div class="modal fade" id="project-search-modal" tabindex="-1"
      aria-labelledby="project-search-title">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">

@@ -405,6 +405,7 @@ class TestEditorGithubApi(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.get_json())
         data = response.get_json()["data"]
         self.assertEqual(data["branches"], ["main", "draft"])
+        self.assertEqual(set(data["project_names"]), {"main", "draft"})
         self.assertEqual(
             data["repository_url"], "https://github.com/LegalAid/docassemble-Forms"
         )
@@ -613,7 +614,7 @@ class TestEditorGithubApi(unittest.TestCase):
             patch.object(api_editor, "find_project_github_sync", return_value=sync),
             patch.object(
                 api_editor,
-                "get_github_repository_snapshot",
+                "get_github_branch_head",
                 return_value={"missing": True, "repository_exists": True, "sha": ""},
             ) as get_remote,
         ):
@@ -625,10 +626,58 @@ class TestEditorGithubApi(unittest.TestCase):
             )
         get_remote.assert_called_once_with(
             repository_url="https://github.com/ada/docassemble-forms",
-            user_id=7,
             ref="draft",
-            allow_missing=True,
+            user_id=7,
         )
+
+    def test_publish_after_preview_checks_the_reviewed_head_once(self):
+        url = "https://github.com/ada/docassemble-forms"
+        sync = {"repository_url": url, "branch": "main", "commit": "synced-sha"}
+        files = {"docassemble/forms/data/questions/main.yml": b""}
+        new_branch = {
+            "missing": True,
+            "repository_exists": True,
+            "default_branch": "main",
+            "sha": "",
+        }
+        cases = [
+            ("unchanged", [{"sha": "synced-sha", "files": files}], "synced-sha", None),
+            (
+                "moved",
+                [{"sha": "synced-sha", "files": files}],
+                "previewed-sha",
+                "changed after the publish preview",
+            ),
+            (
+                "new branch from the default",
+                [new_branch, {"sha": "main-sha", "files": files}],
+                "main-sha",
+                None,
+            ),
+        ]
+        for label, heads, expected_sha, error in cases:
+            with self.subTest(label):
+                with (
+                    patch.object(
+                        api_editor, "find_project_github_sync", return_value=sync
+                    ),
+                    patch.object(
+                        api_editor, "get_github_branch_head", side_effect=heads
+                    ) as head,
+                ):
+                    check = lambda: api_editor._assert_github_publish_branch_is_current(
+                        uid=7,
+                        project="Housing",
+                        repository_url=url,
+                        branch="draft" if len(heads) > 1 else "main",
+                        expected_remote_sha=expected_sha,
+                    )
+                    if error:
+                        with self.assertRaisesRegex(ValueError, error):
+                            check()
+                    else:
+                        check()
+                self.assertEqual(head.call_count, len(heads))
 
     def test_publishing_to_an_existing_branch_requires_its_head_to_be_pulled(self):
         url = "https://github.com/ada/docassemble-forms"
@@ -1367,7 +1416,7 @@ class TestEditorGithubApi(unittest.TestCase):
             patch.object(api_editor, "r", redis),
             patch.object(
                 api_editor,
-                "get_github_repository_snapshot",
+                "get_github_branch_head",
                 return_value={"missing": True, "repository_exists": False, "sha": ""},
             ),
             patch.object(
@@ -1498,7 +1547,7 @@ class TestEditorGithubApi(unittest.TestCase):
             patch.object(api_editor, "r", _FakeRedis()),
             patch.object(
                 api_editor,
-                "get_github_repository_snapshot",
+                "get_github_branch_head",
                 return_value={"missing": True, "repository_exists": False, "sha": ""},
             ),
             patch.object(
@@ -1546,7 +1595,7 @@ class TestEditorGithubApi(unittest.TestCase):
             patch.object(api_editor, "r", redis),
             patch.object(api_editor, "find_project_github_sync", return_value=sync),
             patch.object(
-                api_editor, "get_github_repository_snapshot", return_value=remote
+                api_editor, "get_github_branch_head", return_value=remote
             ) as read_remote,
             patch.object(api_editor, "ensure_github_repository") as ensure_repository,
             patch.object(api_editor, "publish_github_package") as publish,
@@ -1574,9 +1623,8 @@ class TestEditorGithubApi(unittest.TestCase):
         self.assertIn("Pull the remote changes", state["error"]["message"])
         read_remote.assert_called_once_with(
             repository_url="https://github.com/LegalAid/docassemble-HousingForms",
-            user_id=7,
             ref="feature/github",
-            allow_missing=True,
+            user_id=7,
         )
         ensure_repository.assert_not_called()
         publish.assert_not_called()
@@ -2031,17 +2079,10 @@ class TestEditorApiFileCreation(unittest.TestCase):
         )
 
     def test_github_import_derives_project_name_from_repository(self):
-        # Named after the repository and branch: an anonymous read of the
-        # default branch only knows it as HEAD, which is left out.
-        for branch, named_branch in (("HEAD", ""), ("feature/x", "feature/x")):
-            with self.subTest(branch):
-                self._import_github_project_with_default_name(branch, named_branch)
-
-    def _import_github_project_with_default_name(self, branch, named_branch):
         snapshot = {
             "url": "https://github.com/OtherOrg/docassemble-PublicForms",
             "repository": "docassemble-PublicForms",
-            "branch": branch,
+            "branch": "feature/x",
             "sha": "remote-sha",
             "files": {},
         }
@@ -2086,7 +2127,7 @@ class TestEditorApiFileCreation(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["data"]["project"], "PublicFormsX")
         create.assert_called_once_with(7, "PublicFormsX")
-        name.assert_called_once_with("docassemble-PublicForms", named_branch)
+        name.assert_called_once_with("docassemble-PublicForms", "feature/x")
 
     def test_new_project_can_import_any_github_repository_url(self):
         snapshot = {

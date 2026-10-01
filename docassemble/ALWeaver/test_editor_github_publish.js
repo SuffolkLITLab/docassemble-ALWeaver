@@ -71,7 +71,7 @@ context.githubPublishBlocked = false;
 context.githubPreviewInFlight = false;
 context.githubPublishInFlight = false;
 for (const name of [
-  'updateGithubPublishSubmit',
+  'updateGithubPublishButtons',
   'setGithubPublishStatus',
   'showGithubPublishedTarget',
   'githubBranchValue',

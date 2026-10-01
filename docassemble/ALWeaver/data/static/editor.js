@@ -3277,19 +3277,21 @@
   var githubPreviewInFlight = false;
   var githubPublishInFlight = false;
 
-  // Previewing is optional: Publish needs only a loaded target branch. It is
-  // held while a preview or publish is running, and after a preview found
-  // unpulled commits on the branch.
-  function updateGithubPublishSubmit() {
-    var submit = document.getElementById('github-publish-submit');
+  // Previewing is optional: Preview and Publish both need only a loaded
+  // target branch. Publish is also held while a preview or publish is
+  // running, and after a preview found unpulled commits on the branch.
+  function updateGithubPublishButtons() {
     var select = document.getElementById('github-branch-name');
-    if (!submit) return;
-    submit.disabled =
-      !select ||
-      select.disabled ||
-      githubPublishBlocked ||
-      githubPreviewInFlight ||
-      githubPublishInFlight;
+    var preview = document.getElementById('github-publish-preview-button');
+    var submit = document.getElementById('github-publish-submit');
+    var noTarget = !select || select.disabled;
+    if (preview) preview.disabled = noTarget || githubPreviewInFlight;
+    if (submit)
+      submit.disabled =
+        noTarget ||
+        githubPublishBlocked ||
+        githubPreviewInFlight ||
+        githubPublishInFlight;
   }
 
   function clearGithubPublishPreview() {
@@ -3297,7 +3299,7 @@
     githubPublishBlocked = false;
     var preview = document.getElementById('github-publish-preview');
     if (preview) preview.hidden = true;
-    updateGithubPublishSubmit();
+    updateGithubPublishButtons();
   }
 
   function renderGithubPublishPreview(data) {
@@ -3369,7 +3371,7 @@
     preview.hidden = false;
     githubPublishPreviewToken = data.preview_token || null;
     githubPublishBlocked = Boolean(data.unpulled);
-    updateGithubPublishSubmit();
+    updateGithubPublishButtons();
   }
 
   function _pollGithubPublishJob(jobUrl) {
@@ -3515,7 +3517,6 @@
     clearTimeout(githubBranchTimer);
     var select = document.getElementById('github-branch-name');
     var retry = document.getElementById('github-branch-retry');
-    var preview = document.getElementById('github-publish-preview-button');
     if (select) {
       select.disabled = true;
       select.replaceChildren();
@@ -3526,8 +3527,7 @@
       select.value = '';
     }
     if (retry) retry.classList.add('d-none');
-    if (preview) preview.disabled = true;
-    updateGithubPublishSubmit();
+    updateGithubPublishButtons();
     updateGithubNewBranchInput();
   }
 
@@ -3543,7 +3543,6 @@
     var select = document.getElementById('github-branch-name');
     var newName = document.getElementById('github-new-branch-name');
     var retry = document.getElementById('github-branch-retry');
-    var preview = document.getElementById('github-publish-preview-button');
     apiGet(
       '/api/github/branches?project=' +
         encodeURIComponent(state.project) +
@@ -3587,8 +3586,7 @@
         }
         select.disabled = false;
         updateGithubNewBranchInput();
-        if (preview) preview.disabled = false;
-        updateGithubPublishSubmit();
+        updateGithubPublishButtons();
       })
       .catch(function (error) {
         if (request !== githubBranchRequest) return;
@@ -3815,14 +3813,6 @@
 
   var githubPullProject = null;
 
-  function setGithubPullStatus(message, kind) {
-    var status = document.getElementById('github-pull-status');
-    if (!status) return;
-    status.className =
-      'alert py-2 mt-3 mb-0' + (message ? ' alert-' + kind : ' d-none');
-    status.textContent = message || '';
-  }
-
   function setGithubPullBusy(busy) {
     ['github-pull-submit', 'github-pull-create'].forEach(function (id) {
       var button = document.getElementById(id);
@@ -3848,7 +3838,7 @@
         '',
       );
     }
-    setGithubPullStatus('', '');
+    setGithubRepoStatus('github-pull-status', '');
     setGithubPullBusy(true);
     var modal = getOrCreateBootstrapModal('github-pull-modal');
     if (modal) modal.show();
@@ -3859,7 +3849,8 @@
       })
       .catch(function (error) {
         if (githubPullProject !== projectName) return;
-        setGithubPullStatus(
+        setGithubRepoStatus(
+          'github-pull-status',
           error && error.message
             ? error.message
             : 'Unable to list the repository branches.',
@@ -3893,14 +3884,19 @@
       var branch = branchInput.value.trim();
       if (!projectName || !form.reportValidity()) return;
       setGithubPullBusy(true);
-      setGithubPullStatus('Merging ' + branch + ' into this project…', 'info');
+      setGithubRepoStatus(
+        'github-pull-status',
+        'Merging ' + branch + ' into this project…',
+        'info',
+      );
       apiPost('/api/github/pull', { project: projectName, branch: branch })
         .then(function (res) {
           if (!res.success) {
             var conflicts =
               (res.error && res.error.details && res.error.details.conflicts) ||
               [];
-            setGithubPullStatus(
+            setGithubRepoStatus(
+              'github-pull-status',
               ((res.error && res.error.message) ||
                 'Unable to pull changes from GitHub.') +
                 (conflicts.length
@@ -3926,7 +3922,8 @@
           }
         })
         .catch(function (error) {
-          setGithubPullStatus(
+          setGithubRepoStatus(
+            'github-pull-status',
             error && error.message
               ? error.message
               : 'Unable to pull changes from GitHub.',
@@ -3944,7 +3941,11 @@
         var branch = branchInput.value.trim();
         if (!sync || !form.reportValidity()) return;
         setGithubPullBusy(true);
-        setGithubPullStatus('Creating a project from ' + branch + '…', 'info');
+        setGithubRepoStatus(
+          'github-pull-status',
+          'Creating a project from ' + branch + '…',
+          'info',
+        );
         apiPost('/api/new-project', {
           // Blank: named after the repository and branch, like ALWeaverMain.
           project_name: '',
@@ -3962,7 +3963,8 @@
             return openCreatedGithubProject(res.data);
           })
           .catch(function (error) {
-            setGithubPullStatus(
+            setGithubRepoStatus(
+              'github-pull-status',
               error && error.message
                 ? error.message
                 : 'Unable to create the project from GitHub.',
@@ -4098,7 +4100,6 @@
             selectedBranch === githubBranchValue()
           );
         }
-        previewButton.disabled = true;
         githubPreviewInFlight = true;
         clearGithubPublishPreview();
         setGithubPublishStatus('Building the package preview…', 'info');
@@ -4138,10 +4139,8 @@
             );
           })
           .finally(function () {
-            var select = document.getElementById('github-branch-name');
-            previewButton.disabled = !select || select.disabled;
             githubPreviewInFlight = false;
-            updateGithubPublishSubmit();
+            updateGithubPublishButtons();
           });
       });
     form.addEventListener('submit', function (event) {
@@ -4152,7 +4151,7 @@
       var messageInput = document.getElementById('github-commit-message');
       if (!form.reportValidity()) return;
       githubPublishInFlight = true;
-      updateGithubPublishSubmit();
+      updateGithubPublishButtons();
       setGithubPublishStatus('Preparing the project for GitHub…', 'info');
       saveDirtyGithubEditors()
         .then(function () {
@@ -17318,22 +17317,17 @@
     _suggestedValues[elementId] = value;
   }
 
-  // Mirrors github_project_name: docassemble-ALWeaver on main is ALWeaverMain.
+  // The branch list carries the name Create from GitHub gives a project on
+  // each branch (docassemble-ALWeaver on main is ALWeaverMain).
+  var _githubProjectNames = {};
+
   function _suggestProjectNameFromGithub() {
-    var url = document.getElementById('new-project-github-url');
     var branch = document.getElementById('new-project-github-branch');
-    var match = /^https:\/\/github\.com\/[^/]+\/([^/]+?)(?:\.git)?\/?$/i.exec(
-      url ? url.value.trim() : '',
-    );
-    if (!match) return;
-    _suggestNewProjectValue(
-      'new-project-name',
-      _projectNameFromTitle(
-        match[1].replace(/^docassemble-/i, '') +
-          ' ' +
-          (branch && !branch.disabled ? branch.value : ''),
-      ),
-    );
+    if (branch && !branch.disabled)
+      _suggestNewProjectValue(
+        'new-project-name',
+        _githubProjectNames[branch.value],
+      );
   }
 
   // A filing's documents come out in the order they are listed, and the first
@@ -23152,10 +23146,11 @@
         );
         return;
       }
-      if (isNewProjectPage) _suggestProjectNameFromGithub();
       loadGithubBranchOptions(branchSelect, repositoryUrl)
         .then(function (data) {
-          if (data && isNewProjectPage) _suggestProjectNameFromGithub();
+          if (!data || !isNewProjectPage) return;
+          _githubProjectNames = data.project_names || {};
+          _suggestProjectNameFromGithub();
         })
         .catch(function (error) {
           if (!branchStatus) return;

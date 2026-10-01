@@ -35,6 +35,7 @@ class test_playground_publish(unittest.TestCase):
             "MotionToStayEvictionExtraCodeFallback",
         )
         self.assertEqual(github_project_name("Docassemble-forms", ""), "Forms")
+        self.assertEqual(github_project_name("docassemble-Forms", "HEAD"), "Forms")
         self.assertEqual(
             github_project_name("docassemble-2024forms", "v1.2"), "P2024formsV12"
         )

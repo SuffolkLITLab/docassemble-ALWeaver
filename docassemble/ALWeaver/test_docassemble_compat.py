@@ -415,6 +415,48 @@ class TestNativeGithubCompatibility(unittest.TestCase):
             )
         self.assertEqual(result["branches"], ["main", "draft"])
 
+    def test_branch_head_lists_paths_without_downloading_files(self):
+        class FakeHttp:
+            def __init__(self):
+                self.urls = []
+
+            def request(self, url, method, headers=None, body=None):
+                self.urls.append(url)
+                if "/commits/" in url:
+                    if url.endswith("/commits/new"):
+                        return {
+                            "status": "422"
+                        }, b'{"message":"No commit found for SHA: new"}'
+                    return {
+                        "status": "200"
+                    }, b'{"sha":"head-sha","commit":{"tree":{"sha":"tree-sha"}}}'
+                if "/git/trees/" in url:
+                    return {"status": "200"}, (
+                        b'{"tree":[{"path":"README.md","type":"blob"},'
+                        b'{"path":"docassemble","type":"tree"},'
+                        b'{"path":"setup.py","type":"blob"}]}'
+                    )
+                return {"status": "200"}, b'{"default_branch":"trunk"}'
+
+        http = FakeHttp()
+        url = "https://github.com/Example/docassemble-Forms"
+        with patch.object(
+            docassemble_compat, "_github_authorized_http", return_value=http
+        ):
+            head = docassemble_compat.get_github_branch_head(
+                repository_url=url, ref="main", user_id=7
+            )
+            missing = docassemble_compat.get_github_branch_head(
+                repository_url=url, ref="new", user_id=7
+            )
+        self.assertEqual(head["sha"], "head-sha")
+        self.assertEqual(set(head["files"]), {"README.md", "setup.py"})
+        self.assertFalse(head["missing"])
+        self.assertTrue(missing["missing"])
+        self.assertTrue(missing["repository_exists"])
+        self.assertEqual(missing["default_branch"], "trunk")
+        self.assertFalse(any("tarball" in u or "codeload" in u for u in http.urls))
+
     def test_merge_base_reads_github_compare(self):
         class FakeHttp:
             def __init__(self, status, body):
