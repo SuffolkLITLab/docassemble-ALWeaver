@@ -2628,16 +2628,7 @@ def editor_api_github_branches() -> Response:
                 {
                     "success": True,
                     "request_id": request_id,
-                    "data": {
-                        "repository_url": repository["url"],
-                        **branches,
-                        # What Create from GitHub names a project on each
-                        # branch, so the editor need not repeat the rule.
-                        "project_names": {
-                            name: github_project_name(repository["repository"], name)
-                            for name in branches["branches"]
-                        },
-                    },
+                    "data": {"repository_url": repository["url"], **branches},
                 }
             )
         project = _normalize_project(request.args.get("project"))

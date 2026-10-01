@@ -12721,24 +12721,31 @@
       esc(state.projectSearchQuery) +
       '">';
     html += '</div></div>';
-    html +=
-      '<div class="editor-card"><div class="editor-card-header">Create from GitHub</div><div class="editor-card-body">';
-    html +=
+    // Collapsed unless asked for: most visits are to open a project.
+    var githubImportHtml =
       '<p class="text-muted small mb-3">Enter any public GitHub docassemble repository, or a private repository available through your connected account. Weaver will create the project and pull its files in one step.</p>';
-    html += '<div class="row g-2 align-items-end">';
-    html +=
+    githubImportHtml += '<div class="row g-2 align-items-end">';
+    githubImportHtml +=
       '<div class="col-12 col-lg-5"><label class="editor-tiny" for="project-github-import-url">GitHub repository URL</label><input class="form-control form-control-sm mt-1" id="project-github-import-url" type="url" aria-describedby="project-github-import-hint"></div>';
-    html +=
+    githubImportHtml +=
       '<div class="col-12 col-lg-2"><label class="editor-tiny" for="project-github-import-branch">Branch</label><select class="form-select form-select-sm mt-1 font-monospace" id="project-github-import-branch" aria-describedby="project-github-import-hint" disabled><option value="">Enter a repository first</option></select></div>';
-    html +=
+    githubImportHtml +=
       '<div class="col-12 col-lg-3"><label class="editor-tiny" for="project-github-import-name">Project name (optional)</label><input class="form-control form-control-sm mt-1" id="project-github-import-name" aria-describedby="project-github-import-hint"></div>';
-    html +=
+    githubImportHtml +=
       '<div class="col-12 col-lg-2 d-grid"><button type="button" class="btn btn-sm btn-outline-primary" id="project-github-import-submit">Create and pull</button></div>';
-    html +=
+    githubImportHtml +=
       '</div><div class="text-muted small mt-1" id="project-github-import-hint">For example, https://github.com/owner/docassemble-package. Branches load once you enter the URL. Leave the project name blank to name the project after the repository and branch.</div>';
-    html +=
+    githubImportHtml +=
       '<div class="alert py-2 mt-3 mb-0 d-none" id="project-github-import-status" role="status" aria-live="polite"></div>';
-    html += '</div></div>';
+    html +=
+      '<div class="accordion" id="project-github-import-accordion">' +
+      _accordionSection(
+        'project-github-import',
+        'Create from GitHub',
+        Boolean(state.openGithubImport),
+        githubImportHtml,
+      ) +
+      '</div>';
 
     if (recent.length > 0) {
       html += '<div class="editor-project-section">';
@@ -17004,8 +17011,12 @@
   var _suggestedValues = {};
 
   function _newProjectSection(id, title, expanded, bodyHtml) {
-    var headingId = 'new-project-heading-' + id;
-    var panelId = 'new-project-panel-' + id;
+    return _accordionSection('new-project-' + id, title, expanded, bodyHtml);
+  }
+
+  function _accordionSection(idPrefix, title, expanded, bodyHtml) {
+    var headingId = idPrefix + '-heading';
+    var panelId = idPrefix + '-panel';
     var html = '<div class="accordion-item">';
     html += '<h2 class="accordion-header" id="' + headingId + '">';
     html +=
@@ -17068,13 +17079,7 @@
       'files',
       'Template files',
       true,
-      '<div class="mb-3"><label class="editor-tiny" for="new-project-github-url">GitHub repository URL (optional)</label>' +
-        '<input class="form-control form-control-sm mt-1" id="new-project-github-url" type="url" aria-describedby="new-project-github-hint">' +
-        '<div class="text-muted small mt-1" id="new-project-github-hint">For example, https://github.com/owner/docassemble-package. Import from any public GitHub repository, or a private repository available through your connected account.</div>' +
-        '<label class="editor-tiny mt-2" for="new-project-github-branch">Branch</label>' +
-        '<select class="form-select form-select-sm mt-1 font-monospace" id="new-project-github-branch" disabled><option value="">Enter a repository first</option></select>' +
-        '<div class="alert py-2 mt-2 mb-0 d-none" id="new-project-github-status" role="status" aria-live="polite"></div></div>' +
-        '<div class="text-muted small text-center mb-3">or upload a document</div>' +
+      '<p class="text-muted small mb-3">Importing an existing docassemble package? <button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-action="open-github-import">Create it from GitHub</button> instead.</p>' +
         '<div class="editor-dropzone" id="upload-dropzone">' +
         '<div class="editor-dropzone-icon">&#128196;</div>' +
         '<div style="font-weight:600">Drag &amp; drop PDF or DOCX files here</div>' +
@@ -17315,19 +17320,6 @@
     if (current && current !== _suggestedValues[elementId]) return;
     input.value = value;
     _suggestedValues[elementId] = value;
-  }
-
-  // The branch list carries the name Create from GitHub gives a project on
-  // each branch (docassemble-ALWeaver on main is ALWeaverMain).
-  var _githubProjectNames = {};
-
-  function _suggestProjectNameFromGithub() {
-    var branch = document.getElementById('new-project-github-branch');
-    if (branch && !branch.disabled)
-      _suggestNewProjectValue(
-        'new-project-name',
-        _githubProjectNames[branch.value],
-      );
   }
 
   // A filing's documents come out in the order they are listed, and the first
@@ -22624,6 +22616,20 @@
       return;
     }
 
+    if (target.closest('[data-action="open-github-import"]')) {
+      _hideUploadProgressModal();
+      _uploadedFiles = [];
+      state.canvasMode = 'project-selector';
+      state.openGithubImport = true;
+      renderCanvas();
+      state.openGithubImport = false;
+      var githubImportUrl = document.getElementById(
+        'project-github-import-url',
+      );
+      if (githubImportUrl) githubImportUrl.focus();
+      return;
+    }
+
     if (target.id === 'cancel-new-project') {
       _hideUploadProgressModal();
       state.canvasMode = 'project-selector';
@@ -22770,10 +22776,6 @@
       var separateMainOrderInput = document.getElementById(
         'new-project-separate-main-order',
       );
-      var githubUrlInput = document.getElementById('new-project-github-url');
-      var githubBranchSelect = document.getElementById(
-        'new-project-github-branch',
-      );
       var filenameInput = document.getElementById('new-project-filename');
       var titleInput = document.getElementById('new-project-title');
       var shortTitleInput = document.getElementById('new-project-short-title');
@@ -22806,18 +22808,7 @@
         ? copyBaselineQuestionsInput.checked
         : true;
       var createTest = createTestInput ? createTestInput.checked : true;
-      var githubUrl = githubUrlInput ? githubUrlInput.value.trim() : '';
-      if (githubUrl && _uploadedFiles.length > 0) {
-        window.alert(
-          'Choose either a GitHub repository or uploaded documents, not both.',
-        );
-        return;
-      }
-      _showUploadProgressModal(
-        githubUrl
-          ? 'Importing the GitHub repository…'
-          : 'This may take a minute or two. Please wait.',
-      );
+      _showUploadProgressModal('This may take a minute or two. Please wait.');
 
       if (_uploadedFiles.length > 0) {
         var formData = new FormData();
@@ -22966,8 +22957,6 @@
           help_page_url: helpPageUrl,
           help_page_title: helpPageTitle,
           use_llm_assist: useLlmAssist,
-          github_url: githubUrl,
-          github_branch: githubBranchSelect ? githubBranchSelect.value : '',
           create_test: createTest,
         })
           .then(function (res) {
@@ -23120,22 +23109,15 @@
   });
 
   document.addEventListener('change', function (e) {
-    // Repository URL fields look their branches up when the URL is
-    // committed, as the Playground's pull page does.
-    var githubBranchFields = {
-      'project-github-import-url': [
+    // The repository URL looks its branches up when the URL is committed,
+    // as the Playground's pull page does.
+    if (e.target.id === 'project-github-import-url') {
+      var branchSelect = document.getElementById(
         'project-github-import-branch',
+      );
+      var branchStatus = document.getElementById(
         'project-github-import-status',
-      ],
-      'new-project-github-url': [
-        'new-project-github-branch',
-        'new-project-github-status',
-      ],
-    }[e.target.id];
-    if (githubBranchFields) {
-      var branchSelect = document.getElementById(githubBranchFields[0]);
-      var branchStatus = document.getElementById(githubBranchFields[1]);
-      var isNewProjectPage = e.target.id === 'new-project-github-url';
+      );
       var repositoryUrl = e.target.value.trim();
       if (branchStatus) branchStatus.className = 'alert d-none';
       if (!branchSelect) return;
@@ -23146,24 +23128,16 @@
         );
         return;
       }
-      loadGithubBranchOptions(branchSelect, repositoryUrl)
-        .then(function (data) {
-          if (!data || !isNewProjectPage) return;
-          _githubProjectNames = data.project_names || {};
-          _suggestProjectNameFromGithub();
-        })
-        .catch(function (error) {
+      loadGithubBranchOptions(branchSelect, repositoryUrl).catch(
+        function (error) {
           if (!branchStatus) return;
-          branchStatus.className = 'alert alert-warning py-2 mt-2 mb-0';
+          branchStatus.className = 'alert alert-warning py-2 mt-3 mb-0';
           branchStatus.textContent =
             error && error.message
               ? error.message
               : 'Unable to list the repository branches.';
-        });
-      return;
-    }
-    if (e.target.id === 'new-project-github-branch') {
-      _suggestProjectNameFromGithub();
+        },
+      );
       return;
     }
     if (e.target.matches('[data-order-list-for]') && e.target.value) {

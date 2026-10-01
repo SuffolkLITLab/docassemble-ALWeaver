@@ -405,7 +405,6 @@ class TestEditorGithubApi(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.get_json())
         data = response.get_json()["data"]
         self.assertEqual(data["branches"], ["main", "draft"])
-        self.assertEqual(set(data["project_names"]), {"main", "draft"})
         self.assertEqual(
             data["repository_url"], "https://github.com/LegalAid/docassemble-Forms"
         )
