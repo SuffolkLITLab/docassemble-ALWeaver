@@ -141,6 +141,23 @@ for (const state of ['District of Columbia', 'ON', 'Puerto Rico']) {
 // A typed input gets a value of its type even when its name looks like an address.
 assert.match(value('user.years_at_address', {}, 'integer'), /^\d+$/);
 assert.match(value('name_change_date', {}, 'date'), /^\d{4}-\d{2}-\d{2}$/);
+// ALToolbox's BirthDate day/year parts are bare type=number inputs; numbers
+// other than money are whole.
+for (let i = 0; i < 50; i++) {
+  assert.match(
+    value('', { type: 'number', inputMode: 'numeric' }, 'number'),
+    /^\d+$/,
+  );
+  assert.match(value('household_size', {}, 'number'), /^\d+$/);
+  assert.match(value('hours', {}, 'float'), /^\d+$/);
+}
+const thisYear = new Date().getFullYear();
+for (let i = 0; i < 50; i++) {
+  const birthYear = Number(
+    value('birthdate.year', { type: 'number' }, 'number'),
+  );
+  assert.ok(birthYear >= thisYear - 80 && birthYear <= thisYear - 18);
+}
 // Currency text controls must win over address-like labels and yield plain numbers.
 for (let i = 0; i < 100; i++) {
   const amount = Number(

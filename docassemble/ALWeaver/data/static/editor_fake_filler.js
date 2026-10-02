@@ -121,6 +121,10 @@
     var view = field.ownerDocument.defaultView;
     var encoded = names[field.name] || field.name || field.id;
     var variable = decode(encoded || '', view);
+    // ALToolbox's three-part dates (BirthDate, ThreePartsDate) name each part
+    // _ignore_<encoded variable>_<part>.
+    var datePart = /^_ignore_(.+)_(day|month|year)$/.exec(encoded || '');
+    if (datePart) variable = decode(datePart[1], view) + '.' + datePart[2];
     // Standard list questions use users[i]; the sought variable names the
     // concrete item. Keep that person's data together across screens.
     var sought = field.ownerDocument.querySelector('#sought_variable');
@@ -168,14 +172,18 @@
       ? maximum
       : Math.max(lower, defaultUpper);
     lower = Math.min(lower, upper);
-    var value =
-      datatype === 'currency'
-        ? Number(faker.finance.amount({ min: lower, max: upper, dec: 2 }))
-        : faker.number.float({
-            min: lower,
-            max: upper,
-            fractionDigits: datatype === 'integer' ? 0 : 2,
-          });
+    // Only money gets cents. Other numbers (a day, a count, an age) are whole
+    // unless the field's own limits leave no whole number to choose.
+    var value;
+    if (datatype === 'currency')
+      value = Number(faker.finance.amount({ min: lower, max: upper, dec: 2 }));
+    else if (Math.ceil(lower) <= Math.floor(upper))
+      value = faker.number.int({
+        min: Math.ceil(lower),
+        max: Math.floor(upper),
+      });
+    else
+      value = faker.number.float({ min: lower, max: upper, fractionDigits: 2 });
     value = Math.max(lower, Math.min(upper, value));
     var step = Number(rules.step);
     if (step > 0) {
@@ -254,13 +262,15 @@
       return date;
     }
     // A year, not a count of years: years_at_address wants a small number.
-    if (/(^|[^a-z])year([^a-z]|$)/i.test(hint))
+    if (/(^|[^a-z])year([^a-z]|$)/i.test(hint)) {
+      var thisYear = new Date().getFullYear();
+      // Match the birth dates above: an adult, 18 to 80 years old.
       return String(
-        faker.number.int({
-          min: new Date().getFullYear() - 10,
-          max: new Date().getFullYear(),
-        }),
+        /birth|dob/.test(hint)
+          ? faker.number.int({ min: thisYear - 80, max: thisYear - 18 })
+          : faker.number.int({ min: thisYear - 10, max: thisYear }),
       );
+    }
     if (/^(number|float|integer|range)$/.test(datatype))
       return numericValue(field, datatype);
     if (/zip|postal/.test(hint)) return samples.address(variable).zip;
