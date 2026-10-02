@@ -306,10 +306,15 @@ from .editor_agent_validation import (
 )
 from .runtime_sessions import (
     append_runtime_event,
+    cleanup_due_runtime_sessions,
+    cleanup_owned_runtime_sessions,
+    close_runtime_session,
     create_runtime_record,
-    delete_runtime_record,
-    load_runtime_record,
+    get_live_runtime_record,
     playground_yaml_filename,
+    refresh_runtime_progress,
+    runtime_session_lock,
+    schedule_runtime_cleanup,
     store_runtime_record,
 )
 
@@ -6504,7 +6509,7 @@ def _runtime_not_found(request_id: str) -> Response:
             "error": {
                 "type": "not_found",
                 "code": "runtime_session_not_found",
-                "message": "The target session was not found.",
+                "message": "This debug session ended or expired after 30 minutes without advancing a screen. Start a new test session.",
             },
         },
         404,
@@ -6555,6 +6560,22 @@ def _browser_session_secret() -> Optional[str]:
     return str(secret) if secret else None
 
 
+def _runtime_has_no_endpoint(exc: BaseException) -> bool:
+    """Recognize Docassemble's no-endpoint error, including its API wrapper."""
+    seen: set[int] = set()
+    while id(exc) not in seen:
+        seen.add(id(exc))
+        if type(exc).__name__ == "DAErrorNoEndpoint" or str(exc).startswith(
+            "create_new_interview: failure to assemble interview: DAErrorNoEndpoint:"
+        ):
+            return True
+        nested = exc.__cause__ or exc.__context__
+        if nested is None:
+            return False
+        exc = nested
+    return False
+
+
 def _runtime_target_url(record: Any) -> str:
     return (
         "/interview?i="
@@ -6565,10 +6586,49 @@ def _runtime_target_url(record: Any) -> str:
 
 
 def _load_owned_runtime_session(weaver_session_id: str) -> Any:
-    return load_runtime_record(r, weaver_session_id, _current_user_id())
+    return get_live_runtime_record(r, weaver_session_id, _current_user_id())
 
 
-@app.route(f"{EDITOR_BASE_PATH}/api/runtime/sessions", methods=["POST"])
+def _schedule_runtime_cleanup(record: Any) -> None:
+    schedule_runtime_cleanup(r, record)
+
+
+@app.before_request
+def _cleanup_idle_debug_sessions() -> None:
+    if not request.path.startswith(EDITOR_BASE_PATH) or not _editor_auth_check():
+        return
+    try:
+        # One bounded sweep per minute across all web processes, including on
+        # servers without Weaver's Celery module. Never keep an idle record alive.
+        if r.set("da:alweaver:editor:runtime-housekeeping", "1", nx=True, ex=60):
+            cleanup_due_runtime_sessions(r)
+    except Exception as exc:
+        log(f"Debug session cleanup deferred: {type(exc).__name__}", "error")
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/runtime/sessions/cleanup", methods=["POST"])
+def editor_api_runtime_cleanup_sessions() -> Response:
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    if not _runtime_inspector_enabled():
+        return _runtime_disabled(request_id)
+    try:
+        uid = _current_user_id()
+        with runtime_session_lock(r, f"owner:{uid}"):
+            result = cleanup_owned_runtime_sessions(r, uid)
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {"deleted": result["deleted"]},
+            }
+        )
+    except Exception as exc:
+        return _runtime_operation_failed(request_id, "cleanup", exc)
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/runtime/sessions", methods=["GET", "POST"])
 def editor_api_runtime_create_session() -> Response:
     """Create a separate Docassemble target session for runtime inspection."""
     request_id = str(uuid.uuid4())
@@ -6578,7 +6638,11 @@ def editor_api_runtime_create_session() -> Response:
         return _runtime_disabled(request_id)
     try:
         uid = _current_user_id()
-        post_data = request.get_json(silent=True)
+        post_data = (
+            dict(request.args)
+            if request.method == "GET"
+            else request.get_json(silent=True)
+        )
         if not isinstance(post_data, dict):
             raise ValueError("Request body must be a JSON object")
         project = _normalize_project(post_data.get("project"))
@@ -6592,6 +6656,57 @@ def editor_api_runtime_create_session() -> Response:
 
         # Confirms this developer owns the requested Playground file.
         playground_read_yaml(uid, project, filename)
+        with runtime_session_lock(r, f"owner:{uid}"):
+            current = cleanup_owned_runtime_sessions(r, uid)["session"]
+            if request.method == "GET":
+                if current:
+                    _schedule_runtime_cleanup(current)
+                matching = (
+                    current
+                    and current.project == project
+                    and current.filename == filename
+                )
+                return jsonify(
+                    {
+                        "success": True,
+                        "request_id": request_id,
+                        "data": {
+                            "session": (
+                                current.public_dict(_runtime_target_url(current))
+                                if matching
+                                else None
+                            )
+                        },
+                    }
+                )
+            # Starting a replacement ends every previous debug interview for
+            # this developer. Normal saved interviews are never selected here.
+            cleanup_owned_runtime_sessions(r, uid, keep_latest=False)
+            return _create_runtime_session_response(
+                uid, project, filename, purpose, url_args, request_id
+            )
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "validation_error",
+                    "code": "invalid_runtime_session_request",
+                    "message": str(exc),
+                },
+            },
+            status,
+        )
+    except Exception as exc:
+        return _runtime_operation_failed(request_id, "session", exc)
+
+
+def _create_runtime_session_response(
+    uid: int, project: str, filename: str, purpose: str, url_args: Any, request_id: str
+) -> Response:
+    try:
         yaml_filename = playground_yaml_filename(uid, project, filename)
         # "Run the interview" reaches Docassemble with cache=0, which makes the
         # server bump this index itself. Starting a session through the API
@@ -6615,6 +6730,12 @@ def editor_api_runtime_create_session() -> Response:
             persist_secret=browser_secret is None,
         )
         store_runtime_record(r, record)
+        refresh_runtime_progress(r, record)
+        r.set(
+            "da:alweaver:editor:runtime-session:owner:" + str(uid),
+            record.weaver_session_id,
+        )
+        _schedule_runtime_cleanup(record)
         response = jsonify_with_status(
             {
                 "success": True,
@@ -6656,6 +6777,25 @@ def editor_api_runtime_create_session() -> Response:
             f"{exc!r}\n{traceback.format_exc()}",
             "error",
         )
+        if _runtime_has_no_endpoint(exc):
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "validation_error",
+                        "code": "runtime_no_endpoint",
+                        "message": (
+                            f"Docassemble reached the end of {filename} without "
+                            "a screen to display. If this is an include file, "
+                            "start debugging the main interview that includes it. "
+                            "Standalone interviews need a mandatory flow and "
+                            "an ending screen."
+                        ),
+                    },
+                },
+                422,
+            )
         return jsonify_with_status(
             {
                 "success": False,
@@ -6680,11 +6820,18 @@ def editor_api_runtime_session(weaver_session_id: str) -> Response:
         return _auth_fail(request_id)
     if not _runtime_inspector_enabled():
         return _runtime_disabled(request_id)
-    record = _load_owned_runtime_session(weaver_session_id)
+    try:
+        record = _load_owned_runtime_session(weaver_session_id)
+    except Exception as exc:
+        return _runtime_operation_failed(request_id, "session", exc)
     if record is None:
         return _runtime_not_found(request_id)
     if request.method == "DELETE":
-        delete_runtime_record(r, weaver_session_id, _current_user_id())
+        try:
+            with runtime_session_lock(r, weaver_session_id):
+                close_runtime_session(r, record)
+        except Exception as exc:
+            return _runtime_operation_failed(request_id, "delete", exc)
         return jsonify(
             {"success": True, "request_id": request_id, "data": {"deleted": True}}
         )
@@ -6711,7 +6858,10 @@ def editor_api_runtime_variables(weaver_session_id: str) -> Response:
         return _auth_fail(request_id)
     if not _runtime_inspector_enabled():
         return _runtime_disabled(request_id)
-    record = _load_owned_runtime_session(weaver_session_id)
+    try:
+        record = _load_owned_runtime_session(weaver_session_id)
+    except Exception as exc:
+        return _runtime_operation_failed(request_id, "session", exc)
     if record is None:
         return _runtime_not_found(request_id)
     try:
@@ -6838,7 +6988,10 @@ def editor_api_runtime_question(weaver_session_id: str) -> Response:
         return _auth_fail(request_id)
     if not _runtime_inspector_enabled():
         return _runtime_disabled(request_id)
-    record = _load_owned_runtime_session(weaver_session_id)
+    try:
+        record = _load_owned_runtime_session(weaver_session_id)
+    except Exception as exc:
+        return _runtime_operation_failed(request_id, "session", exc)
     if record is None:
         return _runtime_not_found(request_id)
     try:
@@ -6864,7 +7017,10 @@ def editor_api_runtime_back(weaver_session_id: str) -> Response:
         return _auth_fail(request_id)
     if not _runtime_inspector_enabled():
         return _runtime_disabled(request_id)
-    record = _load_owned_runtime_session(weaver_session_id)
+    try:
+        record = _load_owned_runtime_session(weaver_session_id)
+    except Exception as exc:
+        return _runtime_operation_failed(request_id, "session", exc)
     if record is None:
         return _runtime_not_found(request_id)
     try:
@@ -6891,7 +7047,10 @@ def editor_api_runtime_action(weaver_session_id: str, action_name: str) -> Respo
         return _auth_fail(request_id)
     if not _runtime_inspector_enabled():
         return _runtime_disabled(request_id)
-    record = _load_owned_runtime_session(weaver_session_id)
+    try:
+        record = _load_owned_runtime_session(weaver_session_id)
+    except Exception as exc:
+        return _runtime_operation_failed(request_id, "session", exc)
     if record is None:
         return _runtime_not_found(request_id)
     if action_name not in RUNTIME_INSPECTION_ACTIONS:

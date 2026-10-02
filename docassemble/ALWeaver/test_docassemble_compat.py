@@ -105,6 +105,170 @@ class TestDocassembleCompatibilityInterface(unittest.TestCase):
         action_call = next(call for call in self.calls if call[0] == "action")
         self.assertTrue(action_call[2]["read_only"])
 
+    def test_debug_cleanup_uses_normal_deletion_and_releases_lock_on_failure(self):
+        from unittest.mock import Mock
+
+        delete = Mock()
+        lock = Mock()
+        unlock = Mock()
+        values = {
+            "user_interviews": delete,
+            "obtain_lock": lock,
+            "release_lock": unlock,
+        }
+        target = docassemble_compat.TargetSession(
+            "docassemble.playground7:main.yml", "owned-debug-id"
+        )
+        with patch.object(
+            docassemble_compat,
+            "_first_webapp_attr",
+            side_effect=lambda candidates, purpose: values[candidates[0][1]],
+        ):
+            docassemble_compat.delete_target_session(target, 7)
+            delete.assert_called_once_with(
+                action="delete",
+                filename=target.yaml_filename,
+                session=target.session_id,
+                user_id=7,
+                delete_shared=True,
+                admin=True,
+            )
+            lock.assert_called_once_with(target.session_id, target.yaml_filename)
+            unlock.assert_called_once_with(target.session_id, target.yaml_filename)
+            unlock.reset_mock()
+            delete.side_effect = RuntimeError("database unavailable")
+            with self.assertRaises(RuntimeError):
+                docassemble_compat.delete_target_session(target, 7)
+            unlock.assert_called_once_with(target.session_id, target.yaml_filename)
+
+    def test_19_worker_cleanup_deletes_without_importing_interview_server(self):
+        from unittest.mock import Mock
+
+        redis = Mock()
+        redis.get.return_value = None
+        reset_user_dict = Mock(side_effect=lambda *args, **kwargs: redis.locked())
+        target = docassemble_compat.TargetSession(
+            "docassemble.playground7:main.yml", "owned-debug-id"
+        )
+        modules = {
+            "docassemble.webapp.backend": types.SimpleNamespace(
+                reset_user_dict=reset_user_dict
+            ),
+            "docassemble.webapp.daredis": types.SimpleNamespace(r=redis),
+        }
+        searched = []
+
+        def missing_110_helpers(candidates, purpose):
+            searched.extend(module for module, _attribute in candidates)
+            raise docassemble_compat.DocassembleCompatibilityError(purpose)
+
+        saved_server = sys.modules.pop("docassemble.webapp.server", None)
+        try:
+            with (
+                patch.dict(sys.modules, modules),
+                patch.object(
+                    docassemble_compat,
+                    "_first_webapp_attr",
+                    side_effect=missing_110_helpers,
+                ),
+            ):
+                docassemble_compat.delete_target_session(target, 7)
+        finally:
+            if saved_server is not None:
+                sys.modules["docassemble.webapp.server"] = saved_server
+
+        self.assertNotIn("docassemble.webapp.server", searched)
+        self.assertNotIn("docassemble.webapp.server", sys.modules)
+        lock_key = "da:lock:owned-debug-id:docassemble.playground7:main.yml"
+        redis.set.assert_called_once_with(lock_key, 1, ex=4)
+        redis.pipeline.return_value.expire.assert_any_call(
+            "da:session:uid:owned-debug-id:i:docassemble.playground7:main.yml"
+            ":userid:7",
+            12,
+        )
+        reset_user_dict.assert_called_once_with(
+            target.session_id, target.yaml_filename, user_id=7, force=True
+        )
+        # Deletion happens while holding Docassemble's interview lock.
+        self.assertEqual(
+            [
+                name
+                for name, _args, _kwargs in redis.mock_calls
+                if name in ("set", "locked", "delete")
+            ],
+            ["set", "locked", "delete"],
+        )
+        redis.delete.assert_called_once_with(lock_key)
+
+    def test_progress_revision_is_scoped_to_exact_session_without_reading_answers(self):
+        import datetime
+        from sqlalchemy import (
+            create_engine,
+            MetaData,
+            Table,
+            Column,
+            Integer,
+            String,
+            DateTime,
+        )
+
+        engine = create_engine("sqlite://")
+        metadata = MetaData()
+        table = Table(
+            "history",
+            metadata,
+            Column("indexno", Integer, primary_key=True),
+            Column("key", String),
+            Column("filename", String),
+            Column("modtime", DateTime),
+        )
+        metadata.create_all(engine)
+        now = datetime.datetime.now()
+        target = docassemble_compat.TargetSession(
+            "docassemble.playground7:main.yml", "owned-debug-id"
+        )
+        with engine.begin() as connection:
+            connection.execute(
+                table.insert(),
+                [
+                    {
+                        "indexno": 1,
+                        "key": target.session_id,
+                        "filename": target.yaml_filename,
+                        "modtime": now,
+                    },
+                    {
+                        "indexno": 2,
+                        "key": target.session_id,
+                        "filename": target.yaml_filename,
+                        "modtime": now,
+                    },
+                    {
+                        "indexno": 99,
+                        "key": "another-session",
+                        "filename": target.yaml_filename,
+                        "modtime": now,
+                    },
+                ],
+            )
+            db = types.SimpleNamespace(session=connection)
+            with patch.object(
+                docassemble_compat, "_first_webapp_attr", side_effect=[db, table.c]
+            ):
+                self.assertEqual(
+                    docassemble_compat.get_target_session_revision(target), (2, now)
+                )
+            with patch.object(
+                docassemble_compat, "_first_webapp_attr", side_effect=[db, table.c]
+            ):
+                self.assertIsNone(
+                    docassemble_compat.get_target_session_revision(
+                        docassemble_compat.TargetSession(
+                            target.yaml_filename, "missing"
+                        )
+                    )
+                )
+
     def test_raw_action_normalizes_19_server_and_prefers_110_hook(self):
         target = docassemble_compat.TargetSession("pkg:interview.yml", "session-123")
         result = docassemble_compat.run_target_action_raw(

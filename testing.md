@@ -139,8 +139,94 @@ The output contains editor and live interview screenshots plus `results.json`.
 Template insertion and reference checks are scoped to the active YAML file;
 advanced templates remain editable in YAML mode.
 
+## Debugger sample filler regression
+
+`scripts/editor_fake_filler_smoketest.js` imports the Affidavit of Indigency and
+Security Deposit Demand Letter interviews from `~/all_interviews/repos` into
+disposable Playground projects. It uses the actual debugger button to advance
+through address and currency screens, checks the first click never submits,
+and checks the second uses normal Docassemble submission. Browser fixtures also
+cover existing answers, hidden/disabled/read-only controls, conditional fields,
+checkbox groups, YAML validation limits, file uploads, invalid answers, submitter
+values, and AJAX screen replacement. Debugger browser checks cover collapse
+without losing the iframe, internal configuration and imported typing-name
+filtering (including reveal with Show internal data), search counts,
+inline scalar values (including `False`/zero/empty/`None`), safe text rendering,
+persistent compact checkbox lists (including no selections, disabled controls,
+and no duplicate value dump), Python booleans and
+`None` inside nested values without changing string contents,
+persistent nested expansion, collapse on mobile, and an actionable startup error
+when an include file has no mandatory endpoint. A live text-field fixture checks
+last-four SSN digits against the question's Python `isdigit()` validator and
+minimum/maximum length limits, then checks a submitted checkbox question's real
+DADict against its visual checked states. The live interview walk also checks
+the fill/continue button's size and position before filling and after advancing.
+Docassemble 1.9.x and 1.10.0–1.10.7 hide radios and checkboxes behind
+labelauty's generated labels; 1.10.8 replaced labelauty with CSS. The live
+server covers only the version it runs, so a labelauty check loads 1.9.8's own
+jQuery and labelauty with `git show` from a Docassemble checkout
+(`DOCASSEMBLE_SOURCE`, default `~/docassemble`) and fills 1.9.8-shaped yes/no,
+radio, checkbox-group and "None of the above" markup. It is skipped, with a
+message, when that checkout is unavailable.
+Faker unit checks sample
+100 people/addresses/phones, verify variation and per-object consistency, and
+exercise currency constraints and nationwide state selection. Projects and runtime records are removed
+after success or failure.
+
+Runtime lifecycle regressions cover reconnect without creating a new interview,
+end/replacement deletion, owner isolation, migration of old Redis records,
+30-minute inactivity despite polling, progress before a deadline check, and
+retry after failed database cleanup. Browser checks reload an interview after
+answering, keep its session ID and answers, and verify End removes the session.
+
+To migrate and clean pre-upgrade tracking records, run as `www-data` in the
+Docassemble Python environment:
+
+```bash
+python -m docassemble.ALWeaver.runtime_session_cleanup /usr/share/docassemble/config/config.yml
+```
+
+This only selects tracked Weaver debug interviews, including records written
+before the deadline index existed. It leaves ordinary saved sessions alone.
+
+Use the browser dependencies and authentication variables from the navigation
+regression, or provide `STORAGE_STATE` for an authenticated developer:
+
+```bash
+NODE_PATH=/tmp/alweaver-e2e/node_modules \
+  STORAGE_STATE=/tmp/developer-state.json \
+  node scripts/editor_fake_filler_smoketest.js
+```
+
+`INTERVIEW_ROOT` overrides the local repository collection. `INTERVIEW_CASE`
+can select either package or `fixtures` to skip importing real interviews, and
+`SCREENSHOT_DIR` overrides the default
+`/tmp/alweaver-fake-filler` artifact directory. `results.json` includes screen
+answers and separately records known localhost Docassemble chat initialization
+and unavailable Google Maps errors; other JavaScript errors fail the run.
+The live paths stop before signing and delivery.
+For the localhost database and worker regression, copy
+`scripts/runtime_lifecycle_probe.py` into the Docassemble container at
+`/tmp/alweaver_runtime_probe.py`, then set `CHECK_RUNTIME_DATABASE=1`. Set
+`DOCASSEMBLE_CONTAINER` if its name differs from `admiring_goldwasser`. The probe
+runs as `www-data`, ages only its own test session's progress timestamp, and
+checks real database/Redis deletion by End and by the worker without browser
+polling. An ordinary saved session with the same interview filename must survive.
+It also checks that expiry in an open debugger removes the iframe and enables
+Start debugging. The ordinary fixture is explicitly removed afterward.
+Runtime snapshot failures are recorded separately: localhost's existing
+snapshot API can fail on unanswered address screens, leaving sidebar details
+behind the live interview. The regression verifies filling and submission;
+it does not assert complete step recording when that API fails.
+
 ## Classroom editor load testing
 
 The bounded localhost harness is [scripts/editor_classroom_stress.py](scripts/editor_classroom_stress.py), with a loopback-only, eight-second model fixture in [scripts/editor_stress_model.py](scripts/editor_stress_model.py). It creates individual disposable developer accounts and owned projects, exercises debugger/editor traffic and queued AI drafts, records request latency and cgroup resources, and cleans up fixture accounts. It requires private local admin credentials and a correctly configured localhost web/Celery installation; it does not manage server configuration or the fixture process.
 
 See the [six-minute, fifteen-user report](performance/classroom-2026-09-30.md) for exact setup, cleanup, measurements, test limitations, and committed public result artifacts. That run used an unlimited container on a 15.34 GiB host, so it does not establish an 8 GB deployment's document-generation capacity.
+
+Run Python maintenance or diagnostic scripts inside the Docassemble container as
+`www-data`, using `docker exec --user www-data`. Importing
+`docassemble.webapp.server` runs startup code that rebuilds generated Playground
+module packages. Running that import as root can leave root-owned directories
+that later prevent normal worker startup from copying modules.

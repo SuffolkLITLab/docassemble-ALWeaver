@@ -113,6 +113,40 @@ scenario seeding, and back navigation. Set `weaver: {runtime inspector: false}`
 owner-scoped target sessions and a fixed read-only `al_weaver.inspect_*` action
 allowlist; Docassemble remains the only interview runtime.
 
+In **Debug interview**, click **Fill sample answers** to fill unanswered fields
+on the current screen. The same button changes to **Continue**; click it again
+to submit through the interview's normal validation. Before continuing,
+**Regenerate** replaces the sample answers on that screen with new ones,
+including different choices, while keeping anything you typed or changed. A
+screen with a single yes/no or other radio question gets the other answer each
+time. Each
+new screen resets the buttons. Locally bundled Faker data supplies varied U.S. street addresses, cities,
+state-specific ZIP codes, names, phone numbers, and numeric dollar amounts.
+Blank addresses use states across the country; supplied state defaults are
+preserved. Each person/address keeps its generated data across screens. Numeric
+identifiers such as the last four SSN digits are filled with digit strings, even
+when the question uses a text datatype.
+Existing answers are preserved, and conditional fields revealed by sample
+choices are filled too. File uploads and drawn signatures need manual input.
+
+Use the arrow at the top of the debug details to collapse or reopen them, as
+with the main sidebar.
+Refreshing the page reconnects to the current debug interview. Each developer
+keeps one current debug session; starting another or clicking **End** deletes
+the old interview data. Sessions close after 30 minutes without answer-history
+progress. Refreshing and polling do not extend that deadline. **Clean up old
+sessions** removes older tracked debug sessions while keeping the current one.
+Weaver's Celery worker performs cleanup after tabs close; normal editor use also
+cleans overdue sessions, including on servers without that worker configured.
+Session variables show simple values immediately and expand only objects and
+arrays. Boolean DADicts are labeled **checkboxes** and expand into a compact list
+showing each option's checked state. Values use Python's `True`, `False`, and
+`None`, including nested values.
+Assembly Line configuration and ALKiln helpers are hidden by default;
+check **Show internal data** to include them alongside `_internal`. If an include
+file has no runnable endpoint, the debugger explains why it cannot start and
+directs you to debug the main interview.
+
 ## Shared classroom servers
 
 For a class of about 15 developers on an 8 GB host, this editor reduces ongoing
@@ -125,8 +159,9 @@ work in several ways:
   Refresh and iframe navigation still trigger observations. Fifteen idle visible
   debuggers therefore generate about 1.5 requests/second instead of 30, before
   accounting for request duration. This is a traffic estimate, not a server benchmark.
-- Routine runtime reads renew their Redis lifetime at most once per minute and
-  no longer append poll events. Scenario/action history is retained. The combined
+- Routine runtime reads do not renew idle deadlines or append poll events.
+  A metadata-only database read checks answer-history revisions without
+  decrypting another session. Scenario/action history is retained. The combined
   snapshot still reads the question and simplified variables; it is neither an
   atomic snapshot nor a cheap session-revision check. The variable size limit
   applies after Docassemble has simplified the session.

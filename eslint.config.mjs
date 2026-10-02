@@ -7,6 +7,7 @@ const endpointFiles = [
   'docassemble/ALWeaver/data/static/editor_agent_chat.js',
   'docassemble/ALWeaver/data/static/editor_module_restart.js',
   'docassemble/ALWeaver/data/static/editor_runtime_inspector.js',
+  'docassemble/ALWeaver/data/static/editor_fake_filler.js',
   'docassemble/ALWeaver/data/static/editor_validation_source.js',
   'docassemble/ALWeaver/data/static/editor_dirty_state.js',
   'docassemble/ALWeaver/data/static/editor_html.js',

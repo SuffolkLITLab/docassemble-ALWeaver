@@ -784,6 +784,15 @@ class TestRuntimeSessionFreshness(unittest.TestCase):
             patch.object(
                 api_editor, "bump_interview_source_index", side_effect=bumped.append
             ),
+            # Session bookkeeping is covered by test_editor_runtime_api.
+            patch.object(
+                api_editor,
+                "cleanup_owned_runtime_sessions",
+                return_value={"session": None},
+            ),
+            patch.object(api_editor, "store_runtime_record"),
+            patch.object(api_editor, "refresh_runtime_progress"),
+            patch.object(api_editor, "_schedule_runtime_cleanup"),
             patch.object(
                 api_editor,
                 "create_target_session",

@@ -5,11 +5,42 @@ from typing import Any, Dict, Mapping, Optional
 from .api_utils import generate_interview_from_bytes
 from .docassemble_compat import (
     background_context as bg_context,
+    DocassembleCompatibilityError,
     get_worker_app,
     github_publish_context,
+    runtime_cleanup_context,
 )
 
 workerapp = get_worker_app()
+
+
+@workerapp.task(
+    name="docassemble.ALWeaver.api_weaver_worker.weaver_cleanup_runtime_session_task",
+    autoretry_for=(Exception,),
+    # A rejected or unreadable record (ValueError/TypeError) or a missing
+    # Docassemble capability fails the same way on every attempt.
+    dont_autoretry_for=(ValueError, TypeError, DocassembleCompatibilityError),
+    retry_backoff=60,
+    retry_backoff_max=300,
+    retry_kwargs={"max_retries": 3},
+)
+def weaver_cleanup_runtime_session_task(*, session_id: str, owner_user_id: int) -> None:
+    """Clean up idle debug interviews even after their browser has closed."""
+    with runtime_cleanup_context():
+        from .docassemble_compat import get_redis_client
+        from .runtime_sessions import (
+            get_live_runtime_record,
+            schedule_runtime_cleanup,
+            RUNTIME_SESSION_KEY_PREFIX,
+        )
+
+        redis_client = get_redis_client()
+        redis_client.delete(RUNTIME_SESSION_KEY_PREFIX + session_id + ":cleanup-queued")
+        record = get_live_runtime_record(redis_client, session_id, owner_user_id)
+        if record is not None:
+            # Progress postpones the deadline; polling/reloads do not. Keep one
+            # cleanup task per session rather than enqueueing one on every read.
+            schedule_runtime_cleanup(redis_client, record)
 
 
 @workerapp.task

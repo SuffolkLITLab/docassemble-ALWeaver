@@ -7,6 +7,160 @@ assert.deepStrictEqual(
   runtime.filterVariables({ zebra: 1, Alpha: 2, beta: 3 }, 'a'),
   { Alpha: 2, beta: 3, zebra: 1 },
 );
+const configNames = [
+  'AL_ORGANIZATION_TITLE',
+  'AL_ORGANIZATION_HOMEPAGE',
+  'AL_DEFAULT_COUNTRY',
+  'AL_DEFAULT_STATE',
+  'AL_DEFAULT_LANGUAGE',
+  'AL_DEFAULT_OVERFLOW_MESSAGE',
+  'interview_metadata',
+  'addresses_to_search',
+  'allowed_courts',
+  'al_logo',
+  'al_form_requires_digital_signature',
+  'al_typed_signature_prefix',
+  'al_typed_signature_font',
+  'al_form_type',
+  'al_person_answering',
+  'github_repo_name',
+  'github_user',
+  'enable_al_language',
+  'al_user_default_language',
+  'al_interview_languages',
+  'al_user_language',
+  'al_menu_items_custom_items',
+  'signature_fields',
+  'feedback_form',
+  'multi_user',
+  'nav',
+  'speak_text',
+  'package_version_number',
+  'al_session_store_default_filename',
+  'al_sessions_interview_title',
+  'al_terms_of_use',
+  'al_name_suffixes',
+  'al_name_titles',
+  'alkiln_trigger_html',
+  'alkiln_proxy_html',
+  '_alkiln_generated',
+  '_internal',
+];
+const config = Object.fromEntries(configNames.map((name) => [name, true]));
+const importedTypes = {
+  List: null,
+  Optional: null,
+  Any: null,
+  Dict: null,
+  Tuple: null,
+  Union: null,
+  Callable: null,
+  TypedDict: null,
+  TypeVar: null,
+};
+const answers = {
+  users: [{ name: 'Pat' }],
+  trial_court: 'Boston',
+  user_ask_role: 'plaintiff',
+  user_role: 'plaintiff',
+  user_started_case: true,
+  al_custom_answer: 0,
+  al_user_bundle: {},
+  feedback: 'My answer',
+  ListOfClaims: ['One claim'],
+  OptionalAnswer: 'Keep this answer',
+};
+assert.deepStrictEqual(
+  runtime.filterVariables({ ...config, ...importedTypes, ...answers }, ''),
+  answers,
+);
+assert.deepStrictEqual(runtime.filterVariables(config, '', true), config);
+assert.deepStrictEqual(runtime.filterVariables(importedTypes, ''), {});
+assert.deepStrictEqual(
+  runtime.filterVariables(importedTypes, '', true),
+  importedTypes,
+);
+assert.deepStrictEqual(runtime.filterVariables(importedTypes, 'optional'), {});
+assert.deepStrictEqual(
+  runtime.filterVariables(importedTypes, 'optional', true),
+  { Optional: null },
+);
+assert.deepStrictEqual(runtime.filterVariables(config, 'feedback'), {});
+assert.deepStrictEqual(runtime.filterVariables(config, 'feedback', true), {
+  feedback_form: true,
+});
+assert.ok(runtime.isInternalVariable('nav.sections'));
+assert.ok(runtime.isInternalVariable('interview_metadata["form"]'));
+for (const value of [null, false, 0, '', 'answer'])
+  assert.equal(runtime.isNestedValue(value), false);
+for (const value of [{}, [], { nested: true }])
+  assert.equal(runtime.isNestedValue(value), true);
+assert.equal(runtime.simpleValue(null), 'None');
+assert.equal(runtime.simpleValue(undefined), 'None');
+assert.equal(runtime.simpleValue(false), 'False');
+assert.equal(runtime.simpleValue(true), 'True');
+assert.equal(runtime.simpleValue(0), '0');
+assert.equal(runtime.simpleValue(''), '\"\"');
+assert.equal(runtime.simpleValue('<b>answer</b>'), '<b>answer</b>');
+
+// Match Docassemble's serialized DADict, including its non-choice metadata.
+const benefits = {
+  _class: 'docassemble.base.util.DADict',
+  instanceName: 'benefits',
+  elements: { SNAP: true, SSI: false, TAFDC: true },
+  auto_gather: true,
+  ask_number: false,
+  minimum_number: null,
+  object_type: null,
+  object_type_parameters: {},
+  complete_attribute: null,
+  ask_object_type: false,
+};
+assert.deepStrictEqual(runtime.checkboxValues(benefits), benefits.elements);
+assert.equal(runtime.variableType(benefits), 'checkboxes');
+assert.equal(runtime.variablePreview(benefits), 'Checked: SNAP, TAFDC');
+assert.deepStrictEqual(runtime.checkboxValues({ SNAP: false }), {
+  SNAP: false,
+});
+assert.equal(runtime.variablePreview({ SNAP: false }), 'None checked');
+for (const value of [
+  null,
+  {},
+  [],
+  [true, false],
+  { SNAP: true, income: 42 },
+  { _class: 'docassemble.base.util.DADict', elements: {} },
+  { _class: 'docassemble.base.util.DADict', elements: { name: 'Pat' } },
+  { _class: 'docassemble.base.util.DAObject', elements: { SNAP: true } },
+])
+  assert.equal(runtime.checkboxValues(value), null);
+assert.equal(
+  runtime.variableType({ ...benefits, elements: { name: 'Pat' } }),
+  'DADict',
+);
+assert.equal(runtime.variableType(null), 'NoneType');
+assert.equal(runtime.variableType(true), 'bool');
+assert.equal(runtime.variableType('answer'), 'str');
+assert.equal(runtime.variableType([]), 'list');
+assert.equal(runtime.variableType({}), 'dict');
+assert.equal(runtime.pythonValue(undefined), 'None');
+assert.equal(runtime.variablePreview(false), 'False');
+assert.equal(runtime.variablePreview(null), 'None');
+assert.equal(
+  runtime.pythonValue({
+    true: 'true',
+    null: 'null',
+    false: 'false',
+    escaped: '"true"\\null',
+    nested: [true, false, null],
+  }),
+  '{"true":"true","null":"null","false":"false","escaped":"\\"true\\"\\\\null","nested":[True,False,None]}',
+);
+assert.equal(
+  runtime.pythonValue([true, false, null], true),
+  '[\n  True,\n  False,\n  None\n]',
+);
+
 assert.deepStrictEqual(
   runtime.changedVariableNames(
     { unchanged: 1, changed: 'old', removed: true },
@@ -169,6 +323,9 @@ async function testHideStopsPollingAndBlocksPendingRepaint() {
       clientHeight: 0,
       textContent: '',
       classList: { toggle() {}, add() {} },
+      querySelectorAll() {
+        return [];
+      },
       appendChild() {},
       setAttribute() {},
       addEventListener() {},
@@ -193,6 +350,8 @@ async function testHideStopsPollingAndBlocksPendingRepaint() {
     },
   };
   const frame = { closest: () => wrapper };
+  const previousFiller = global.ALWeaverFakeFiller;
+  global.ALWeaverFakeFiller = { createController: () => ({ dispose() {} }) };
   let canvasQueries = 0;
   const container = {
     querySelector(selector) {
@@ -286,6 +445,7 @@ async function testHideStopsPollingAndBlocksPendingRepaint() {
     'activity restores five second polling',
   );
   inspector.hide();
+  global.ALWeaverFakeFiller = previousFiller;
 }
 
 testHideStopsPollingAndBlocksPendingRepaint()
