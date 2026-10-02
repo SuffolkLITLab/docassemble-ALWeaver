@@ -117,7 +117,9 @@ In **Debug interview**, click **Fill sample answers** to fill unanswered fields
 on the current screen. The same button changes to **Continue**; click it again
 to submit through the interview's normal validation. Before continuing,
 **Regenerate** replaces the sample answers on that screen with new ones,
-including different choices, while keeping anything you typed or changed. Each
+including different choices, while keeping anything you typed or changed. A
+screen with a single yes/no or other radio question gets the other answer each
+time. Each
 new screen resets the buttons. Locally bundled Faker data supplies varied U.S. street addresses, cities,
 state-specific ZIP codes, names, phone numbers, and numeric dollar amounts.
 Blank addresses use states across the country; supplied state defaults are

@@ -161,6 +161,13 @@ last-four SSN digits against the question's Python `isdigit()` validator and
 minimum/maximum length limits, then checks a submitted checkbox question's real
 DADict against its visual checked states. The live interview walk also checks
 the fill/continue button's size and position before filling and after advancing.
+Docassemble 1.9.x and 1.10.0–1.10.7 hide radios and checkboxes behind
+labelauty's generated labels; 1.10.8 replaced labelauty with CSS. The live
+server covers only the version it runs, so a labelauty check loads 1.9.8's own
+jQuery and labelauty with `git show` from a Docassemble checkout
+(`DOCASSEMBLE_SOURCE`, default `~/docassemble`) and fills 1.9.8-shaped yes/no,
+radio, checkbox-group and "None of the above" markup. It is skipped, with a
+message, when that checkout is unavailable.
 Faker unit checks sample
 100 people/addresses/phones, verify variation and per-object consistency, and
 exercise currency constraints and nationwide state selection. Projects and runtime records are removed

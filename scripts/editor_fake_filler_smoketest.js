@@ -228,12 +228,191 @@ async function browserChecks(context) {
     generatedStates.size > 15,
     'blank standard addresses vary nationwide',
   );
+  // A screen with one yes/no question flips its answer on every regenerate,
+  // even a list question that the first fill answers No to finish the list.
+  await frame.locator('body').evaluate((body) => {
+    const name = btoa('children.there_are_any');
+    body.innerHTML =
+      '<form id="daform">' +
+      `<label>Explain <input name="${btoa('explanation')}"></label>` +
+      `<label><input type="radio" name="${name}" value="True">Yes</label>` +
+      `<label><input type="radio" name="${name}" value="False">No</label>` +
+      '<button type="submit">Next</button></form>';
+  });
+  await expect(button).toHaveText('Fill sample answers');
+  await button.click();
+  const answer = () =>
+    frame.locator('input[type=radio]:checked').evaluate((radio) => radio.value);
+  assert.equal(await answer(), 'False');
+  for (const expected of ['True', 'False', 'True', 'False']) {
+    await regenerate.click();
+    assert.equal(await answer(), expected);
+  }
   await frame.locator('#daform').evaluate((form) => form.remove());
   await expect(button).toBeDisabled();
   await page.evaluate(() => window.controller.dispose());
   await page.close();
   console.log(
     'PASS browser controls: preserved answers, conditional fields, validation, files, constraints, submitter values, AJAX reset',
+  );
+}
+
+// Docassemble 1.9.x and 1.10.0-1.10.7 hide radios and checkboxes behind
+// labelauty's generated labels; 1.10.8 replaced that with CSS. Exercise the
+// older DOM with 1.9.8's own jQuery and labelauty from a docassemble checkout.
+async function labelautyChecks(context) {
+  const repo =
+    process.env.DOCASSEMBLE_SOURCE ||
+    path.join(process.env.HOME, 'docassemble');
+  const legacy = (file) =>
+    execFileSync(
+      'git',
+      [
+        '-C',
+        repo,
+        'show',
+        `v1.9.8:docassemble_webapp/docassemble/webapp/static/${file}`,
+      ],
+      { encoding: 'utf8', maxBuffer: 1 << 24 },
+    );
+  let jquery;
+  let labelauty;
+  try {
+    jquery = legacy('app/jquery.min.js');
+    labelauty = legacy('labelauty/source/jquery-labelauty.js');
+  } catch {
+    console.log(
+      `SKIP labelauty (1.9.x): no docassemble checkout with v1.9.8 at ${repo}; set DOCASSEMBLE_SOURCE`,
+    );
+    return;
+  }
+  const page = await context.newPage();
+  await page.goto(`${server}/al/editor`);
+  await page.setContent(
+    '<button id="regenerate" hidden>Regenerate</button><button id="fill">Fill sample answers</button><p id="status"></p><iframe title="Test interview" id="frame"></iframe>',
+  );
+  // Markup in the shape of 1.9.8's standardformatter.
+  const radio = (name, value, label, index) =>
+    `<input aria-label="${label}" alt="${label}" data-color="primary" data-labelauty="${label}|${label}" class="da-to-labelauty" id="${name}_${index}" name="${name}" type="radio" value="${value}"/>`;
+  const box = (name, label, extra = 'danon-nota-checkbox') =>
+    `<input aria-label="${label}" alt="${label}" data-color="primary" data-labelauty="${label}|${label}" class="dafield1 ${extra} da-to-labelauty checkbox-icon" id="${name}" name="${name}" type="checkbox" value="True"/>`;
+  const screens = {
+    yesno:
+      `<label>Explain <input name="${btoa('explanation')}"></label>` +
+      `<div class="da-field-group da-field-radio">${radio(btoa('children.there_are_any'), 'True', 'Yes', 0)}${radio(btoa('children.there_are_any'), 'False', 'No', 1)}</div>`,
+    choices:
+      `<div class="da-field-group da-field-radio">${['red', 'green', 'blue'].map((color, index) => radio(btoa('color'), color, color, index)).join('')}</div>` +
+      `<div class="da-field-group da-field-radio">${['small', 'large'].map((size, index) => radio(btoa('size'), size, size, index)).join('')}</div>` +
+      `<div class="da-field-group da-field-checkboxes">${box(btoa('benefits[B"SNAP"]'), 'SNAP')}${box(btoa('benefits[B"SSI"]'), 'SSI')}${box('_ignore1', 'None of the above', 'danota-checkbox')}</div>` +
+      `<div class="da-field-group da-field-checkbox">${box(btoa('agrees'), 'I agree', '')}</div>`,
+  };
+  const frameHandle = await page.locator('#frame').elementHandle();
+  const load = async (screen) => {
+    await page.locator('#frame').evaluate((frame, html) => {
+      frame.srcdoc = `<form id="daform">${html}<button type="submit">Next</button></form>`;
+    }, screens[screen]);
+    const frame = await frameHandle.contentFrame();
+    await frame.waitForSelector('#daform');
+    await frame.addScriptTag({ content: jquery });
+    await frame.addScriptTag({ content: labelauty });
+    await frame.evaluate(() => {
+      $('.da-to-labelauty').labelauty({
+        class: 'labelauty da-active-invisible dafullwidth',
+      });
+    });
+    return frame;
+  };
+  let frame = await load('yesno');
+  for (const file of ['faker_en_us.js', 'editor_fake_filler.js'])
+    await page.addScriptTag({
+      path: path.join(__dirname, '../docassemble/ALWeaver/data/static', file),
+    });
+  await page.evaluate(() => {
+    window.controller = window.ALWeaverFakeFiller.createController(
+      document.querySelector('#frame'),
+      document.querySelector('#fill'),
+      (message) => {
+        document.querySelector('#status').textContent = message;
+      },
+      document.querySelector('#regenerate'),
+    );
+  });
+  // The native inputs are hidden; only labelauty's labels are visible.
+  assert.equal(
+    await frame.$eval(
+      'input[type=radio]',
+      (input) => getComputedStyle(input).display,
+    ),
+    'none',
+  );
+  const button = page.locator('#fill');
+  const regenerate = page.locator('#regenerate');
+  const shown = () =>
+    frame.$$eval('input[type=radio]', (inputs) =>
+      inputs.map(
+        (input) =>
+          `${input.value}:${input.checked}:${input.nextElementSibling.getAttribute('aria-checked')}`,
+      ),
+    );
+  await button.click();
+  // labelauty's change handlers keep each label in step with its input.
+  assert.deepEqual(await shown(), ['True:false:false', 'False:true:true']);
+  for (const expected of [
+    ['True:true:true', 'False:false:false'],
+    ['True:false:false', 'False:true:true'],
+    ['True:true:true', 'False:false:false'],
+  ]) {
+    await regenerate.click();
+    assert.deepEqual(await shown(), expected);
+  }
+  frame = await load('choices');
+  await expect(button).toHaveText('Fill sample answers');
+  await button.click();
+  const checked = () =>
+    frame.$$eval('input:checked', (inputs) =>
+      inputs.map((input) =>
+        atob(input.name.replace(/^_ignore1$/, btoa('none'))),
+      ),
+    );
+  const first = await checked();
+  assert.deepEqual(
+    first.filter((name) => name !== 'color' && name !== 'size'),
+    ['benefits[B"SNAP"]', 'agrees'],
+  );
+  assert.equal(
+    await frame.$eval('#_ignore1', (input) =>
+      input.nextElementSibling.getAttribute('aria-checked'),
+    ),
+    'false',
+    'None of the above is never chosen',
+  );
+  const colors = new Set();
+  for (let i = 0; i < 15; i += 1) {
+    await regenerate.click();
+    colors.add(
+      await frame.$eval(
+        `[name="${btoa('color')}"]:checked`,
+        (input) => input.value,
+      ),
+    );
+    assert.equal(
+      await frame.$$eval(
+        'input.labelauty',
+        (inputs) =>
+          inputs.filter(
+            (input) =>
+              String(input.checked) !==
+              input.nextElementSibling.getAttribute('aria-checked'),
+          ).length,
+      ),
+      0,
+    );
+  }
+  assert.deepEqual([...colors].sort(), ['blue', 'green', 'red']);
+  await page.evaluate(() => window.controller.dispose());
+  await page.close();
+  console.log(
+    'PASS labelauty (1.9.x): hidden inputs fill through their labels, labels stay in step, yes/no flips, None of the above is skipped',
   );
 }
 
@@ -869,6 +1048,7 @@ async function main() {
     }
     csrf = await page.evaluate(() => window.__EDITOR_BOOTSTRAP__.csrfToken);
     await browserChecks(context);
+    await labelautyChecks(context);
     await debuggerChecks(context);
     await noEndpointCheck(page, post);
     await digitIdentifierCheck(page, post);

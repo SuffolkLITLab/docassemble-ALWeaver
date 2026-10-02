@@ -443,21 +443,32 @@
         })
       )
         return 0;
-      // Finish list gathering instead of endlessly creating another item.
       var choice = field;
-      if (/there_is_another|there_are_any/.test(info.variable))
+      if (vary) {
+        // Regenerating asks for different answers, list questions included.
+        var others = group.filter(function (item) {
+          return item.value !== vary.avoid[field.name];
+        });
+        choice = faker.helpers.arrayElement(others.length ? others : group);
+      } else if (/there_is_another|there_are_any/.test(info.variable))
+        // Finish list gathering instead of endlessly creating another item.
         choice =
           group.find(function (item) {
             return item.value === 'False';
           }) || field;
-      else if (vary) choice = faker.helpers.arrayElement(group);
       choice.checked = true;
       filled.set(choice, written(choice));
       notify(choice);
       return 1;
     }
     if (field.type === 'checkbox') {
-      if (field.checked || field.classList.contains('danone')) return 0;
+      // Never choose "None of the above" or "All of the above" (1.9 and 1.10).
+      if (
+        field.checked ||
+        field.classList.contains('danota-checkbox') ||
+        field.classList.contains('daaota-checkbox')
+      )
+        return 0;
       var container = field.closest(
         '.da-field-checkboxes, .da-field-object_checkboxes',
       );
@@ -530,6 +541,21 @@
     samples = samples || formSamples.get(form) || createSampleData();
     var filled = formFilled.get(form) || new Map();
     formFilled.set(form, new Map());
+    // A screen asking one question, like a yes/no, always gets another answer.
+    var radios = Array.from(
+      form.querySelectorAll('input[type="radio"]'),
+    ).filter(visible);
+    var avoid = {};
+    var checked = radios.find(function (radio) {
+      return radio.checked;
+    });
+    if (
+      checked &&
+      radios.every(function (radio) {
+        return radio.name === checked.name;
+      })
+    )
+      avoid[checked.name] = checked.value;
     filled.forEach(function (value, field) {
       if (!field.isConnected || written(field) !== value) return;
       samples.forget(fieldInfo(field, names, types).variable);
@@ -539,7 +565,7 @@
       else field.value = '';
       notify(field);
     });
-    return fillForm(form, samples, true);
+    return fillForm(form, samples, { avoid: avoid });
   }
 
   function submitButton(form) {
