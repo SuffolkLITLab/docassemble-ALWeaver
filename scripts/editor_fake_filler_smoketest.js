@@ -44,7 +44,7 @@ async function browserChecks(context) {
   const page = await context.newPage();
   await page.goto(`${server}/al/editor`);
   await page.setContent(
-    '<button id="fill">Fill sample answers</button><p id="status"></p><iframe title="Test interview" id="frame"></iframe>',
+    '<button id="regenerate" hidden>Regenerate</button><button id="fill">Fill sample answers</button><p id="status"></p><iframe title="Test interview" id="frame"></iframe>',
   );
   await page.locator('#frame').evaluate((frame) => {
     frame.srcdoc = `<form id="daform">
@@ -59,6 +59,8 @@ async function browserChecks(context) {
       <div id="conditional" style="display:none"><label>Details <textarea name="details"></textarea></label></div>
       <div class="da-field-checkboxes"><label><input type="checkbox" name="option1">Option one</label><label><input type="checkbox" name="option2">Option two</label><label><input class="danota-checkbox" type="checkbox" name="none">None</label></div>
       <label>Country <select name="country"><option value="">Choose</option><option value="CA">Canada</option><option value="US">United States</option></select></label>
+      <label>Size <select name="size"><option value="">Choose</option><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option></select></label>
+      <label><input type="radio" name="color" value="red">Red</label><label><input type="radio" name="color" value="green">Green</label><label><input type="radio" name="color" value="blue">Blue</label>
       <label>Upload <input type="file" name="upload" required></label>
       <button type="submit" name="done" value="True">Next</button>
     </form>`;
@@ -102,10 +104,14 @@ async function browserChecks(context) {
       (message) => {
         document.querySelector('#status').textContent = message;
       },
+      document.querySelector('#regenerate'),
     );
   });
   const button = page.locator('#fill');
+  const regenerate = page.locator('#regenerate');
+  await expect(regenerate).toBeHidden();
   await button.click();
+  await expect(regenerate).toBeVisible();
   await expect(button).toHaveText('Continue');
   await expect(frame.locator('[name=name]')).toHaveValue('Keep my answer');
   await expect(frame.locator('[name=secret]')).toHaveValue('unchanged');
@@ -121,6 +127,34 @@ async function browserChecks(context) {
   await expect(frame.locator('[name=country]')).toHaveValue('US');
   await expect(frame.locator('[name=upload]')).toHaveValue('');
   await expect(page.locator('#status')).toContainText('Choose a file manually');
+  // Regenerate replaces only the sample answers, including an edited one.
+  await frame.locator('[name=short]').fill('mine');
+  const firstEmail = await frame.locator('[name=email]').inputValue();
+  const sizes = new Set();
+  const colors = new Set();
+  for (let i = 0; i < 15; i += 1) {
+    await regenerate.click();
+    sizes.add(await frame.locator('[name=size]').inputValue());
+    colors.add(
+      await frame
+        .locator('[name=color]:checked')
+        .evaluate((radio) => radio.value),
+    );
+  }
+  await expect(button).toHaveText('Continue');
+  await expect(page.locator('#status')).toContainText('New sample answers');
+  assert.notEqual(await frame.locator('[name=email]').inputValue(), firstEmail);
+  await expect(frame.locator('[name=name]')).toHaveValue('Keep my answer');
+  await expect(frame.locator('[name=secret]')).toHaveValue('unchanged');
+  await expect(frame.locator('[name=short]')).toHaveValue('mine');
+  await expect(frame.locator('[name=details]')).not.toHaveValue('');
+  await expect(frame.locator('[name=option1]')).toBeChecked();
+  const regenerated = Number(await frame.locator('[name=income]').inputValue());
+  assert.ok(regenerated >= 10 && regenerated <= 25);
+  // Address parts keep their address's values; other choices vary.
+  await expect(frame.locator('[name=country]')).toHaveValue('US');
+  assert.deepEqual([...sizes].sort(), ['large', 'medium', 'small']);
+  assert.deepEqual([...colors].sort(), ['blue', 'green', 'red']);
   await frame.locator('[name=option1]').uncheck();
   await button.click();
   await expect(frame.locator('[name=option1]')).not.toBeChecked();
@@ -150,6 +184,7 @@ async function browserChecks(context) {
   await frame.locator('[name=email]').fill('alex@example.com');
   await button.click();
   await expect(button).toHaveText('Fill sample answers');
+  await expect(regenerate).toBeHidden();
   assert.equal(
     await frame.locator('body').evaluate(() => window.submitter),
     'True',

@@ -27,12 +27,14 @@
         ? variable.slice(0, marker + 8)
         : variable.replace(/\.[^.]+$/, '');
     }
-    function person(variable) {
+    function personKey(variable) {
       var marker = variable.indexOf('.name');
-      var key =
-        marker >= 0
-          ? variable.slice(0, marker)
-          : variable.replace(/\.[^.]+$/, '');
+      return marker >= 0
+        ? variable.slice(0, marker)
+        : variable.replace(/\.[^.]+$/, '');
+    }
+    function person(variable) {
+      var key = personKey(variable);
       if (!people.has(key))
         people.set(key, {
           first: faker.person.firstName(),
@@ -94,9 +96,19 @@
         );
       return phones.get(variable);
     }
+    function dateKey(variable) {
+      return variable.slice(0, variable.lastIndexOf('.'));
+    }
+    /** Drop what was generated for a variable so the next value is new. */
+    function forget(variable) {
+      people.delete(personKey(variable));
+      addresses.delete(addressKey(variable));
+      phones.delete(variable);
+      dates.delete(dateKey(variable));
+    }
     /** One part of a three-part date; all parts come from one past date. */
     function datePart(variable, part) {
-      var key = variable.slice(0, variable.lastIndexOf('.'));
+      var key = dateKey(variable);
       if (!dates.has(key)) {
         var generated = /birth|dob/.test(key)
           ? birthDate()
@@ -117,11 +129,22 @@
       address: address,
       phone: phone,
       datePart: datePart,
+      forget: forget,
       seedAddress: seedAddress,
     };
   }
 
   var formSamples = new WeakMap();
+  // The controls each form's sample answers were written into, and what was
+  // written, so regenerating replaces those but never the author's answers,
+  // including a sample value they have since edited.
+  var formFilled = new WeakMap();
+
+  function written(field) {
+    return field.type === 'radio' || field.type === 'checkbox'
+      ? String(field.checked)
+      : field.value;
+  }
 
   function decode(value, view) {
     try {
@@ -366,7 +389,7 @@
     });
   }
 
-  function fillSelect(field, info, samples) {
+  function fillSelect(field, info, samples, filled, vary) {
     if (
       field.multiple
         ? Array.from(field.selectedOptions).some(function (option) {
@@ -395,17 +418,19 @@
           text === stateName ||
           (preferred === 'us' && text === 'united states')
         );
-      }) || options[0];
+      }) || (vary ? faker.helpers.arrayElement(options) : options[0]);
     if (!option) return 0;
     option.selected = true;
+    filled.set(field, written(field));
     notify(field);
     return 1;
   }
 
-  function fillField(field, form, names, types, samples) {
+  function fillField(field, form, names, types, samples, filled, vary) {
     if (!visible(field)) return 0;
     var info = fieldInfo(field, names, types);
-    if (field.tagName === 'SELECT') return fillSelect(field, info, samples);
+    if (field.tagName === 'SELECT')
+      return fillSelect(field, info, samples, filled, vary);
     if (field.type === 'radio') {
       var group = Array.from(
         form.querySelectorAll('input[type="radio"]'),
@@ -419,12 +444,15 @@
       )
         return 0;
       // Finish list gathering instead of endlessly creating another item.
-      var choice = /there_is_another|there_are_any/.test(info.variable)
-        ? group.find(function (item) {
+      var choice = field;
+      if (/there_is_another|there_are_any/.test(info.variable))
+        choice =
+          group.find(function (item) {
             return item.value === 'False';
-          }) || field
-        : field;
+          }) || field;
+      else if (vary) choice = faker.helpers.arrayElement(group);
       choice.checked = true;
+      filled.set(choice, written(choice));
       notify(choice);
       return 1;
     }
@@ -435,6 +463,7 @@
       );
       if (container && container.querySelector('input:checked')) return 0;
       field.checked = true;
+      filled.set(field, written(field));
       notify(field);
       return 1;
     }
@@ -444,15 +473,18 @@
     )
       return 0;
     field.value = limitLength(field, sampleValue(field, info, samples));
+    filled.set(field, written(field));
     notify(field);
     return 1;
   }
 
-  function fillForm(form, samples) {
+  function fillForm(form, samples, vary) {
     var names = metadata(form, '_varnames');
     var types = metadata(form, '_datatypes');
     samples = samples || formSamples.get(form) || createSampleData();
     formSamples.set(form, samples);
+    var filled = formFilled.get(form) || new Map();
+    formFilled.set(form, filled);
     // Respect supplied address parts, especially the interview's state default.
     var fields = Array.from(form.querySelectorAll('input, textarea, select'));
     fields.sort(function (left, right) {
@@ -476,7 +508,7 @@
       var count = 0;
       Array.from(form.querySelectorAll('input, textarea, select')).forEach(
         function (field) {
-          count += fillField(field, form, names, types, samples);
+          count += fillField(field, form, names, types, samples, filled, vary);
         },
       );
       total += count;
@@ -490,6 +522,26 @@
     return { count: total, manual: manual };
   }
 
+  /** Replace this form's sample answers with new ones. Choices vary too, so
+   * an author can reach a different branch; their own answers are kept. */
+  function regenerateForm(form, samples) {
+    var names = metadata(form, '_varnames');
+    var types = metadata(form, '_datatypes');
+    samples = samples || formSamples.get(form) || createSampleData();
+    var filled = formFilled.get(form) || new Map();
+    formFilled.set(form, new Map());
+    filled.forEach(function (value, field) {
+      if (!field.isConnected || written(field) !== value) return;
+      samples.forget(fieldInfo(field, names, types).variable);
+      if (field.type === 'radio' || field.type === 'checkbox')
+        field.checked = false;
+      else if (field.tagName === 'SELECT') field.selectedIndex = -1;
+      else field.value = '';
+      notify(field);
+    });
+    return fillForm(form, samples, true);
+  }
+
   function submitButton(form) {
     return Array.from(
       form.querySelectorAll('button[type="submit"], input[type="submit"]'),
@@ -500,7 +552,7 @@
     });
   }
 
-  function createController(frame, button, onStatus) {
+  function createController(frame, button, onStatus, regenerateButton) {
     var samples = createSampleData();
     var filledForm = null;
     var observer = null;
@@ -521,6 +573,7 @@
       var form = getForm();
       if (form !== filledForm) filledForm = null;
       button.textContent = filledForm ? 'Continue' : 'Fill sample answers';
+      if (regenerateButton) regenerateButton.hidden = !filledForm;
       button.disabled = !form || !submitButton(form);
       button.title = button.disabled
         ? "Use the interview's controls on this screen."
@@ -565,7 +618,22 @@
       refresh();
     }
 
+    function regenerate() {
+      var form = getForm();
+      if (!form || filledForm !== form) return;
+      var result = regenerateForm(form, samples);
+      onStatus(
+        'New sample answers filled. Review them, then click Continue.' +
+          (result.manual
+            ? ' Choose a file manually for the upload field.'
+            : ''),
+      );
+      refresh();
+    }
+
     button.addEventListener('click', click);
+    if (regenerateButton)
+      regenerateButton.addEventListener('click', regenerate);
     frame.addEventListener('load', attach);
     attach();
     return {
@@ -574,6 +642,8 @@
         if (observer) observer.disconnect();
         frame.removeEventListener('load', attach);
         button.removeEventListener('click', click);
+        if (regenerateButton)
+          regenerateButton.removeEventListener('click', regenerate);
       },
     };
   }
@@ -582,6 +652,7 @@
     createSampleData: createSampleData,
     sampleValue: sampleValue,
     fillForm: fillForm,
+    regenerateForm: regenerateForm,
     createController: createController,
   };
 });

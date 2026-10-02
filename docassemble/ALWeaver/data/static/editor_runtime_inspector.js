@@ -1112,6 +1112,7 @@
           setStatus(message, false);
           if (!hidden) refreshRenderedDebugger(wrapper);
         },
+        wrapper.querySelector('#runtime-regenerate-samples'),
       );
     }
 
@@ -1292,7 +1293,7 @@
         '<button type="button" class="btn btn-sm btn-outline-primary mt-2" id="runtime-apply-scenario">Apply and reload</button>' +
         '</div></details>' +
         '</div></aside>' +
-        '<div class="editor-runtime-interview"><div class="editor-runtime-frame-bar"><span class="editor-runtime-frame-title"><i class="fa-solid fa-display me-1" aria-hidden="true"></i>Live interview <code id="runtime-frame-file"></code></span><button type="button" class="btn btn-sm btn-outline-primary" id="runtime-fill-samples" disabled>Fill sample answers</button></div><div id="runtime-frame-host"></div></div>' +
+        '<div class="editor-runtime-interview"><div class="editor-runtime-frame-bar"><span class="editor-runtime-frame-title"><i class="fa-solid fa-display me-1" aria-hidden="true"></i>Live interview <code id="runtime-frame-file"></code></span><div class="editor-runtime-fill-actions"><button type="button" class="btn btn-sm btn-outline-secondary" id="runtime-regenerate-samples" title="Replace the sample answers on this screen with new ones" hidden><i class="fa-solid fa-shuffle me-1" aria-hidden="true"></i>Regenerate</button><button type="button" class="btn btn-sm btn-outline-primary" id="runtime-fill-samples" disabled>Fill sample answers</button></div></div><div id="runtime-frame-host"></div></div>' +
         '</div>';
 
       var frameFile = content.querySelector('#runtime-frame-file');

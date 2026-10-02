@@ -4887,6 +4887,12 @@ body {
   font-weight: 400;
 }
 
+.editor-runtime-fill-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
 #runtime-fill-samples {
   width: 11rem;
   flex-shrink: 0;
