@@ -30,6 +30,7 @@ NODE_TESTS = (
     "test_editor_interview_report.js",
     "test_editor_include_report.js",
     "test_editor_runtime_inspector.js",
+    "test_editor_fake_filler.js",
     "test_editor_router.js",
     "test_editor_route_navigation.js",
 )
@@ -50,6 +51,34 @@ class _TemplateCollector(HTMLParser):
 
 
 class TestEditorFrontend(unittest.TestCase):
+    def test_debugger_sample_filler_is_loaded_before_the_inspector(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        self.assertLess(
+            template.index("/static/faker_en_us.js"),
+            template.index("/static/editor_fake_filler.js"),
+        )
+        self.assertLess(
+            template.index("/static/editor_fake_filler.js"),
+            template.index("/static/editor_runtime_inspector.js"),
+        )
+        runtime = (
+            self.package_dir / "data/static/editor_runtime_inspector.js"
+        ).read_text()
+        self.assertIn('id="runtime-fill-samples"', runtime)
+        self.assertIn("attachFakeFiller(frame, wrapper)", runtime)
+        self.assertIn('id="runtime-toggle-sidebar"', runtime)
+        self.assertIn('aria-controls="runtime-sidebar"', runtime)
+        self.assertIn('aria-expanded="true"', runtime)
+        self.assertIn("Show internal data", runtime)
+        self.assertIn("isNestedValue(visible[name])", runtime)
+        self.assertIn("Clean up old sessions", runtime)
+        self.assertIn("Checking for an open debug session", runtime)
+        css = (self.package_dir / "data/static/editor.css").read_text()
+        sample_button = css.split("#runtime-fill-samples {", 1)[1].split("}", 1)[0]
+        self.assertIn("width: 11rem;", sample_button)
+        self.assertIn("flex-shrink: 0;", sample_button)
+        self.assertIn("white-space: nowrap;", sample_button)
+
     def test_help_template_controls_have_accessible_labels(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
         for control in (

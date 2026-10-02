@@ -12,7 +12,241 @@
     return JSON.parse(JSON.stringify(value));
   }
 
-  function filterVariables(variables, query) {
+  // Configuration documented in AssemblyLine/magic_variables, plus defaults
+  // in al_settings, al_visual, al_language, and saved-session configuration.
+  // Keep interview answers and document bundles, including custom al_* names.
+  var configurationNames = new Set([
+    'AL_ORGANIZATION_TITLE',
+    'AL_ORGANIZATION_HOMEPAGE',
+    'AL_DEFAULT_COUNTRY',
+    'AL_DEFAULT_STATE',
+    'AL_DEFAULT_LANGUAGE',
+    'AL_DEFAULT_OVERFLOW_MESSAGE',
+    'MAIN_METADATA',
+    'ORIGINAL_FORMS',
+    'interview_metadata',
+    'addresses_to_search',
+    'allowed_courts',
+    'signature_fields',
+    'al_logo',
+    'al_app_name',
+    'al_form_requires_digital_signature',
+    'al_typed_signature_prefix',
+    'al_typed_signature_font',
+    'al_form_type',
+    'al_person_answering',
+    'github_repo_name',
+    'github_user',
+    'github_about_repo_name',
+    'github_about_user',
+    'github_url',
+    'package_name',
+    'package_title',
+    'package_version_number',
+    'package_version',
+    'al_version',
+    'metadata_title',
+    'interview_short_title',
+    'enable_al_language',
+    'al_user_default_language',
+    'al_interview_languages',
+    'al_user_language',
+    'al_change_language',
+    'al_get_language_list_change_language',
+    'session_local',
+    'speak_text',
+    'multi_user',
+    'allow_cron',
+    'nav',
+    'menu_items',
+    'al_menu_items',
+    'al_menu_items_custom_items',
+    'al_menu_items_default_items',
+    'enable_al_nav_sections',
+    'al_nav_sections',
+    'feedback_form',
+    'form_approved_for_email_filing',
+    'update_answer_title',
+    'send_icon',
+    'al_enable_incomplete_downloads',
+    'al_show_email_to_user_on_errors',
+    'al_enable_error_action_feedback_link',
+    'al_custom_error_options',
+    'al_sessions_additional_variables_to_filter',
+    'al_session_store_default_filename',
+    'al_sessions_interview_title',
+    'al_terms_of_use',
+    'al_name_suffixes',
+    'al_name_titles',
+    'al_start_over_string',
+    'al_start_over_confirmation_question',
+    'al_start_over_confirmation_subquestion',
+    'al_exit_logout_string',
+    'al_download_progress_string',
+    'al_save_answer_set_string',
+    'al_load_answer_set_string',
+    'al_import_answer_set_string',
+    'al_copy_button_label',
+    'al_copy_button_tooltip_inert_text',
+    'al_copy_button_tooltip_copied_text',
+  ]);
+
+  // Imported typing objects can become null in simplified runtime snapshots.
+  // Recognize their exact names rather than hiding arbitrary capitalized answers.
+  var importedTypeNames = new Set([
+    'AbstractSet',
+    'Annotated',
+    'Any',
+    'AnyStr',
+    'AsyncContextManager',
+    'AsyncGenerator',
+    'AsyncIterable',
+    'AsyncIterator',
+    'Awaitable',
+    'BinaryIO',
+    'ByteString',
+    'Callable',
+    'ChainMap',
+    'ClassVar',
+    'Collection',
+    'Concatenate',
+    'Container',
+    'ContextManager',
+    'Coroutine',
+    'Counter',
+    'DefaultDict',
+    'Deque',
+    'Dict',
+    'Final',
+    'ForwardRef',
+    'FrozenSet',
+    'Generator',
+    'Generic',
+    'Hashable',
+    'IO',
+    'ItemsView',
+    'Iterable',
+    'Iterator',
+    'KeysView',
+    'List',
+    'Literal',
+    'LiteralString',
+    'Mapping',
+    'MappingView',
+    'Match',
+    'MutableMapping',
+    'MutableSequence',
+    'MutableSet',
+    'NamedTuple',
+    'Never',
+    'NewType',
+    'NoDefault',
+    'NoReturn',
+    'NotRequired',
+    'Optional',
+    'OrderedDict',
+    'ParamSpec',
+    'ParamSpecArgs',
+    'ParamSpecKwargs',
+    'Pattern',
+    'Protocol',
+    'ReadOnly',
+    'Required',
+    'Reversible',
+    'Self',
+    'Sequence',
+    'Set',
+    'Sized',
+    'SupportsAbs',
+    'SupportsBytes',
+    'SupportsComplex',
+    'SupportsFloat',
+    'SupportsIndex',
+    'SupportsInt',
+    'SupportsRound',
+    'Text',
+    'TextIO',
+    'Tuple',
+    'Type',
+    'TypeAlias',
+    'TypeAliasType',
+    'TypedDict',
+    'TypeGuard',
+    'TypeIs',
+    'TypeVar',
+    'TypeVarTuple',
+    'Union',
+    'Unpack',
+    'ValuesView',
+  ]);
+
+  function isInternalVariable(name) {
+    var rootName = name.split(/[.[]/, 1)[0];
+    return (
+      configurationNames.has(rootName) ||
+      importedTypeNames.has(rootName) ||
+      /^(?:_internal|_?alkiln(?:_|$)|ALKILN(?:_|$))/.test(rootName)
+    );
+  }
+
+  function isNestedValue(value) {
+    return value !== null && typeof value === 'object';
+  }
+
+  function simpleValue(value) {
+    if (value === null || value === undefined) return 'None';
+    if (typeof value === 'boolean') return value ? 'True' : 'False';
+    return value === '' ? '""' : String(value);
+  }
+
+  function pythonValue(value, pretty) {
+    var serialized = JSON.stringify(value, null, pretty ? 2 : undefined);
+    if (serialized === undefined) return 'None';
+    // Match complete quoted strings first, so strings/keys containing words
+    // like "true" and "null" stay intact. The input is valid serialized JSON.
+    return serialized.replace(
+      /"(?:\\.|[^"\\])*"|true|false|null/g,
+      function (token) {
+        return { true: 'True', false: 'False', null: 'None' }[token] || token;
+      },
+    );
+  }
+
+  function checkboxValues(value) {
+    if (!isNestedValue(value) || Array.isArray(value)) return null;
+    var choices = value;
+    if (Object.prototype.hasOwnProperty.call(value, '_class')) {
+      if (
+        typeof value._class !== 'string' ||
+        !/(?:^|\.)DADict$/.test(value._class)
+      )
+        return null;
+      choices = value.elements;
+    }
+    if (!isNestedValue(choices) || Array.isArray(choices)) return null;
+    var names = Object.keys(choices);
+    return names.length &&
+      names.every(function (name) {
+        return typeof choices[name] === 'boolean';
+      })
+      ? choices
+      : null;
+  }
+
+  function variableType(value) {
+    if (checkboxValues(value)) return 'checkboxes';
+    if (value === null || value === undefined) return 'NoneType';
+    if (typeof value === 'boolean') return 'bool';
+    if (typeof value === 'string') return 'str';
+    if (Array.isArray(value)) return 'list';
+    if (isNestedValue(value))
+      return typeof value._class === 'string'
+        ? value._class.split('.').pop()
+        : 'dict';
+    return typeof value;
+  }
+
+  function filterVariables(variables, query, includeInternal) {
     var needle = String(query || '')
       .trim()
       .toLowerCase();
@@ -20,7 +254,10 @@
     Object.keys(variables || {})
       .sort()
       .forEach(function (name) {
-        if (!needle || name.toLowerCase().indexOf(needle) !== -1)
+        if (
+          (includeInternal || !isInternalVariable(name)) &&
+          (!needle || name.toLowerCase().indexOf(needle) !== -1)
+        )
           result[name] = variables[name];
       });
     return result;
@@ -121,7 +358,15 @@
     if (value === undefined) return '(removed)';
     var serialized;
     try {
-      serialized = JSON.stringify(value);
+      var choices = checkboxValues(value);
+      if (choices) {
+        var checked = Object.keys(choices).filter(function (name) {
+          return choices[name];
+        });
+        serialized = checked.length
+          ? 'Checked: ' + checked.join(', ')
+          : 'None checked';
+      } else serialized = pythonValue(value);
     } catch {
       // A circular or otherwise unserializable value still needs a preview.
       serialized = String(value);
@@ -197,6 +442,7 @@
     var hasVariableSnapshot = false;
     var steps = [];
     var includeInternal = false;
+    var sidebarCollapsed = false;
     var variableQuery = '';
     // Polling refreshes the variable list (see startPolling), so
     // <details> elements are recreated from scratch on every refresh. Without
@@ -219,6 +465,9 @@
     var pollTimer = null;
     var pollDelay = 5000;
     var hidden = true;
+    var fakeFiller = null;
+    var restoredContext = '';
+    var restoring = false;
 
     function sessionPath(suffix) {
       if (!session || !session.weaver_session_id)
@@ -259,6 +508,8 @@
     // operation: it also prevents an observation that was already in flight
     // from rendering over the view that replaced the debugger.
     function hide() {
+      if (fakeFiller) fakeFiller.dispose();
+      fakeFiller = null;
       hidden = true;
       stopPolling();
       container = null;
@@ -367,9 +618,16 @@
           session = null;
           resetObservedState();
           onSessionChange(null);
-          setStatus('Debugger access to the test session ended.');
+          setStatus('The debug interview and its saved data were deleted.');
         })
         .catch(function (requestError) {
+          if (requestError.code === 'runtime_session_not_found') {
+            session = null;
+            resetObservedState();
+            onSessionChange(null);
+            setStatus('The debug session has already ended.');
+            return;
+          }
           setStatus(
             requestError.message || 'Unable to end the test session.',
             true,
@@ -389,8 +647,8 @@
       resetObservedState();
       onSessionChange(null);
       return api.delete(path).catch(function () {
-        // The owner-scoped server record expires on its own. Context changes
-        // should not be blocked just because revocation could not finish.
+        // Server housekeeping retries deletion if this request cannot finish.
+        // Context changes should not be blocked by a temporary network failure.
       });
     }
 
@@ -443,6 +701,18 @@
         })
         .catch(function (requestError) {
           if (!session || session.weaver_session_id !== observedSession) return;
+          if (requestError.code === 'runtime_session_not_found') {
+            stopPolling();
+            session = null;
+            resetObservedState();
+            onSessionChange(null);
+            setStatus(
+              requestError.message ||
+                'The idle debug session was closed. Start a new test session.',
+              true,
+            );
+            return;
+          }
           pollDelay = Math.min(pollDelay * 2, 30000);
           setStatus(
             requestError.message || 'Unable to refresh runtime facts.',
@@ -512,8 +782,21 @@
         });
     }
 
+    function rememberVariableExpansion(target) {
+      // The native toggle event is queued. Capture the actual DOM state before
+      // replacing rows, including a click immediately followed by a refresh.
+      target
+        .querySelectorAll('details[data-variable]')
+        .forEach(function (details) {
+          var name = details.getAttribute('data-variable');
+          if (/** @type {HTMLDetailsElement} */ (details).open)
+            expandedVariables[name] = true;
+          else delete expandedVariables[name];
+        });
+    }
+
     function appendVariableRows(target) {
-      var visible = filterVariables(variables, variableQuery);
+      var visible = filterVariables(variables, variableQuery, includeInternal);
       var names = Object.keys(visible);
       if (!names.length) {
         target.textContent = hasVariableSnapshot
@@ -523,20 +806,47 @@
         return;
       }
       names.forEach(function (name) {
-        var details = document.createElement('details');
+        var choices = checkboxValues(visible[name]);
+        var nested = isNestedValue(visible[name]);
+        var details = /** @type {HTMLDetailsElement} */ (
+          document.createElement(nested ? 'details' : 'div')
+        );
         details.className = 'editor-runtime-variable';
-        details.open = Boolean(expandedVariables[name]);
-        details.addEventListener('toggle', function () {
-          if (details.open) expandedVariables[name] = true;
-          else delete expandedVariables[name];
-        });
+        if (nested) {
+          details.setAttribute('data-variable', name);
+          details.open = Boolean(expandedVariables[name]);
+          details.addEventListener('toggle', function () {
+            if (details.open) expandedVariables[name] = true;
+            else delete expandedVariables[name];
+          });
+        } else details.classList.add('editor-runtime-variable-simple');
         if (changed.indexOf(name) !== -1)
           details.classList.add('editor-runtime-variable-changed');
-        var summary = document.createElement('summary');
-        summary.textContent =
-          name +
-          ' · ' +
-          (visible[name] === null ? 'null' : typeof visible[name]);
+        var summary = document.createElement(nested ? 'summary' : 'div');
+        var preview;
+        summary.textContent = name + ' · ' + variableType(visible[name]);
+        if (choices) {
+          var checked = Object.keys(choices).filter(function (choice) {
+            return choices[choice];
+          });
+          summary.textContent += ' · ' + checked.length + ' checked';
+          preview = document.createElement('ul');
+          preview.className = 'editor-runtime-checkbox-preview';
+          Object.keys(choices).forEach(function (choice) {
+            var item = document.createElement('li');
+            var label = document.createElement('label');
+            var checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = choices[choice];
+            checkbox.disabled = true;
+            var text = document.createElement('span');
+            text.textContent = choice;
+            label.appendChild(checkbox);
+            label.appendChild(text);
+            item.appendChild(label);
+            preview.appendChild(item);
+          });
+        }
         if (seededVariables.indexOf(name) !== -1) {
           summary.textContent += ' · scenario seed (bypassed history)';
           summary.setAttribute(
@@ -546,9 +856,14 @@
           summary.classList.add('editor-runtime-variable-seeded');
         }
         details.appendChild(summary);
-        var value = document.createElement('pre');
-        value.textContent = JSON.stringify(visible[name], null, 2);
-        details.appendChild(value);
+        if (choices) details.appendChild(preview);
+        else {
+          var value = document.createElement('pre');
+          value.textContent = nested
+            ? pythonValue(visible[name], true)
+            : simpleValue(visible[name]);
+          details.appendChild(value);
+        }
         target.appendChild(details);
       });
     }
@@ -713,9 +1028,11 @@
         steps.length,
       );
       wrapper.querySelector('#runtime-variable-count').textContent = String(
-        Object.keys(variables).length,
+        Object.keys(filterVariables(variables, variableQuery, includeInternal))
+          .length,
       );
       var variableTarget = wrapper.querySelector('#runtime-variable-list');
+      rememberVariableExpansion(variableTarget);
       variableTarget.innerHTML = '';
       variableTarget.className = '';
       appendVariableRows(variableTarget);
@@ -733,6 +1050,69 @@
       container = target || container;
       if (session) startPolling();
       render(container);
+      var context = getContext();
+      var contextKey = JSON.stringify([context.project, context.filename]);
+      if (!session && !restoring && restoredContext !== contextKey) {
+        restoring = true;
+        restoredContext = contextKey;
+        busy = true;
+        setStatus('Checking for an open debug session...');
+        render(container);
+        api
+          .get(
+            '/api/runtime/sessions?project=' +
+              encodeURIComponent(context.project) +
+              '&filename=' +
+              encodeURIComponent(context.filename),
+          )
+          .then(function (response) {
+            if (
+              hidden ||
+              contextKey !==
+                JSON.stringify([getContext().project, getContext().filename])
+            ) {
+              restoredContext = '';
+              return;
+            }
+            if (response.data && response.data.session) {
+              session = clone(response.data.session);
+              resetObservedState();
+              onSessionChange(clone(session));
+              setStatus('Reconnected to your open debug session.');
+              render(container);
+              return observeRuntime();
+            }
+            setStatus(
+              'Start a test session. Idle debug sessions close after 30 minutes without advancing a screen.',
+            );
+          })
+          .catch(function (requestError) {
+            if (!hidden)
+              setStatus(
+                requestError.message ||
+                  'Unable to reconnect to the debug session. Try again.',
+                true,
+              );
+            restoredContext = '';
+          })
+          .finally(function () {
+            restoring = false;
+            busy = false;
+            render(container);
+          });
+      }
+    }
+
+    function attachFakeFiller(frame, wrapper) {
+      if (fakeFiller) fakeFiller.dispose();
+      fakeFiller = globalThis.ALWeaverFakeFiller.createController(
+        frame,
+        wrapper.querySelector('#runtime-fill-samples'),
+        function (message) {
+          setStatus(message, false);
+          if (!hidden) refreshRenderedDebugger(wrapper);
+        },
+      );
     }
 
     function render(target) {
@@ -745,9 +1125,13 @@
           ? container.querySelector('#runtime-interview-frame')
           : null;
       if (liveFrame) {
-        refreshRenderedDebugger(liveFrame.closest('.editor-runtime-inspector'));
+        var liveWrapper = liveFrame.closest('.editor-runtime-inspector');
+        if (!fakeFiller) attachFakeFiller(liveFrame, liveWrapper);
+        refreshRenderedDebugger(liveWrapper);
         return;
       }
+      if (fakeFiller) fakeFiller.dispose();
+      fakeFiller = null;
       container.innerHTML = '';
 
       var wrapper = document.createElement('section');
@@ -785,6 +1169,37 @@
           function () {
             hide();
             onClose();
+          },
+        ),
+      );
+
+      actions.appendChild(
+        makeButton(
+          'Clean up old sessions',
+          'btn btn-sm btn-outline-secondary',
+          function () {
+            busy = true;
+            render(container);
+            api
+              .post('/api/runtime/sessions/cleanup', {})
+              .then(function (response) {
+                setStatus(
+                  'Cleaned up ' +
+                    response.data.deleted +
+                    ' old debug sessions.',
+                );
+                if (session) return observeRuntime();
+              })
+              .catch(function (requestError) {
+                setStatus(
+                  requestError.message || 'Unable to clean up debug sessions.',
+                  true,
+                );
+              })
+              .finally(function () {
+                busy = false;
+                render(container);
+              });
           },
         ),
       );
@@ -858,14 +1273,14 @@
 
       content.innerHTML =
         '<div class="editor-runtime-workbench">' +
-        '<aside class="editor-runtime-sidebar" aria-label="Interview debugging details">' +
+        '<aside id="runtime-sidebar" class="editor-runtime-sidebar" aria-label="Interview debugging details">' +
         '<details class="editor-runtime-panel" open><summary>Current screen</summary><div id="runtime-question" class="editor-runtime-panel-body"></div></details>' +
         '<details class="editor-runtime-panel" open><summary>Step recorder <span class="badge text-bg-secondary" id="runtime-step-count"></span></summary><div id="runtime-step-list" class="editor-runtime-panel-body editor-runtime-step-list"></div></details>' +
         '<details class="editor-runtime-panel" open><summary>Session variables <span class="badge text-bg-secondary" id="runtime-variable-count"></span></summary>' +
         '<div class="editor-runtime-panel-body"><div class="d-flex gap-2 mb-2">' +
         '<label for="runtime-variable-search" class="visually-hidden">Search variables</label>' +
         '<input id="runtime-variable-search" class="form-control form-control-sm" type="search" placeholder="Filter variables">' +
-        '</div><label class="form-check editor-tiny mb-2"><input class="form-check-input" type="checkbox" id="runtime-include-internal"> <span class="form-check-label">Show _internal data</span></label>' +
+        '</div><label class="form-check editor-tiny mb-2"><input class="form-check-input" type="checkbox" id="runtime-include-internal"> <span class="form-check-label">Show internal data</span></label>' +
         '<div id="runtime-variable-list"></div></div></details>' +
         '<details class="editor-runtime-panel"><summary>Test scenario</summary><div class="editor-runtime-panel-body">' +
         '<p class="editor-tiny text-muted">Seed variables for a test path. This fixture can bypass earlier screens.</p>' +
@@ -874,16 +1289,39 @@
         '<button type="button" class="btn btn-sm btn-outline-primary mt-2" id="runtime-apply-scenario">Apply and reload</button>' +
         '</div></details>' +
         '</aside>' +
-        '<div class="editor-runtime-interview"><div class="editor-runtime-frame-bar"><span><i class="fa-solid fa-display me-1" aria-hidden="true"></i>Live interview</span><span class="editor-tiny text-muted">Actions here are recorded automatically</span></div><div id="runtime-frame-host"></div></div>' +
+        '<div class="editor-runtime-interview"><div class="editor-runtime-frame-bar"><span><i class="fa-solid fa-display me-1" aria-hidden="true"></i>Live interview</span><div class="d-flex gap-2"><button type="button" class="btn btn-sm btn-outline-secondary" id="runtime-toggle-sidebar" aria-controls="runtime-sidebar" aria-expanded="true">Hide details</button><button type="button" class="btn btn-sm btn-outline-primary" id="runtime-fill-samples" disabled>Fill sample answers</button></div></div><div id="runtime-frame-host"></div></div>' +
         '</div>';
 
+      var sidebarToggle = content.querySelector('#runtime-toggle-sidebar');
+      function updateSidebar() {
+        content
+          .querySelector('.editor-runtime-workbench')
+          .classList.toggle(
+            'editor-runtime-sidebar-collapsed',
+            sidebarCollapsed,
+          );
+        var sidebar = /** @type {HTMLElement} */ (
+          content.querySelector('#runtime-sidebar')
+        );
+        sidebar.hidden = sidebarCollapsed;
+        sidebarToggle.setAttribute('aria-expanded', String(!sidebarCollapsed));
+        sidebarToggle.textContent = sidebarCollapsed
+          ? 'Show details'
+          : 'Hide details';
+      }
+      sidebarToggle.addEventListener('click', function () {
+        sidebarCollapsed = !sidebarCollapsed;
+        updateSidebar();
+      });
+      updateSidebar();
       renderQuestion(content.querySelector('#runtime-question'));
       renderSteps(content.querySelector('#runtime-step-list'));
       content.querySelector('#runtime-step-count').textContent = String(
         steps.length,
       );
       content.querySelector('#runtime-variable-count').textContent = String(
-        Object.keys(variables).length,
+        Object.keys(filterVariables(variables, variableQuery, includeInternal))
+          .length,
       );
       appendVariableRows(content.querySelector('#runtime-variable-list'));
 
@@ -893,6 +1331,7 @@
       internalToggle.checked = includeInternal;
       internalToggle.addEventListener('change', function () {
         includeInternal = internalToggle.checked;
+        refreshRenderedDebugger(wrapper);
         hasVariableSnapshot = false;
         observeRuntime('Variable visibility updated.');
       });
@@ -903,8 +1342,15 @@
       search.addEventListener('input', function () {
         variableQuery = search.value;
         var list = content.querySelector('#runtime-variable-list');
+        rememberVariableExpansion(list);
         list.innerHTML = '';
+        list.className = '';
         appendVariableRows(list);
+        content.querySelector('#runtime-variable-count').textContent = String(
+          Object.keys(
+            filterVariables(variables, variableQuery, includeInternal),
+          ).length,
+        );
       });
       var scenario = /** @type {HTMLTextAreaElement} */ (
         content.querySelector('#runtime-scenario')
@@ -929,6 +1375,7 @@
           observeRuntime('Interview advanced; debugger synchronized.');
       });
       content.querySelector('#runtime-frame-host').appendChild(frame);
+      attachFakeFiller(frame, wrapper);
     }
 
     return {
@@ -953,6 +1400,12 @@
   return {
     createRuntimeInspector: createRuntimeInspector,
     filterVariables: filterVariables,
+    isInternalVariable: isInternalVariable,
+    isNestedValue: isNestedValue,
+    simpleValue: simpleValue,
+    pythonValue: pythonValue,
+    checkboxValues: checkboxValues,
+    variableType: variableType,
     changedVariableNames: changedVariableNames,
     findQuestionSource: findQuestionSource,
     questionLabel: questionLabel,

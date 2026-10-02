@@ -2,6 +2,7 @@
 
 import json
 import unittest
+from datetime import timedelta
 from unittest.mock import patch
 
 from .docassemble_compat import TargetActionResult, TargetSession
@@ -15,15 +16,21 @@ from .runtime_sessions import (
     store_runtime_record,
 )
 from .test_editor_api import api_editor
+from .test_editor_api import _TestRedisLock
+from . import runtime_sessions, worker_config
 
 
 class FakeRedis:
     def __init__(self):
         self.values = {}
+        self.sorted_sets = {}
 
-    def set(self, key, value, ex=None):
+    def set(self, key, value, ex=None, nx=False):
+        if nx and key in self.values:
+            return False
         self.values[key] = value
         self.expiry = ex
+        return True
 
     def get(self, key):
         return self.values.get(key)
@@ -31,21 +38,57 @@ class FakeRedis:
     def delete(self, key):
         self.values.pop(key, None)
 
+    def lock(self, name, **kwargs):
+        return _TestRedisLock(name)
+
+    def scan_iter(self, match, count=100):
+        import fnmatch
+
+        return iter([key for key in self.values if fnmatch.fnmatch(key, match)])
+
+    def zadd(self, key, values):
+        self.sorted_sets.setdefault(key, {}).update(values)
+
+    def zrem(self, key, member):
+        self.sorted_sets.get(key, {}).pop(member, None)
+
+    def zrangebyscore(self, key, minimum, maximum, start=0, num=20):
+        return [
+            member
+            for member, score in sorted(
+                self.sorted_sets.get(key, {}).items(), key=lambda item: item[1]
+            )
+            if score <= maximum
+        ][start : start + num]
+
 
 class TestEditorRuntimeApi(unittest.TestCase):
     def setUp(self):
         self.redis = FakeRedis()
+        self.revision = self.enterContext(
+            patch.object(
+                runtime_sessions,
+                "get_target_session_revision",
+                return_value=(1, runtime_sessions.utc_now()),
+            )
+        )
+        self.delete_target = self.enterContext(
+            patch.object(runtime_sessions, "delete_target_session")
+        )
 
-    def _record(self, owner=7):
-        target = TargetSession("docassemble.playground7:main.yml", "raw-target-id")
+    def _record(self, owner=7, session_id="weaver-session"):
+        target = TargetSession(
+            f"docassemble.playground{owner}:main.yml", session_id + "-target"
+        )
         record = create_runtime_record(
-            weaver_session_id="weaver-session",
+            weaver_session_id=session_id,
             owner_user_id=owner,
             project="default",
             filename="main.yml",
             yaml_filename=target.yaml_filename,
             target=target,
         )
+        record.progress_revision = 1
         store_runtime_record(self.redis, record)
         return record
 
@@ -90,7 +133,7 @@ class TestEditorRuntimeApi(unittest.TestCase):
         variables.assert_called_once()
         store.assert_not_called()
 
-    def test_runtime_read_renews_lifetime_only_after_touch_interval(self):
+    def test_polling_and_refresh_do_not_extend_idle_deadline(self):
         from datetime import timedelta
         from .runtime_sessions import utc_now
 
@@ -100,7 +143,229 @@ class TestEditorRuntimeApi(unittest.TestCase):
         with patch.object(self.redis, "set", wraps=self.redis.set) as store:
             load_runtime_record(self.redis, "weaver-session", 7)
             load_runtime_record(self.redis, "weaver-session", 7)
-        store.assert_called_once()
+        store.assert_not_called()
+        self.assertEqual(
+            runtime_sessions.deadline(record),
+            runtime_sessions.deadline(
+                load_runtime_record(self.redis, "weaver-session", 7)
+            ),
+        )
+        self.assertIsNone(self.redis.expiry)
+
+    def test_refresh_reconnects_to_existing_session_without_creating_one(self):
+        record = self._record()
+        with (
+            self._base_context(),
+            patch.object(api_editor, "playground_read_yaml"),
+            patch.object(api_editor, "create_target_session") as create,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/runtime/sessions?project=default&filename=main.yml"
+            ):
+                response = api_editor.editor_api_runtime_create_session()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.get_json()["data"]["session"]["weaver_session_id"],
+            record.weaver_session_id,
+        )
+        create.assert_not_called()
+        self.delete_target.assert_not_called()
+
+    def _base_context(self, user_id=7):
+        from contextlib import ExitStack
+
+        stack = ExitStack()
+        for patcher in self._base_patches(user_id):
+            stack.enter_context(patcher)
+        return stack
+
+    def test_end_deletes_docassemble_data_and_cleanup_indexes(self):
+        record = self._record()
+        self.redis.set(
+            runtime_sessions.RUNTIME_SESSION_OWNER_PREFIX + "7",
+            record.weaver_session_id,
+        )
+        with (
+            self._base_context(),
+            api_editor.app.test_request_context(
+                "/al/editor/api/runtime/sessions/weaver-session", method="DELETE"
+            ),
+        ):
+            response = api_editor.editor_api_runtime_session(record.weaver_session_id)
+        self.assertEqual(response.status_code, 200)
+        self.delete_target.assert_called_once_with(
+            TargetSession(record.yaml_filename, record.docassemble_session_id), 7
+        )
+        self.assertEqual(self.redis.values, {})
+        self.assertEqual(
+            self.redis.sorted_sets[runtime_sessions.RUNTIME_SESSION_DUE_KEY], {}
+        )
+
+    def test_idle_session_is_deleted_even_when_browser_keeps_polling(self):
+        record = self._record()
+        record.last_progress_at = runtime_sessions.utc_now() - timedelta(minutes=31)
+        store_runtime_record(self.redis, record)
+        with (
+            self._base_context(),
+            api_editor.app.test_request_context(
+                "/al/editor/api/runtime/sessions/weaver-session/snapshot"
+            ),
+        ):
+            response = api_editor.editor_api_runtime_variables(record.weaver_session_id)
+        self.assertEqual(response.status_code, 404)
+        self.delete_target.assert_called_once()
+        self.assertIsNone(load_runtime_record(self.redis, record.weaver_session_id, 7))
+
+    def test_screen_progress_postpones_idle_cleanup_without_browser_secret(self):
+        record = self._record()
+        record.last_progress_at = runtime_sessions.utc_now() - timedelta(minutes=31)
+        store_runtime_record(self.redis, record)
+        changed = runtime_sessions.utc_now() - timedelta(minutes=2)
+        self.revision.return_value = (2, changed.replace(tzinfo=None))
+        self.assertEqual(runtime_sessions.cleanup_due_runtime_sessions(self.redis), 0)
+        live = load_runtime_record(self.redis, record.weaver_session_id, 7)
+        self.assertEqual(live.last_progress_at, changed)
+        self.assertEqual(live.progress_revision, 2)
+        self.delete_target.assert_not_called()
+
+    def test_failed_database_deletion_keeps_record_for_retry(self):
+        record = self._record()
+        record.last_progress_at = runtime_sessions.utc_now() - timedelta(minutes=31)
+        store_runtime_record(self.redis, record)
+        self.delete_target.side_effect = RuntimeError("database unavailable")
+        self.assertEqual(runtime_sessions.cleanup_due_runtime_sessions(self.redis), 0)
+        self.assertIsNotNone(
+            load_runtime_record(self.redis, record.weaver_session_id, 7)
+        )
+        self.assertIn(
+            record.weaver_session_id,
+            self.redis.sorted_sets[runtime_sessions.RUNTIME_SESSION_DUE_KEY],
+        )
+        self.delete_target.side_effect = None
+        self.assertEqual(runtime_sessions.cleanup_due_runtime_sessions(self.redis), 1)
+        self.assertEqual(self.redis.values, {})
+
+    def test_failed_expiry_cleanup_returns_json_and_preserves_retry_record(self):
+        record = self._record()
+        record.last_progress_at = runtime_sessions.utc_now() - timedelta(minutes=31)
+        store_runtime_record(self.redis, record)
+        self.delete_target.side_effect = RuntimeError("database unavailable")
+        with (
+            self._base_context(),
+            api_editor.app.test_request_context(
+                "/al/editor/api/runtime/sessions/weaver-session/snapshot"
+            ),
+        ):
+            response = api_editor.editor_api_runtime_variables(record.weaver_session_id)
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(
+            response.get_json()["error"]["code"], "runtime_operation_failed"
+        )
+        self.assertIsNotNone(
+            load_runtime_record(self.redis, record.weaver_session_id, 7)
+        )
+
+    def test_cleanup_discovers_legacy_records_and_keeps_only_latest_for_owner(self):
+        old = self._record()
+        old.created_at -= timedelta(minutes=10)
+        store_runtime_record(self.redis, old)
+        self._record(session_id="latest")
+        self._record(owner=99, session_id="other-owner")
+        # Simulate a pre-upgrade record without a deadline index.
+        payload = json.loads(
+            self.redis.get(RUNTIME_SESSION_KEY_PREFIX + old.weaver_session_id)
+        )
+        payload.pop("last_progress_at")
+        payload.pop("progress_revision")
+        self.redis.set(
+            RUNTIME_SESSION_KEY_PREFIX + old.weaver_session_id, json.dumps(payload)
+        )
+        self.redis.zrem(runtime_sessions.RUNTIME_SESSION_DUE_KEY, old.weaver_session_id)
+        result = runtime_sessions.cleanup_owned_runtime_sessions(self.redis, 7)
+        self.assertEqual(result["session"].weaver_session_id, "latest")
+        self.assertEqual(result["deleted"], 1)
+        self.delete_target.assert_called_once_with(
+            TargetSession(old.yaml_filename, old.docassemble_session_id), 7
+        )
+        self.assertIsNotNone(load_runtime_record(self.redis, "other-owner", 99))
+
+    def test_cleanup_refuses_records_pointing_to_ordinary_interviews(self):
+        record = self._record()
+        record.yaml_filename = "docassemble.RealClientInterview:main.yml"
+        store_runtime_record(self.redis, record)
+        with self.assertRaises(ValueError):
+            runtime_sessions.cleanup_owned_runtime_sessions(self.redis, 7)
+        self.delete_target.assert_not_called()
+
+    def test_refresh_queues_only_one_worker_cleanup_task(self):
+        from unittest.mock import Mock
+
+        worker = Mock()
+        record = self._record()
+        with (
+            patch.object(
+                worker_config,
+                "worker_configuration_is_ready",
+                return_value=True,
+            ),
+            patch.object(runtime_sessions, "get_worker_app", return_value=worker),
+        ):
+            for _ in range(5):
+                runtime_sessions.schedule_runtime_cleanup(self.redis, record)
+        worker.send_task.assert_called_once()
+        kwargs = worker.send_task.call_args.kwargs
+        self.assertEqual(
+            kwargs["kwargs"],
+            {"session_id": record.weaver_session_id, "owner_user_id": 7},
+        )
+        self.assertLessEqual(kwargs["countdown"], 300)
+
+    def test_failed_task_enqueue_can_be_retried_without_losing_record(self):
+        from unittest.mock import Mock
+
+        worker = Mock()
+        record = self._record()
+        with (
+            patch.object(
+                worker_config,
+                "worker_configuration_is_ready",
+                return_value=True,
+            ),
+            patch.object(runtime_sessions, "get_worker_app", return_value=worker),
+        ):
+            worker.send_task.side_effect = RuntimeError("broker unavailable")
+            runtime_sessions.schedule_runtime_cleanup(self.redis, record)
+            worker.send_task.side_effect = None
+            runtime_sessions.schedule_runtime_cleanup(self.redis, record)
+        self.assertEqual(worker.send_task.call_count, 2)
+        self.assertIsNotNone(
+            load_runtime_record(self.redis, record.weaver_session_id, 7)
+        )
+
+    def test_starting_replacement_deletes_old_session_and_preserves_other_owners(self):
+        old = self._record()
+        self._record(owner=99, session_id="other-owner")
+        with (
+            self._base_context(),
+            patch.object(api_editor, "playground_read_yaml"),
+            patch.object(
+                api_editor,
+                "create_target_session",
+                return_value=TargetSession(old.yaml_filename, "new-debug-target"),
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/runtime/sessions",
+                method="POST",
+                json={"project": "default", "filename": "main.yml"},
+            ):
+                response = api_editor.editor_api_runtime_create_session()
+        self.assertEqual(response.status_code, 201)
+        self.delete_target.assert_called_once_with(
+            TargetSession(old.yaml_filename, old.docassemble_session_id), 7
+        )
+        self.assertIsNone(load_runtime_record(self.redis, old.weaver_session_id, 7))
+        self.assertIsNotNone(load_runtime_record(self.redis, "other-owner", 99))
 
     def test_runtime_records_are_owner_scoped_and_publicly_redacted(self):
         self.assertEqual(
@@ -154,6 +419,69 @@ class TestEditorRuntimeApi(unittest.TestCase):
         create.assert_called_once_with(
             "docassemble.playground7:main.yml", secret=None, url_args=None
         )
+
+    def test_missing_endpoint_returns_actionable_error_without_creating_record(self):
+        class DAErrorNoEndpoint(Exception):
+            pass
+
+        direct = DAErrorNoEndpoint("private diagnostic trace")
+        wrapped = RuntimeError("Docassemble API wrapper")
+        wrapped.__cause__ = direct
+        serialized = RuntimeError(
+            "create_new_interview: failure to assemble interview: "
+            "DAErrorNoEndpoint: private diagnostic trace"
+        )
+        for failure in (direct, wrapped, serialized):
+            with self.subTest(failure=type(failure).__name__):
+                patches = self._base_patches()
+                with (
+                    patches[0],
+                    patches[1],
+                    patches[2],
+                    patches[3],
+                    patch.object(api_editor, "playground_read_yaml", return_value=""),
+                    patch.object(
+                        api_editor, "create_target_session", side_effect=failure
+                    ),
+                ):
+                    with api_editor.app.test_request_context(
+                        "/al/editor/api/runtime/sessions",
+                        method="POST",
+                        json={"project": "default", "filename": "include.yml"},
+                    ):
+                        response = api_editor.editor_api_runtime_create_session()
+                self.assertEqual(response.status_code, 422)
+                error = response.get_json()["error"]
+                self.assertEqual(error["code"], "runtime_no_endpoint")
+                self.assertIn("include.yml", error["message"])
+                self.assertIn("main interview", error["message"])
+                self.assertNotIn("private diagnostic trace", json.dumps(error))
+                self.assertEqual(self.redis.values, {})
+
+    def test_other_startup_errors_keep_generic_response(self):
+        patches = self._base_patches()
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patch.object(api_editor, "playground_read_yaml", return_value=""),
+            patch.object(
+                api_editor,
+                "create_target_session",
+                side_effect=RuntimeError("private unrelated startup failure"),
+            ),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/runtime/sessions",
+                method="POST",
+                json={"project": "default", "filename": "main.yml"},
+            ):
+                response = api_editor.editor_api_runtime_create_session()
+        self.assertEqual(response.status_code, 500)
+        error = response.get_json()["error"]
+        self.assertEqual(error["code"], "runtime_session_creation_failed")
+        self.assertNotIn("private unrelated startup failure", json.dumps(error))
 
     def test_runtime_inspector_disabled_is_a_feature_disabled_404(self):
         patches = self._base_patches()
@@ -218,8 +546,8 @@ class TestEditorRuntimeApi(unittest.TestCase):
 
     def test_expired_runtime_record_resolves_to_not_found(self):
         self._record()
-        self.assertEqual(self.redis.expiry, RUNTIME_SESSION_EXPIRE_SECONDS)
-        # Redis removes the record when its configured lifetime elapses.
+        self.assertIsNone(self.redis.expiry)
+        # A successfully cleaned-up record is no longer addressable.
         self.redis.delete(RUNTIME_SESSION_KEY_PREFIX + "weaver-session")
         patches = self._base_patches()
         with (

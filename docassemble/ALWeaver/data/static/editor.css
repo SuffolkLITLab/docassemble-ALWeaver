@@ -4832,6 +4832,30 @@ body {
   background: #fff8db;
 }
 
+.editor-runtime-checkbox-preview {
+  margin: 0;
+  padding: 6px 8px;
+  border-top: 1px solid var(--editor-border);
+  list-style: none;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.editor-runtime-checkbox-preview label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+}
+
+.editor-runtime-checkbox-preview input {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
+  margin: 0;
+}
+
 .editor-runtime-interview {
   display: flex;
   flex-direction: column;
@@ -4848,6 +4872,12 @@ body {
   border-bottom: 1px solid var(--editor-border);
   background: #fff;
   font-weight: 600;
+}
+
+#runtime-fill-samples {
+  width: 11rem;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 #runtime-frame-host {
@@ -5773,4 +5803,26 @@ body {
 .editor-template-action {
   --bs-btn-color: #0b5ed7;
   --bs-btn-border-color: #0b5ed7;
+}
+
+/* Preserve the live iframe while expanding the interview into the rail space. */
+.editor-runtime-workbench.editor-runtime-sidebar-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.editor-runtime-sidebar[hidden] {
+  display: none;
+}
+
+.editor-runtime-variable-simple > div {
+  padding: 6px 8px 0;
+  font-family: var(--bs-font-monospace);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+
+.editor-runtime-variable-simple > pre {
+  max-height: none;
+  border-top: 0;
+  background: transparent;
 }

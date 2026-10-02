@@ -325,12 +325,30 @@ The interview debugger and its runtime inspector API are enabled by default for
 authenticated developers and administrators, and can be disabled with
 `weaver: {runtime inspector: False}` or the legacy
 `WEAVER_ENABLE_RUNTIME_INSPECTOR` setting. It creates a Docassemble session
-separate from the editor and stores an expiring, owner-scoped
-`WeaverTargetSession` record in Redis. Browser calls use only Weaver's opaque
+separate from the editor and stores an owner-scoped `WeaverTargetSession`
+record with an idle deadline in Redis. Browser calls use only Weaver's opaque
 session ID; every lookup verifies the current developer, and public session
-metadata excludes the raw Docassemble ID and any secret. Deleting the Weaver
-record revokes further inspector access; it does not claim to delete
-Docassemble's underlying session.
+metadata excludes the raw Docassemble ID and any secret. Reloading looks up the
+developer's most recent open session for that interview; it never creates one
+automatically. End, replacement, and 30 minutes without answer-history progress
+delete the underlying interview through Docassemble's normal deletion helper,
+then remove its Redis record and deadline index. Polling and reloads do not
+extend the deadline. A Redis record survives a failed deletion so cleanup can
+retry without losing the database pointer. Owner and session locks serialize
+replacement and cleanup. Only validated Weaver records targeting their owner's
+Playground interview are eligible; normal saved sessions are never inferred
+from filenames and deleted.
+
+The Celery worker queues one deadline check per session, rescheduling when
+Docassemble's answer-history revision has advanced. A failed check retries up
+to three times, except for a rejected record or a missing Docassemble
+capability, which fail the same way every time. On 1.9 the worker deletes
+through the backend helpers rather than importing `docassemble.webapp.server`,
+whose startup copies Playground modules (#1086). A bounded sweep during
+normal editor requests provides cleanup without a configured worker. The
+administrative `runtime_session_cleanup` module indexes older Weaver Redis
+records and cleans overdue interviews, and the debugger's **Clean up old
+sessions** action keeps just the developer's current live session.
 
 Variable reads are simplified and omit `_internal` by default. Variable writes
 never deserialize objects. Question and back operations call Docassemble through
@@ -343,8 +361,12 @@ static-analysis findings. Weaver never chooses the next question.
 The browser debugger is isolated in `editor_runtime_inspector.js`. Its main pane
 runs the authoritative interview in an iframe while a sidebar follows the
 current question, records visited screens and the variables changed on each
-screen, and provides searchable simplified session variables. It can restart a
-test session, reveal `_internal` data explicitly, go back, and apply a YAML test
+screen, and provides searchable simplified session variables. Scalars display
+inline; nested values expand and use Python `True`, `False`, and `None` literals.
+Boolean DADicts use their `elements` map to show a checked count and a compact,
+read-only checkbox list, without duplicating options in a value dump. It can restart a
+test session, reveal framework configuration and `_internal` data explicitly,
+collapse the sidebar without replacing the iframe, go back, and apply a YAML test
 scenario. Iframe loads trigger a fresh observation, while the iframe node itself
 survives sidebar redraws so inspection cannot accidentally restart the
 interview. Scenario YAML is parsed and validated on the server, never in browser
@@ -352,6 +374,16 @@ JavaScript. Scenario seeding is labeled as a fixture that may bypass earlier
 questions. Question-to-source links are shown only when a stable returned
 `questionName` matches a known block; otherwise the UI says that no confident
 match is available.
+
+`editor_fake_filler.js` supplies Faker-generated sample answers only to the live
+debugger iframe. It decodes Docassemble field names and aliases, reads datatype
+and validation metadata, and dispatches native field events so conditional
+questions and address widgets update normally. Filling preserves existing
+answers. The next click activates the interview's submit button, retaining its
+name/value and normal validation. A frame-scoped MutationObserver resets the
+control when Docassemble replaces the form through AJAX; leaving the debugger
+or ending a session disconnects it. Sample values are submitted as ordinary
+interview answers, so the step recorder observes them without scenario seeding.
 
 Saving a Playground Python module is the one editor action that cannot take
 effect on its own. Docassemble does not import modules from where the Playground
@@ -478,3 +510,18 @@ secondary source editors, dialogs, authoring controls, and responsive menus.
 In addition, `generator_test.yml` is an interactive Docassemble interview that
 will test the `map_raw_to_final_display()` function from
 `interview_generator.py`. This is designed for quick in-browser testing.
+
+The variable viewer uses an explicit list of documented Assembly Line configuration
+and installed framework settings, plus ALKiln/internal namespaces and known
+imported Python typing names, to hide clutter by default. This includes saved-session
+filenames/titles and terms-of-use templates. Interview answers, custom `al_*` variables, and document bundles stay
+visible. Scalars render as text immediately; only objects/arrays use expandable
+rows, with expansion retained across polling. The count follows filtering/search.
+
+The Faker provider is US English, bundled locally in `faker_en_us.js` with its
+license. `npm run build:faker` rebuilds it from pinned npm dependencies;
+`npm run check:faker` verifies the checked-in bundle matches. No CDN or Python
+Faker service is required. Generated people and addresses are cached by decoded
+object path for one debug session. Blank states are sampled nationwide; existing
+address parts are preserved and ZIPs use the selected state's format. Phone
+numbers use Faker's US area/exchange-code datasets rather than arbitrary digits.

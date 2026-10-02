@@ -18,8 +18,15 @@ from . import docassemble_compat as compat
 
 
 class TaskApp:
+    def __init__(self):
+        self.options = {}
+
     def task(self, function=None, **kwargs):
-        return function if function is not None else lambda fn: fn
+        def register(fn):
+            self.options[fn.__name__] = kwargs
+            return fn
+
+        return register(function) if function is not None else register
 
 
 @pytest.fixture(params=["1.9", "1.10"])
@@ -109,6 +116,48 @@ def test_publish_avoids_poisoned_native_startup(publish_worker):
     functions.reset_local_variables.assert_called_once()
     assert not has_app_context()
     assert not has_request_context()
+
+
+@pytest.mark.parametrize("live", [True, False])
+def test_cleanup_checks_requeue_only_live_sessions_without_server_startup(
+    publish_worker, live
+):
+    worker, app, editor, native, functions = publish_worker
+    runtime = importlib.import_module("docassemble.ALWeaver.runtime_sessions")
+    redis_client = Mock()
+    record = Mock() if live else None
+    with patch.object(
+        compat, "get_redis_client", return_value=redis_client
+    ), patch.object(
+        runtime, "get_live_runtime_record", return_value=record
+    ) as load, patch.object(
+        runtime, "schedule_runtime_cleanup"
+    ) as schedule:
+        worker.weaver_cleanup_runtime_session_task(
+            session_id="debug-session", owner_user_id=7
+        )
+    load.assert_called_once_with(redis_client, "debug-session", 7)
+    redis_client.delete.assert_called_once_with(
+        runtime.RUNTIME_SESSION_KEY_PREFIX + "debug-session:cleanup-queued"
+    )
+    if live:
+        schedule.assert_called_once_with(redis_client, record)
+    else:
+        schedule.assert_not_called()
+    native.assert_not_called()
+    assert not has_app_context()
+    assert not has_request_context()
+
+
+def test_cleanup_retries_transient_failures_a_few_times_only(publish_worker):
+    worker = publish_worker[0]
+    options = worker.workerapp.options["weaver_cleanup_runtime_session_task"]
+    assert options["retry_kwargs"] == {"max_retries": 3}
+    # A record that fails validation fails identically on every retry.
+    assert issubclass(ValueError, options["dont_autoretry_for"])
+    assert compat.DocassembleCompatibilityError in options["dont_autoretry_for"]
+    # A busy session lock is a RuntimeError, and is worth retrying.
+    assert not issubclass(RuntimeError, options["dont_autoretry_for"])
 
 
 def test_twelve_publishes_have_independent_contexts(publish_worker):

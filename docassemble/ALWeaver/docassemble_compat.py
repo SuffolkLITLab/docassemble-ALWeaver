@@ -389,6 +389,130 @@ def get_target_variables(
     return result
 
 
+def get_target_session_revision(target: TargetSession) -> Optional[Tuple[int, Any]]:
+    """Read the answer-history revision without decrypting or assembling a session.
+
+    Docassemble overwrites the latest row for observations and adds/removes rows
+    when answers advance or go back. Its modtime alone also changes on reads.
+    """
+    from sqlalchemy import select
+
+    db = _first_webapp_attr(
+        (
+            ("docassemble.webapp.extensions", "db"),
+            ("docassemble.webapp.db_object", "db"),
+        ),
+        "its database",
+    )
+    model = _first_webapp_attr(
+        (
+            ("docassemble.webapp.interview.models", "UserDict"),
+            ("docassemble.webapp.core.models", "UserDict"),
+            ("docassemble.webapp.users.models", "UserDict"),
+        ),
+        "its interview history model",
+    )
+    row = db.session.execute(
+        select(model.indexno, model.modtime)
+        .where(model.key == target.session_id, model.filename == target.yaml_filename)
+        .order_by(model.indexno.desc())
+        .limit(1)
+    ).first()
+    return (int(row[0]), row[1]) if row is not None else None
+
+
+def delete_target_session(target: TargetSession, owner_user_id: int) -> None:
+    """Delete one Weaver-owned interview using Docassemble's normal cleanup.
+
+    The caller must validate its server-owned record before using this privileged
+    operation. No interview data or encryption key is needed for deletion.
+    """
+    # 1.9 keeps these helpers only in webapp.server. Importing that from the
+    # Celery worker initializes the interview server and copies Playground
+    # modules, the race behind #1086, so use it only when already loaded.
+    server = (
+        ("docassemble.webapp.server",)
+        if "docassemble.webapp.server" in sys.modules
+        else ()
+    )
+    try:
+        delete_interview = _first_webapp_attr(
+            (("docassemble.webapp.interview.helpers", "user_interviews"),)
+            + tuple((module, "user_interviews") for module in server),
+            "its interview deletion helper",
+        )
+        obtain_lock = _first_webapp_attr(
+            (("docassemble.webapp.lock", "obtain_lock"),)
+            + tuple((module, "obtain_lock") for module in server),
+            "its interview lock",
+        )
+        release_lock = _first_webapp_attr(
+            (("docassemble.webapp.lock", "release_lock"),)
+            + tuple((module, "release_lock") for module in server),
+            "its interview unlock",
+        )
+    except DocassembleCompatibilityError:
+        _delete_target_session_without_server(target, owner_user_id)
+        return
+    obtain_lock(target.session_id, target.yaml_filename)
+    try:
+        delete_interview(
+            action="delete",
+            filename=target.yaml_filename,
+            session=target.session_id,
+            user_id=owner_user_id,
+            delete_shared=True,
+            admin=True,
+        )
+    finally:
+        release_lock(target.session_id, target.yaml_filename)
+
+
+def _delete_target_session_without_server(
+    target: TargetSession, owner_user_id: int
+) -> None:
+    """1.9's ``user_interviews(action="delete", delete_shared=True)`` without
+    importing ``webapp.server``.
+
+    That call expires the session's Redis keys (``manual_checkout``) and then
+    calls ``backend.reset_user_dict(force=True)``, which deletes the answers,
+    uploads and keys of every user. The lock matches ``server.obtain_lock``.
+    """
+    from docassemble.base.config import daconfig
+
+    # 1.9-only module, absent from 1.10 installations.
+    reset_user_dict = importlib.import_module(
+        "docassemble.webapp.backend"
+    ).reset_user_dict
+    from docassemble.webapp.daredis import r
+
+    lock_key = f"da:lock:{target.session_id}:{target.yaml_filename}"
+    lock_timeout = int(daconfig.get("concurrency lock timeout", 4))
+    for _attempt in range(lock_timeout * 3):
+        if not r.get(lock_key):
+            break
+        time.sleep(1.0)
+    # Like Docassemble, take over a lock that outlived the wait as deadlocked.
+    r.set(lock_key, 1, ex=lock_timeout)
+    try:
+        endpart = (
+            f":uid:{target.session_id}:i:{target.yaml_filename}"
+            f":userid:{owner_user_id}"
+        )
+        pipe = r.pipeline()
+        for prefix in ("session", "html", "interviewsession", "ready", "block"):
+            pipe.expire("da:" + prefix + endpart, 12)
+        pipe.execute()
+        reset_user_dict(
+            target.session_id,
+            target.yaml_filename,
+            user_id=owner_user_id,
+            force=True,
+        )
+    finally:
+        r.delete(lock_key)
+
+
 def set_target_variables(
     target: TargetSession,
     variables: Dict[str, Any],
@@ -608,6 +732,17 @@ def _optional_webapp_attr(candidates: Sequence[Tuple[str, str]]) -> Any:
         # configuration calls sys.exit when there is no config file. An
         # optional capability must not take the caller down with it.
         return None
+
+
+def runtime_cleanup_context() -> AbstractContextManager[Any]:
+    """Provide explicit-owner Flask context without interview-server startup.
+
+    Cleanup reads metadata and deletes a known session by ID, so it uses the
+    same lightweight context as publishing. Native 1.9 bg_context initializes
+    the interview server and needlessly recopies Playground modules on checks;
+    :func:`delete_target_session` likewise avoids importing it on 1.9.
+    """
+    return github_publish_context()
 
 
 def cloud_object() -> Any:
