@@ -554,8 +554,11 @@
       radios.every(function (radio) {
         return radio.name === checked.name;
       })
-    )
+    ) {
+      // Flip it even when the author picked the current answer themselves.
       avoid[checked.name] = checked.value;
+      filled.set(checked, written(checked));
+    }
     filled.forEach(function (value, field) {
       if (!field.isConnected || written(field) !== value) return;
       samples.forget(fieldInfo(field, names, types).variable);

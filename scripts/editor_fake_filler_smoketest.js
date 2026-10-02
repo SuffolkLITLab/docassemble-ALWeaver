@@ -248,6 +248,10 @@ async function browserChecks(context) {
     await regenerate.click();
     assert.equal(await answer(), expected);
   }
+  // Also when the author chose the current answer themselves.
+  await frame.locator('input[type=radio][value=True]').check();
+  await regenerate.click();
+  assert.equal(await answer(), 'False');
   await frame.locator('#daform').evaluate((form) => form.remove());
   await expect(button).toBeDisabled();
   await page.evaluate(() => window.controller.dispose());
