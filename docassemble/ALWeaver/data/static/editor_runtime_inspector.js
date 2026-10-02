@@ -1274,6 +1274,9 @@
       content.innerHTML =
         '<div class="editor-runtime-workbench">' +
         '<aside id="runtime-sidebar" class="editor-runtime-sidebar" aria-label="Interview debugging details">' +
+        '<div class="editor-runtime-sidebar-heading"><span class="editor-tiny">Debugging details</span>' +
+        '<button type="button" class="btn btn-sm btn-outline-secondary editor-rail-toggle" id="runtime-toggle-sidebar" aria-controls="runtime-sidebar-panels" aria-expanded="true" aria-label="Collapse debugging details" title="Collapse debugging details"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i></button></div>' +
+        '<div id="runtime-sidebar-panels">' +
         '<details class="editor-runtime-panel" open><summary>Current screen</summary><div id="runtime-question" class="editor-runtime-panel-body"></div></details>' +
         '<details class="editor-runtime-panel" open><summary>Step recorder <span class="badge text-bg-secondary" id="runtime-step-count"></span></summary><div id="runtime-step-list" class="editor-runtime-panel-body editor-runtime-step-list"></div></details>' +
         '<details class="editor-runtime-panel" open><summary>Session variables <span class="badge text-bg-secondary" id="runtime-variable-count"></span></summary>' +
@@ -1288,10 +1291,13 @@
         '<textarea id="runtime-scenario" class="form-control form-control-sm font-monospace" rows="7"></textarea>' +
         '<button type="button" class="btn btn-sm btn-outline-primary mt-2" id="runtime-apply-scenario">Apply and reload</button>' +
         '</div></details>' +
-        '</aside>' +
-        '<div class="editor-runtime-interview"><div class="editor-runtime-frame-bar"><span><i class="fa-solid fa-display me-1" aria-hidden="true"></i>Live interview</span><div class="d-flex gap-2"><button type="button" class="btn btn-sm btn-outline-secondary" id="runtime-toggle-sidebar" aria-controls="runtime-sidebar" aria-expanded="true">Hide details</button><button type="button" class="btn btn-sm btn-outline-primary" id="runtime-fill-samples" disabled>Fill sample answers</button></div></div><div id="runtime-frame-host"></div></div>' +
+        '</div></aside>' +
+        '<div class="editor-runtime-interview"><div class="editor-runtime-frame-bar"><span class="editor-runtime-frame-title"><i class="fa-solid fa-display me-1" aria-hidden="true"></i>Live interview <code id="runtime-frame-file"></code></span><button type="button" class="btn btn-sm btn-outline-primary" id="runtime-fill-samples" disabled>Fill sample answers</button></div><div id="runtime-frame-host"></div></div>' +
         '</div>';
 
+      var frameFile = content.querySelector('#runtime-frame-file');
+      frameFile.textContent = session.filename;
+      frameFile.setAttribute('title', session.yaml_filename);
       var sidebarToggle = content.querySelector('#runtime-toggle-sidebar');
       function updateSidebar() {
         content
@@ -1300,14 +1306,16 @@
             'editor-runtime-sidebar-collapsed',
             sidebarCollapsed,
           );
-        var sidebar = /** @type {HTMLElement} */ (
-          content.querySelector('#runtime-sidebar')
+        var panels = /** @type {HTMLElement} */ (
+          content.querySelector('#runtime-sidebar-panels')
         );
-        sidebar.hidden = sidebarCollapsed;
+        panels.hidden = sidebarCollapsed;
+        var label = sidebarCollapsed
+          ? 'Expand debugging details'
+          : 'Collapse debugging details';
         sidebarToggle.setAttribute('aria-expanded', String(!sidebarCollapsed));
-        sidebarToggle.textContent = sidebarCollapsed
-          ? 'Show details'
-          : 'Hide details';
+        sidebarToggle.setAttribute('aria-label', label);
+        sidebarToggle.setAttribute('title', label);
       }
       sidebarToggle.addEventListener('click', function () {
         sidebarCollapsed = !sidebarCollapsed;

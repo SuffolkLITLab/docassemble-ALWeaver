@@ -4874,6 +4874,19 @@ body {
   font-weight: 600;
 }
 
+.editor-runtime-frame-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#runtime-frame-file {
+  margin-left: 6px;
+  color: var(--editor-muted);
+  font-weight: 400;
+}
+
 #runtime-fill-samples {
   width: 11rem;
   flex-shrink: 0;
@@ -4920,6 +4933,7 @@ body {
   }
 
   .editor-runtime-sidebar {
+    flex-shrink: 0;
     max-height: 48vh;
     border-right: 0;
     border-bottom: 1px solid var(--editor-border);
@@ -5805,13 +5819,59 @@ body {
   --bs-btn-border-color: #0b5ed7;
 }
 
-/* Preserve the live iframe while expanding the interview into the rail space. */
-.editor-runtime-workbench.editor-runtime-sidebar-collapsed {
-  grid-template-columns: minmax(0, 1fr);
+/* Like the main rail, the debug details collapse to a strip that keeps their
+   toggle. Only CSS changes, so the live iframe is preserved. */
+.editor-runtime-sidebar-heading {
+  position: sticky;
+  top: -10px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: -10px -10px 8px;
+  padding: 8px 10px;
+  background: var(--editor-bg);
+  border-bottom: 1px solid var(--editor-border);
 }
 
-.editor-runtime-sidebar[hidden] {
+.editor-runtime-workbench.editor-runtime-sidebar-collapsed {
+  grid-template-columns: 3.5rem minmax(0, 1fr);
+}
+
+.editor-runtime-sidebar-collapsed .editor-runtime-sidebar-heading {
+  justify-content: center;
+  margin-bottom: 0;
+  border-bottom: 0;
+}
+
+.editor-runtime-sidebar-collapsed .editor-runtime-sidebar-heading > span,
+#runtime-sidebar-panels[hidden] {
   display: none;
+}
+
+.editor-runtime-sidebar-collapsed .editor-rail-toggle svg {
+  transform: rotate(180deg);
+}
+
+/* Stacked above the interview, the details fold up and down instead. */
+@media (max-width: 760px) {
+  .editor-runtime-workbench.editor-runtime-sidebar-collapsed
+    .editor-runtime-sidebar-heading {
+    justify-content: space-between;
+  }
+
+  .editor-runtime-sidebar-collapsed .editor-runtime-sidebar-heading > span {
+    display: inline;
+  }
+
+  .editor-runtime-sidebar .editor-rail-toggle svg {
+    transform: rotate(90deg);
+  }
+
+  .editor-runtime-sidebar-collapsed .editor-rail-toggle svg {
+    transform: rotate(-90deg);
+  }
 }
 
 .editor-runtime-variable-simple > div {

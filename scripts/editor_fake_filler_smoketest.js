@@ -385,7 +385,11 @@ async function debuggerChecks(context) {
     await page.locator('#runtime-interview-frame').boundingBox()
   ).width;
   await page.locator('#runtime-toggle-sidebar').click();
-  await expect(page.locator('#runtime-sidebar')).toBeHidden();
+  await expect(page.locator('#runtime-sidebar-panels')).toBeHidden();
+  // Like the main rail, the collapsed details keep a strip with the toggle.
+  await expect(
+    page.locator('#runtime-sidebar #runtime-toggle-sidebar'),
+  ).toBeVisible();
   await expect(page.locator('#runtime-toggle-sidebar')).toHaveAttribute(
     'aria-expanded',
     'false',
@@ -395,7 +399,7 @@ async function debuggerChecks(context) {
       initialWidth,
   );
   await page.evaluate(() => window.inspector.refreshAll());
-  await expect(page.locator('#runtime-sidebar')).toBeHidden();
+  await expect(page.locator('#runtime-sidebar-panels')).toBeHidden();
   await page.locator('#runtime-toggle-sidebar').click();
   assert.equal(
     await page.evaluate(
@@ -406,7 +410,7 @@ async function debuggerChecks(context) {
     ),
     true,
   );
-  await expect(page.locator('#runtime-sidebar')).toBeVisible();
+  await expect(page.locator('#runtime-sidebar-panels')).toBeVisible();
   await page.locator('#runtime-include-internal').check();
   await expect(list).toContainText('feedback_form');
   await expect(list).toContainText('alkiln_proxy_html');
@@ -432,7 +436,7 @@ async function debuggerChecks(context) {
   await expect(list).toContainText('Visible immediately');
   await page.setViewportSize({ width: 600, height: 900 });
   await page.locator('#runtime-toggle-sidebar').click();
-  await expect(page.locator('#runtime-sidebar')).toBeHidden();
+  await expect(page.locator('#runtime-sidebar-panels')).toBeHidden();
   await expect(page.locator('#runtime-toggle-sidebar')).toBeVisible();
   assert.deepEqual(errors, []);
   await page.evaluate(() => window.inspector.hide());
@@ -554,6 +558,7 @@ question: Digits accepted
     await expect(frame.locator('#daMainQuestion')).toHaveText(
       'Last four digits',
     );
+    await expect(page.locator('#runtime-frame-file')).toHaveText('digits.yml');
     const input = frame.getByRole('textbox', {
       name: 'Last 4 digits of social Security Number',
     });

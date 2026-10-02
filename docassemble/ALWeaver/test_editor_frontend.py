@@ -67,7 +67,7 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn('id="runtime-fill-samples"', runtime)
         self.assertIn("attachFakeFiller(frame, wrapper)", runtime)
         self.assertIn('id="runtime-toggle-sidebar"', runtime)
-        self.assertIn('aria-controls="runtime-sidebar"', runtime)
+        self.assertIn('aria-controls="runtime-sidebar-panels"', runtime)
         self.assertIn('aria-expanded="true"', runtime)
         self.assertIn("Show internal data", runtime)
         self.assertIn("isNestedValue(visible[name])", runtime)

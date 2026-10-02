@@ -125,7 +125,8 @@ when the question uses a text datatype.
 Existing answers are preserved, and conditional fields revealed by sample
 choices are filled too. File uploads and drawn signatures need manual input.
 
-Use **Hide details** / **Show details** to collapse or reopen the debug rail.
+Use the arrow at the top of the debug details to collapse or reopen them, as
+with the main sidebar.
 Refreshing the page reconnects to the current debug interview. Each developer
 keeps one current debug session; starting another or clicking **End** deletes
 the old interview data. Sessions close after 30 minutes without answer-history
