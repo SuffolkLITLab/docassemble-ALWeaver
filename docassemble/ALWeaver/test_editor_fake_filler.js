@@ -151,13 +151,35 @@ for (let i = 0; i < 50; i++) {
   assert.match(value('household_size', {}, 'number'), /^\d+$/);
   assert.match(value('hours', {}, 'float'), /^\d+$/);
 }
+// A three-part date's parts come from one past date: anyone from a newborn
+// to an 80-year-old for a birth date, any month, and days 1 to 28.
 const thisYear = new Date().getFullYear();
-for (let i = 0; i < 50; i++) {
-  const birthYear = Number(
-    value('birthdate.year', { type: 'number' }, 'number'),
-  );
-  assert.ok(birthYear >= thisYear - 80 && birthYear <= thisYear - 18);
+const days = new Set();
+const months = new Set();
+const birthYears = new Set();
+for (let i = 0; i < 400; i++) {
+  const parts = filler.createSampleData();
+  const part = (name, properties) =>
+    value(`birthdate.${name}`, properties, 'number', '', parts);
+  const year = part('year', { type: 'number' });
+  const month = part('month', { tagName: 'SELECT' });
+  const day = part('day', { type: 'number' });
+  assert.ok(new Date(`${year}-${month}-${day.padStart(2, '0')}`) <= new Date());
+  assert.equal(part('year', { type: 'number' }), year, 'parts stay together');
+  days.add(Number(day));
+  months.add(month);
+  birthYears.add(Number(year));
 }
+assert.deepEqual(
+  [...days].sort((a, b) => a - b),
+  Array.from({ length: 28 }, (_, i) => i + 1),
+);
+assert.deepEqual(
+  [...months].sort(),
+  Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')),
+);
+assert.ok(Math.max(...birthYears) >= thisYear - 1, 'minors are included');
+assert.ok(Math.min(...birthYears) <= thisYear - 60);
 // Currency text controls must win over address-like labels and yield plain numbers.
 for (let i = 0; i < 100; i++) {
   const amount = Number(
@@ -194,10 +216,7 @@ assert.match(
   value('birth_date', { type: 'date' }, 'date'),
   /^\d{4}-\d{2}-\d{2}$/,
 );
-assert.ok(
-  new Date(value('birth_date', {}, 'date')).getFullYear() <=
-    new Date().getFullYear() - 18,
-);
+assert.ok(new Date(value('birth_date', {}, 'date')) <= new Date());
 assert.equal(
   value('hearing_date', { min: '2026-01-01', max: '2026-01-01' }, 'date'),
   '2026-01-01',

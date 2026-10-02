@@ -11,10 +11,16 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (faker) {
   'use strict';
 
+  /** A birth date for anyone from a newborn to an 80-year-old. */
+  function birthDate() {
+    return faker.date.birthdate({ min: 0, max: 80, mode: 'age' });
+  }
+
   function createSampleData() {
     var people = new Map();
     var addresses = new Map();
     var phones = new Map();
+    var dates = new Map();
     function addressKey(variable) {
       var marker = variable.indexOf('.address.');
       return marker >= 0
@@ -88,10 +94,29 @@
         );
       return phones.get(variable);
     }
+    /** One part of a three-part date; all parts come from one past date. */
+    function datePart(variable, part) {
+      var key = variable.slice(0, variable.lastIndexOf('.'));
+      if (!dates.has(key)) {
+        var generated = /birth|dob/.test(key)
+          ? birthDate()
+          : faker.date.past({ years: 2 });
+        // Day 28 at most is valid in every month and keeps the date past.
+        generated.setDate(Math.min(generated.getDate(), 28));
+        dates.set(key, generated);
+      }
+      var date = dates.get(key);
+      return {
+        day: String(date.getDate()),
+        month: String(date.getMonth() + 1).padStart(2, '0'),
+        year: String(date.getFullYear()),
+      }[part];
+    }
     return {
       person: person,
       address: address,
       phone: phone,
+      datePart: datePart,
       seedAddress: seedAddress,
     };
   }
@@ -242,7 +267,7 @@
     // years_at_address must not get a street address.
     if (/^(date|datetime|datetime-local|time|month|week)$/.test(datatype)) {
       var generated = /birth|dob/.test(hint)
-        ? faker.date.birthdate({ min: 18, max: 80, mode: 'age' })
+        ? birthDate()
         : faker.date.past({ years: 2 });
       var iso = generated.toISOString();
       var dates = {
@@ -261,14 +286,17 @@
       if (field.max && date > field.max) date = field.max;
       return date;
     }
+    // Parts of a three-part date (see fieldInfo).
+    var datePart = /\.(day|month|year)$/.exec(variable);
+    if (datePart) return samples.datePart(variable, datePart[1]);
     // A year, not a count of years: years_at_address wants a small number.
     if (/(^|[^a-z])year([^a-z]|$)/i.test(hint)) {
       var thisYear = new Date().getFullYear();
-      // Match the birth dates above: an adult, 18 to 80 years old.
       return String(
-        /birth|dob/.test(hint)
-          ? faker.number.int({ min: thisYear - 80, max: thisYear - 18 })
-          : faker.number.int({ min: thisYear - 10, max: thisYear }),
+        faker.number.int({
+          min: thisYear - (/birth|dob/.test(hint) ? 80 : 10),
+          max: thisYear,
+        }),
       );
     }
     if (/^(number|float|integer|range)$/.test(datatype))
