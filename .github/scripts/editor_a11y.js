@@ -157,12 +157,13 @@ async function main() {
     await page.locator("#editor-app").waitFor({ state: "visible", timeout: 30_000 });
 
     // Open a real Playground interview and its file-backed editing areas.
-    await page.locator('#project-select option[value="default"]').waitFor({
+    await page.locator('#editor-all-projects [data-project-card="default"]').waitFor({
       state: "attached",
       timeout: 30_000,
     });
     await page.locator("#editor-project-menu").click();
-    await selectOption(page, "#project-select", "default", "project");
+    await page.locator('.editor-project-submenu > summary').click();
+    await page.locator('#editor-all-projects [data-project-card="default"]').click();
     await page.locator('#file-select option[value="editor_accessibility.yml"]').waitFor({
       state: "attached",
       timeout: 30_000,
@@ -214,7 +215,7 @@ async function main() {
       )
     );
     await page.locator("#cancel-new-project").click();
-    await page.locator('[data-project-card="default"]').last().click();
+    await page.locator('#canvas-content [data-project-card="default"]').click();
     await page.locator("#outline-list .editor-outline-item").first().waitFor();
 
     // Project-wide search dialog and its result state.

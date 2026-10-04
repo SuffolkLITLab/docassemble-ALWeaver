@@ -188,15 +188,17 @@ async function main() {
     await audit('Laptop editor');
 
     await page.locator('#editor-project-menu').click();
-    await expect(page.locator('#project-select')).toBeVisible();
+    await expect(page.locator('#editor-recent-projects')).toBeVisible();
+    await page.locator('.editor-project-submenu > summary').click();
+    await expect(page.locator('#editor-all-projects')).toBeVisible();
     await screenshot('02-project-switcher');
-    await page.locator('#project-select').selectOption(secondary);
+    await page.locator(`#editor-all-projects [data-project-card="${secondary}"]`).click();
     await expect(page).toHaveURL(
       new RegExp(`/projects/${secondary}/interviews/`),
     );
-    await expect(page.locator('#project-select')).toBeHidden();
+    await expect(page.locator('.editor-project-menu')).toBeHidden();
     await page.locator('#editor-project-menu').click();
-    await page.locator('#project-select').selectOption(primary);
+    await page.locator(`#editor-recent-projects [data-project-card="${primary}"]`).click();
     await expect(page).toHaveURL(
       new RegExp(`/projects/${primary}/interviews/`),
     );
@@ -204,11 +206,11 @@ async function main() {
     // Switching projects must preserve the existing unsaved-changes guard.
     await page.locator('#q-title').fill('An unsaved question');
     await page.locator('#editor-project-menu').click();
-    await page.locator('#project-select').selectOption(secondary);
+    await page.locator(`#editor-recent-projects [data-project-card="${secondary}"]`).click();
     await expect(page.locator('#unsaved-changes-modal')).toBeVisible();
     await page.locator('[data-unsaved-choice="stay"]').click();
     await expect(page.locator('#q-title')).toHaveValue('An unsaved question');
-    await expect(page.locator('#project-select')).toHaveValue(primary);
+    await expect(page.locator('#topbar-project-name')).toHaveText(primary);
     await load(route);
 
     await page.locator('#btn-project-search').click();
@@ -333,8 +335,14 @@ async function main() {
     }
     await page.setViewportSize({ width: 1366, height: 900 });
     await load(`${server}/al/editor`);
+    for (const selector of [
+      '.editor-section-switcher', '.editor-compact-actions',
+      '#editor-navbar-collapse', '.navbar-toggler', '#left-rail', '#validation-drawer',
+    ]) {
+      await expect(page.locator(selector)).toBeHidden();
+    }
     const allCount = originalProjects.length + 2;
-    await expect(page.locator('[data-project-card]')).toHaveCount(allCount);
+    await expect(page.locator('#canvas-content [data-project-card]')).toHaveCount(allCount);
     if (allCount <= 8)
       await expect(page.locator('.editor-project-section-title')).toHaveText([
         'All projects',
@@ -357,20 +365,20 @@ async function main() {
       'Other projects',
     ]);
     const cardNames = await page
-      .locator('[data-project-card]')
+      .locator('#canvas-content [data-project-card]')
       .evaluateAll((cards) => cards.map((card) => card.dataset.projectCard));
     assert.equal(new Set(cardNames).size, cardNames.length);
     await screenshot('08-large-project-list');
     await page.locator('#project-search-input').fill(primary);
-    await expect(page.locator('[data-project-card]')).toHaveCount(1);
-    await expect(page.locator('[data-project-card]')).toHaveAttribute(
+    await expect(page.locator('#canvas-content [data-project-card]')).toHaveCount(1);
+    await expect(page.locator('#canvas-content [data-project-card]')).toHaveAttribute(
       'data-project-card',
       primary,
     );
     await page
       .locator('#project-search-input')
       .fill('NoMatchingProject987654321');
-    await expect(page.locator('[data-project-card]')).toHaveCount(0);
+    await expect(page.locator('#canvas-content [data-project-card]')).toHaveCount(0);
     await expect(page.locator('#canvas-content')).toContainText(
       'No projects matched your search.',
     );
