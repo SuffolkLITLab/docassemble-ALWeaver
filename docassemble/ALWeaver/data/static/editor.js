@@ -10853,9 +10853,9 @@
           .indexOf(q) !== -1
       );
     });
-    var html = '';
+    var html = view === 'templates' ? renderTemplateInterviewSelector() : '';
     if (!filtered.length) {
-      html = '<div class="text-muted small p-2">No files found.</div>';
+      html += '<div class="text-muted small p-2">No files found.</div>';
       outlineList.innerHTML = html;
       initOutlineSortable();
       return;
@@ -10882,16 +10882,18 @@
       html +=
         '<div style="min-width:0;flex:1"><div class="editor-outline-title">' +
         esc(file.filename) +
-        '</div></div>';
-      // A template sitting in the folder is not yet part of anything, and that
-      // is the single most useful thing to know when looking at this list.
+        '</div>';
+      // Import status is scoped to the selected interview, not the project.
       if (view === 'templates') {
         var fileStatus = templateStatus(file.filename);
         if (fileStatus && fileStatus.status === 'not_imported') {
           html +=
-            '<div class="editor-outline-status" title="Nothing in this interview uses this file yet">Not imported</div>';
+            '<span class="editor-outline-status" title="Not imported into ' +
+            esc(state.filename) +
+            '">Not imported</span>';
         }
       }
+      html += '</div>';
       if (tag) {
         html +=
           '<div class="editor-outline-type editor-outline-type-oth">' +
@@ -19332,7 +19334,10 @@
       '<div class="editor-card"><div class="editor-card-header d-flex justify-content-between align-items-center gap-2">';
     html += '<span>' + esc(fileMeta.filename);
     if (attached)
-      html += ' <span class="text-muted fw-normal">already imported</span>';
+      html +=
+        ' <span class="text-muted fw-normal">imported into ' +
+        esc(state.filename) +
+        '</span>';
     html += '</span>';
     html +=
       '<button class="btn btn-sm btn-outline-primary" id="import-template-btn"' +
@@ -19927,9 +19932,37 @@
       });
   }
 
-  // The project-wide setup of the documents, reached from the Templates menu.
+  // Document setup for the selected interview, reached from the Templates menu.
   // It is deliberately not shown beside a single file: mixing "this template"
   // with "all the documents" is what made the tab hard to read.
+  function renderTemplateInterviewSelector() {
+    var disabled = state.templateImportBusy || state.documentsBusy;
+    var html =
+      '<div class="p-2 border-bottom mb-2">' +
+      '<div class="editor-tiny text-muted">Import into</div>' +
+      '<div class="d-flex align-items-start gap-2"><span class="small flex-grow-1" style="min-width:0;overflow-wrap:anywhere">' +
+      esc(state.filename || 'No interview file open') +
+      '</span>' +
+      '<button type="button" class="btn btn-link btn-sm p-0 flex-shrink-0" id="change-template-interview" aria-expanded="false" aria-controls="template-interview-choices"' +
+      (disabled || !state.files.length ? ' disabled' : '') +
+      '>Change</button></div>';
+    html +=
+      '<div id="template-interview-choices" class="list-group mt-2" hidden>';
+    state.files.forEach(function (file) {
+      html +=
+        '<button type="button" class="list-group-item list-group-item-action small text-break' +
+        (file.filename === state.filename ? ' active' : '') +
+        '" data-template-interview="' +
+        esc(file.filename) +
+        '"' +
+        (file.filename === state.filename ? ' aria-current="true"' : '') +
+        '>' +
+        esc(file.filename) +
+        '</button>';
+    });
+    return html + '</div></div>';
+  }
+
   function renderDocumentSetupView() {
     var html = '<div class="editor-full-yaml-shell">';
     html += '<div class="editor-full-yaml-header">';
@@ -19971,7 +20004,9 @@
     });
     if (!pending.length) return '';
     var html =
-      '<div class="editor-card"><div class="editor-card-header">Templates not imported yet</div><div class="editor-card-body">';
+      '<div class="editor-card"><div class="editor-card-header">Templates not imported into ' +
+      esc(state.filename || 'the selected interview') +
+      '</div><div class="editor-card-body">';
     html +=
       '<p class="text-muted small">These files are in the project but nothing in ' +
       esc(state.filename || 'the interview') +
@@ -20247,6 +20282,22 @@
   }
 
   document.addEventListener('click', function (e) {
+    var changeInterview = e.target.closest('#change-template-interview');
+    if (changeInterview) {
+      var choices = document.getElementById('template-interview-choices');
+      choices.hidden = !choices.hidden;
+      changeInterview.setAttribute('aria-expanded', String(!choices.hidden));
+      return;
+    }
+    var interviewChoice = e.target.closest('[data-template-interview]');
+    if (interviewChoice) {
+      fileSelect.value = interviewChoice.getAttribute(
+        'data-template-interview',
+      );
+      fileSelect.dispatchEvent(new Event('change'));
+      renderOutline();
+      return;
+    }
     var dismissal = transientToolsDismissedByClick(e);
     try {
       handleEditorClick(e);
@@ -23918,6 +23969,9 @@
     function changeFile() {
       fileSelect.value = nextFilename;
       if (stashCurrentEditorState() === false) return;
+      state.documents = null;
+      state.documentsLoaded = null;
+      state.templateImportResult = null;
       state.filename = nextFilename;
       state.selectedBlockId = null;
       dirtyState.activate(state.filename, null);

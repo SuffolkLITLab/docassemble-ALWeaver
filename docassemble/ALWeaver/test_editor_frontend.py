@@ -51,6 +51,22 @@ class _TemplateCollector(HTMLParser):
 
 
 class TestEditorFrontend(unittest.TestCase):
+    def test_template_interview_selector_reuses_guarded_file_navigation(self):
+        source = (self.package_dir / "data/static/editor.js").read_text()
+        outline = source.split("function renderSectionOutline()", 1)[1].split(
+            "filtered.forEach", 1
+        )[0]
+        self.assertIn("renderTemplateInterviewSelector()", outline)
+        self.assertNotIn('id="template-interview-select"', source)
+        handler = source.split("if (interviewChoice)", 1)[1].split("return;", 1)[0]
+        self.assertIn("fileSelect.dispatchEvent(new Event('change'))", handler)
+        self.assertIn("renderOutline()", handler)
+        change_file = source.split("function changeFile()", 1)[1].split(
+            "loadFile();", 1
+        )[0]
+        self.assertIn("state.documents = null", change_file)
+        self.assertIn("state.templateImportResult = null", change_file)
+
     def test_debugger_sample_filler_is_loaded_before_the_inspector(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
         self.assertLess(
