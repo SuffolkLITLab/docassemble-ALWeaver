@@ -5892,3 +5892,64 @@ body {
   border-top: 0;
   background: transparent;
 }
+
+/* Project-only controls stay hidden during startup and on the empty editor. */
+.editor-no-project .editor-section-switcher,
+.editor-no-project .editor-compact-actions,
+.editor-no-project #editor-navbar-collapse,
+.editor-no-project .navbar-toggler,
+.editor-no-project #left-rail,
+.editor-no-project #validation-drawer,
+.editor-no-project #editor-canvas-save {
+  display: none !important;
+}
+.editor-no-project .editor-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+.editor-project-submenu {
+  position: relative;
+}
+.editor-project-submenu > summary {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  list-style: none;
+  cursor: pointer;
+}
+.editor-project-submenu > summary::-webkit-details-marker {
+  display: none;
+}
+.editor-project-submenu-list {
+  position: absolute;
+  left: 100%;
+  top: 0;
+  z-index: 1000;
+  min-width: 12rem;
+  max-width: min(22rem, calc(100vw - 19rem));
+  max-height: 60vh;
+  overflow: auto;
+  padding: 0.5rem 0;
+  background: var(--bs-dropdown-bg);
+  border: var(--bs-dropdown-border-width) solid var(--bs-dropdown-border-color);
+  border-radius: var(--bs-dropdown-border-radius);
+  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+.editor-project-menu .dropdown-item {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+#editor-error-count {
+  border: 0;
+  cursor: pointer;
+}
+@media (max-width: 575.98px) {
+  .editor-project-menu {
+    min-width: 0;
+    width: 52vw;
+  }
+  .editor-project-submenu-list {
+    min-width: 0;
+    width: calc(48vw - 1.5rem);
+    max-width: none;
+  }
+}

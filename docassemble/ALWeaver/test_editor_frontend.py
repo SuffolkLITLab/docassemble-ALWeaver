@@ -440,11 +440,13 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("function setSectionSubmenu(openId)", editor)
         self.assertIn("@media (min-width: 576px)", css)
 
-    def test_toolbar_uses_run_and_a_noninteractive_error_count(self):
+    def test_toolbar_uses_run_and_an_accessible_error_button(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
         self.assertNotIn("Open interview", template)
         self.assertNotIn('data-action="check-errors"', template)
-        self.assertIn('<span id="editor-error-count"', template)
+        self.assertIn('id="editor-error-count"', template)
+        self.assertIn('data-action="show-errors"', template)
+        self.assertIn('aria-controls="validation-drawer-body"', template)
         self.assertIn('aria-label="Run"', template)
         status = template.split('id="editor-error-status"', 1)[1].split("</span>")[0]
         self.assertIn('class="visually-hidden"', status)
@@ -453,6 +455,25 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertGreater(
             template.index('id="editor-error-status"'), template.index("</nav>")
         )
+
+    def test_project_menu_shortcuts_and_unloaded_controls(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        css = (self.package_dir / "data/static/editor.css").read_text()
+        self.assertIn('id="editor-app" class="editor-no-project"', template)
+        for control in (
+            ".editor-section-switcher",
+            ".editor-compact-actions",
+            "#editor-navbar-collapse",
+            "#validation-drawer",
+            "#left-rail",
+        ):
+            self.assertIn(".editor-no-project " + control, css)
+        for action in ("create-project", "open-github-import", "open-project-selector"):
+            self.assertIn('data-action="' + action + '"', template)
+        self.assertIn('id="editor-recent-projects"', template)
+        self.assertIn('class="editor-project-submenu"', template)
+        self.assertIn('id="editor-all-projects"', template)
+        self.assertNotIn('id="project-select"', template)
 
     def test_compact_navigation_has_only_one_visible_home(self):
         css = (self.package_dir / "data/static/editor.css").read_text()

@@ -10,21 +10,25 @@
 <link rel="stylesheet" href="/al/editor/static/editor.css">
 </head>
 <body>
-<div id="editor-app">
+<div id="editor-app" class="editor-no-project">
 
   <!-- ===== TOP BAR ===== -->
   <nav class="navbar navbar-expand-xl editor-navbar" id="topbar" data-bs-theme="dark" aria-label="Editor">
     <div class="container-fluid">
       <div class="dropdown editor-project-switcher">
-        <button type="button" class="navbar-brand editor-brand dropdown-toggle" id="editor-project-menu" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Switch project" title="Switch project">
+        <button type="button" class="navbar-brand editor-brand dropdown-toggle" id="editor-project-menu" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-label="Switch project" title="Switch project">
           <img class="editor-brand-logo" src="/packagestatic/docassemble.ALWeaver/logo.svg?v=2.1.0" alt="ALWeaver">
           <span class="editor-brand-project" id="topbar-project-name">No project selected</span>
         </button>
         <div class="dropdown-menu editor-project-menu" data-bs-theme="light" aria-labelledby="editor-project-menu">
-          <div class="px-3 py-2">
-            <label class="editor-tiny" for="project-select">Project</label>
-            <select class="form-select form-select-sm mt-1" id="project-select"></select>
-          </div>
+          <div id="editor-recent-projects"></div>
+          <details class="editor-project-submenu">
+            <summary class="dropdown-item">All projects <i class="fa-solid fa-angle-right ms-auto" aria-hidden="true"></i></summary>
+            <div class="editor-project-submenu-list" id="editor-all-projects" aria-label="All projects"></div>
+          </details>
+          <hr class="dropdown-divider">
+          <button type="button" class="dropdown-item" data-action="create-project"><i class="fa-solid fa-plus fa-fw me-2" aria-hidden="true"></i>Create project</button>
+          <button type="button" class="dropdown-item" data-action="open-github-import"><i class="fa-brands fa-github fa-fw me-2" aria-hidden="true"></i>Create project from GitHub</button>
           <button type="button" class="dropdown-item" data-action="open-project-selector"><i class="fa-solid fa-folder-open fa-fw me-2" aria-hidden="true"></i>Browse projects</button>
         </div>
       </div>
@@ -69,7 +73,7 @@
         </ul>
       </div>
       <div class="editor-compact-actions" role="group" aria-label="Interview actions">
-        <span id="editor-error-count" class="editor-validation-badge d-none" aria-hidden="true"></span>
+        <button type="button" id="editor-error-count" class="editor-validation-badge d-none" data-action="show-errors" aria-label="Show errors and warnings" aria-controls="validation-drawer-body" aria-expanded="false"></button>
         <button type="button" class="btn btn-sm btn-outline-light" data-action="preview-interview" aria-label="Run" title="Run"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i><span class="editor-compact-action-label">Run</span></button>
         <button type="button" class="btn btn-sm btn-outline-light" data-action="open-runtime-inspector" aria-label="Debug interview" title="Debug interview"><i class="fa-solid fa-bug" aria-hidden="true"></i><span class="editor-compact-action-label">Debug</span></button>
         <button type="button" class="btn btn-sm btn-light js-save-file-btn" data-action="save-file" title="Save your changes (Ctrl+S)" aria-label="Save your changes" disabled><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i><span class="editor-compact-action-label">Save</span><span class="editor-save-badge js-save-badge d-none"></span></button>
