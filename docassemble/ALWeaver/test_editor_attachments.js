@@ -91,3 +91,57 @@ for (const type of ['question', 'attachment']) {
 assert.strictEqual(canvas.getBlockYamlForSave({type: 'attachment', data: {}, yaml: 'attachment: original'}), 'attachment: original');
 canvas.state.questionEditMode = 'yaml';
 assert.strictEqual(canvas.getBlockYamlForSave({type: 'attachment', data: {question: 'Original'}, yaml: 'original'}), 'question: Edited in YAML');
+
+// Template scope remains explicit in a project with multiple interview files.
+const templateScope = {
+  state: {
+    filename: 'second.yml',
+    files: [{filename: 'first.yml'}, {filename: 'second.yml'}],
+    documents: {templates: {'form.pdf': {status: 'not_imported'}}},
+  },
+  esc: (value) => String(value).replaceAll('&', '&amp;').replaceAll('"', '&quot;'),
+};
+vm.createContext(templateScope);
+for (const name of ['renderTemplateInterviewSelector', 'renderUnimportedTemplatesCard']) {
+  const begin = source.indexOf(`  function ${name}(`);
+  vm.runInContext(source.slice(begin, source.indexOf('\n  }', begin) + 4), templateScope);
+}
+let selector = templateScope.renderTemplateInterviewSelector();
+assert.ok(selector.includes('data-template-interview="second.yml" aria-current="true"'));
+assert.ok(selector.includes('data-template-interview="first.yml"'));
+assert.ok(selector.includes('>Change</button>'));
+assert.ok(selector.includes('class="list-group mt-2" hidden'));
+assert.ok(!selector.includes('<select'));
+assert.ok(templateScope.renderUnimportedTemplatesCard().includes('Templates not imported into second.yml'));
+templateScope.state.templateImportBusy = 'form.pdf';
+assert.ok(templateScope.renderTemplateInterviewSelector().includes('aria-controls="template-interview-choices" disabled'));
+templateScope.state.templateImportBusy = null;
+templateScope.state.filename = 'first.yml';
+templateScope.state.documents = {templates: {'form.pdf': {status: 'attached'}}};
+assert.ok(templateScope.renderTemplateInterviewSelector().includes('data-template-interview="first.yml" aria-current="true"'));
+assert.strictEqual(templateScope.renderUnimportedTemplatesCard(), '');
+
+Object.assign(templateScope, {
+  API: '/al/editor',
+  outlineList: {innerHTML: ''},
+  getSectionFiles: () => [{filename: 'form.pdf'}],
+  getSectionFromView: () => 'template',
+  sectionTypeTag: () => 'PDF',
+  supportsDashboardEditor: () => false,
+  initOutlineSortable: () => {},
+  templateStatus: () => ({status: 'not_imported'}),
+});
+Object.assign(templateScope.state, {
+  currentView: 'templates', searchQuery: '', sectionSelectedFile: {},
+});
+const outlineStart = source.indexOf('  function renderSectionOutline(');
+vm.runInContext(source.slice(outlineStart, source.indexOf('\n  }', outlineStart) + 4), templateScope);
+templateScope.renderSectionOutline();
+const outlineHtml = templateScope.outlineList.innerHTML;
+assert.ok(outlineHtml.indexOf('change-template-interview') < outlineHtml.indexOf('data-section-filename'));
+assert.ok(outlineHtml.includes('form.pdf</div><span class="editor-outline-status"'));
+assert.ok(outlineHtml.includes('title="Not imported into first.yml">Not imported</span>'));
+templateScope.state.searchQuery = 'no match';
+templateScope.renderSectionOutline();
+assert.ok(templateScope.outlineList.innerHTML.includes('change-template-interview'));
+assert.ok(templateScope.outlineList.innerHTML.includes('No files found'));
