@@ -443,6 +443,8 @@
   }
 
   function updateTopbarProject() {
+    var app = document.getElementById('editor-app');
+    if (app) app.classList.toggle('editor-no-project', !state.project);
     var projectEl = document.getElementById('topbar-project-name');
     if (!projectEl) return;
     projectEl.textContent = state.project || 'No project selected';
@@ -1950,7 +1952,6 @@
     return document.querySelectorAll(sel);
   };
 
-  var projectSelect = $('#project-select');
   var fileSelect = $('#file-select');
   var searchInput = $('#search-input');
   var jumpSelect = $('#jump-select');
@@ -9910,35 +9911,44 @@
       'current_project',
       'project',
     ];
-    var merged = [];
+    var merged = readRecentProjects().filter(function (name, index, names) {
+      return known[name] && names.indexOf(name) === index;
+    });
     candidateCookieKeys.forEach(function (key) {
       var value = getCookieValue(key);
       if (value && known[value] && merged.indexOf(value) === -1) {
         merged.push(value);
       }
     });
-    readRecentProjects().forEach(function (p) {
-      if (known[p] && merged.indexOf(p) === -1) merged.push(p);
-    });
     return merged.slice(0, MAX_RECENT_PROJECTS);
   }
 
   function populateProjects() {
-    projectSelect.innerHTML = '';
-    var placeholder = document.createElement('option');
-    placeholder.value = '';
-    placeholder.textContent = 'Select project...';
-    placeholder.disabled = false;
-    placeholder.selected = !state.project;
-    projectSelect.appendChild(placeholder);
-
-    state.projects.forEach(function (p) {
-      var opt = document.createElement('option');
-      opt.value = p;
-      opt.textContent = p;
-      if (p === state.project) opt.selected = true;
-      projectSelect.appendChild(opt);
-    });
+    function projectButtons(projects) {
+      return projects
+        .map(function (name) {
+          return (
+            '<button type="button" class="dropdown-item" data-project-card="' +
+            esc(name) +
+            '"' +
+            (name === state.project ? ' aria-current="true"' : '') +
+            '>' +
+            esc(name) +
+            '</button>'
+          );
+        })
+        .join('');
+    }
+    var recent = document.getElementById('editor-recent-projects');
+    var all = document.getElementById('editor-all-projects');
+    if (recent)
+      recent.innerHTML = projectButtons(
+        getRecentProjectsInWorkspace().slice(0, 4),
+      );
+    if (all)
+      all.innerHTML =
+        projectButtons(state.projects) ||
+        '<span class="dropdown-item-text text-muted">No projects yet</span>';
   }
 
   function applyProjectListData(data) {
@@ -10075,6 +10085,7 @@
         if (project !== state.project || sequence !== routeSequence) return;
         if (!res.success) return;
         rememberRecentProject(project);
+        populateProjects();
         state.files = res.data.files || [];
         var currentStillExists =
           state.filename &&
@@ -11486,7 +11497,8 @@
   function applyValidationDock() {
     var workspace = document.getElementById('editor-workspace');
     var drawer = document.getElementById('validation-drawer');
-    var dock = state.validationOpen ? state.validationDock : 'bottom';
+    var dock =
+      state.project && state.validationOpen ? state.validationDock : 'bottom';
     if (workspace) {
       workspace.classList.toggle('editor-workspace-side', dock === 'side');
       workspace.classList.toggle('editor-workspace-full', dock === 'full');
@@ -11804,6 +11816,14 @@
       if (errorStatus && errorStatus.textContent !== errorLabel)
         errorStatus.textContent = errorLabel;
       errorBadge.setAttribute('title', errorLabel);
+      errorBadge.setAttribute(
+        'aria-label',
+        errorLabel + ': show errors and warnings',
+      );
+      errorBadge.setAttribute(
+        'aria-expanded',
+        state.validationOpen ? 'true' : 'false',
+      );
     }
 
     applyValidationDock();
@@ -20448,6 +20468,26 @@
       hideTypeaheadMenu();
     }
 
+    if (
+      target.closest('.editor-project-menu') &&
+      (projectCardBtn || uiAction)
+    ) {
+      var projectMenu = document.getElementById('editor-project-menu');
+      if (projectMenu && window.bootstrap && window.bootstrap.Dropdown) {
+        window.bootstrap.Dropdown.getOrCreateInstance(projectMenu).hide();
+      }
+      var submenu = document.querySelector('.editor-project-submenu');
+      if (submenu) submenu.open = false;
+    }
+    if (uiAction === 'show-errors') {
+      // Bottom for this click only: the saved dock stays the user's choice.
+      state.validationDock = 'bottom';
+      state.validationOpen = true;
+      renderValidationDrawer();
+      document.getElementById('validation-drawer-body').focus();
+      return;
+    }
+
     // Validation drawer toggle
     var dockButton = target.closest('[data-validation-dock]');
     if (dockButton) {
@@ -20564,6 +20604,13 @@
     // Project selector cards
     if (projectCardBtn) {
       var cardProject = projectCardBtn.getAttribute('data-project-card');
+      // Reopening the current project from the menu would reload its files
+      // and drop unsaved edits; the menu is already closed, so stop here.
+      if (
+        cardProject === state.project &&
+        target.closest('.editor-project-menu')
+      )
+        return;
       function openCardProject() {
         if (stashCurrentEditorState() === false) return;
         openProject(cardProject);
@@ -21562,7 +21609,7 @@
       return;
     }
 
-    if (target.id === 'btn-new-project') {
+    if (target.id === 'btn-new-project' || uiAction === 'create-project') {
       function showNewProject() {
         if (stashCurrentEditorState() === false) return;
         state.canvasMode = 'new-project';
@@ -22689,16 +22736,28 @@
     }
 
     if (target.closest('[data-action="open-github-import"]')) {
-      _hideUploadProgressModal();
-      _uploadedFiles = [];
-      state.canvasMode = 'project-selector';
-      state.openGithubImport = true;
-      renderCanvas();
-      state.openGithubImport = false;
-      var githubImportUrl = document.getElementById(
-        'project-github-import-url',
-      );
-      if (githubImportUrl) githubImportUrl.focus();
+      function showGithubImport() {
+        if (stashCurrentEditorState() === false) return;
+        _hideUploadProgressModal();
+        _uploadedFiles = [];
+        state.currentView = 'interview';
+        state.canvasMode = 'project-selector';
+        state.openGithubImport = true;
+        renderCanvas();
+        state.openGithubImport = false;
+        var githubImportUrl = document.getElementById(
+          'project-github-import-url',
+        );
+        if (githubImportUrl) githubImportUrl.focus();
+      }
+      if (
+        deferNavigationForUnsavedChanges(
+          'create a project from GitHub',
+          showGithubImport,
+        )
+      )
+        return;
+      showGithubImport();
       return;
     }
 
@@ -23854,39 +23913,6 @@
   // -------------------------------------------------------------------------
   // Select change handlers
   // -------------------------------------------------------------------------
-  projectSelect.addEventListener('change', function () {
-    var nextProject = projectSelect.value;
-    function changeProject() {
-      projectSelect.value = nextProject;
-      var projectMenu = document.getElementById('editor-project-menu');
-      if (projectMenu && window.bootstrap && window.bootstrap.Dropdown) {
-        window.bootstrap.Dropdown.getOrCreateInstance(projectMenu).hide();
-      }
-      if (stashCurrentEditorState() === false) return;
-      cancelRouteHydration();
-      if (nextProject !== state.project) resetProjectNavigation();
-      state.project = nextProject || null;
-      state.currentView = 'interview';
-      state.selectedBlockId = null;
-      dirtyState.activate(null, null);
-      if (!state.project) {
-        state.canvasMode = 'project-selector';
-        renderCanvas();
-        return;
-      }
-      state.canvasMode = 'question';
-      loadFiles();
-    }
-    if (
-      nextProject !== state.project &&
-      deferNavigationForUnsavedChanges('switch projects', changeProject)
-    ) {
-      projectSelect.value = state.project || '';
-      return;
-    }
-    changeProject();
-  });
-
   fileSelect.addEventListener('change', function () {
     var nextFilename = fileSelect.value;
     function changeFile() {
