@@ -7534,29 +7534,52 @@ def _lint_with_aldashboard_interview_linter(
         return None
 
 
-def _llm_rewrite_for_plain_language(text: str) -> str:
+def _llm_rewrite_for_plain_language(texts: Sequence[str]) -> Dict[str, str]:
+    """Rewrite several passages in plain language with one model call.
+
+    This used to make one call per sentence, which was about 7 of the 17 calls
+    drafting a single form took.
+
+    Args:
+        texts (Sequence[str]): the passages to rewrite.
+
+    Returns:
+        Dict[str, str]: each passage that got a usable rewrite, mapped to it.
+    """
     llms = _load_llms_module()
-    if not llms or not text.strip():
-        return text
-    if "${" in text or "<%text>" in text or "% if" in text:
-        return text
+    # Mako in a passage would not survive being reworded
+    texts = [
+        text
+        for text in texts
+        if text.strip() and not ("${" in text or "<%text>" in text or "% if" in text)
+    ]
+    if not llms or not texts:
+        return {}
     try:
-        rewritten = llms.chat_completion(
+        response = llms.chat_completion(
             system_message=(
-                "Rewrite the text in plain, respectful language at about 6th-grade reading level. "
-                "Preserve legal meaning. Keep similar length. Return JSON with key `rewrite`."
+                "Rewrite each text in plain, respectful language at about 6th-grade "
+                "reading level. Preserve legal meaning. Keep similar length. Return "
+                "JSON with key `rewrites`: a list of objects with keys `original` "
+                "(copied exactly) and `rewrite`."
             ),
-            user_message=text,
+            user_message=json.dumps(list(texts)),
             json_mode=True,
             model="gpt-5-mini",
         )
-        if isinstance(rewritten, dict):
-            candidate = str(rewritten.get("rewrite", "") or "").strip()
-            if candidate:
-                return candidate
-    except Exception:
-        return text
-    return text
+    except Exception as exc:
+        log(f"Plain-language rewrite failed: {exc!r}")
+        return {}
+    rewrites: Dict[str, str] = {}
+    entries = response.get("rewrites") if isinstance(response, dict) else None
+    for entry in entries if isinstance(entries, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        original = str(entry.get("original", "") or "")
+        rewrite = str(entry.get("rewrite", "") or "").strip()
+        if original in texts and rewrite and rewrite != original:
+            rewrites[original] = rewrite
+    return rewrites
 
 
 def _apply_plain_language_repairs(yaml_text: str, max_rewrites: int = 8) -> str:
@@ -7574,21 +7597,14 @@ def _apply_plain_language_repairs(yaml_text: str, max_rewrites: int = 8) -> str:
         problematic_text = str(finding.get("problematic_text", "") or "").strip()
         if not problematic_text or len(problematic_text) < 8:
             continue
-        if problematic_text not in candidates:
+        if problematic_text not in candidates and problematic_text in yaml_text:
             candidates.append(problematic_text)
 
+    candidates = sorted(candidates, key=len, reverse=True)[:max_rewrites]
     updated = yaml_text
-    rewrite_count = 0
-    for original in sorted(candidates, key=len, reverse=True):
-        if rewrite_count >= max_rewrites:
-            break
-        if original not in updated:
-            continue
-        rewritten = _llm_rewrite_for_plain_language(original)
-        if not rewritten or rewritten == original:
-            continue
-        updated = updated.replace(original, rewritten, 1)
-        rewrite_count += 1
+    for original, rewritten in _llm_rewrite_for_plain_language(candidates).items():
+        if original in updated:
+            updated = updated.replace(original, rewritten, 1)
     return updated
 
 

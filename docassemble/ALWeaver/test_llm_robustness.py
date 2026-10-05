@@ -1,5 +1,6 @@
 # do not pre-load
 
+import json
 import unittest
 from types import MethodType
 from unittest.mock import patch
@@ -269,3 +270,40 @@ class TestClassificationKey(unittest.TestCase):
     def test_a_reply_naming_two_keys_is_not_guessed_at(self):
         reply = "'appeal' or 'other_form'"
         self.assertEqual(ig._classification_key(reply, self.choices), reply)
+
+
+class _FakeRewriteLlms:
+    def __init__(self):
+        self.calls = 0
+
+    def chat_completion(self, **kwargs):
+        self.calls += 1
+        texts = json.loads(kwargs["user_message"])
+        return {
+            "rewrites": [{"original": text, "rewrite": text.upper()} for text in texts]
+        }
+
+
+class TestPlainLanguageRewritesAreBatched(unittest.TestCase):
+    def test_all_passages_are_rewritten_in_one_call(self):
+        fake = _FakeRewriteLlms()
+        with patch.object(ig, "_load_llms_module", return_value=fake):
+            rewrites = ig._llm_rewrite_for_plain_language(
+                ["Please submit forthwith.", "Herein lies the remedy.", "Hi ${ x }"]
+            )
+        self.assertEqual(fake.calls, 1)
+        self.assertEqual(
+            rewrites,
+            {
+                "Please submit forthwith.": "PLEASE SUBMIT FORTHWITH.",
+                "Herein lies the remedy.": "HEREIN LIES THE REMEDY.",
+            },
+        )
+
+    def test_an_invented_original_is_ignored(self):
+        class Invents:
+            def chat_completion(self, **kwargs):
+                return {"rewrites": [{"original": "Not asked", "rewrite": "x"}]}
+
+        with patch.object(ig, "_load_llms_module", return_value=Invents()):
+            self.assertEqual(ig._llm_rewrite_for_plain_language(["Asked"]), {})
