@@ -8,6 +8,7 @@ from .field_grouping import (
 )
 from .name_datatypes import datatype_from_name
 from .pdf_layout import fields_after_a_dollar_sign
+from .titles import title_from_filename
 from .review_screen import build_review_entries, table_edit_attributes
 from .project_filenames import safe_project_filename, unique_project_filenames
 from .validate_template_files import matching_reserved_names, has_fields
@@ -4140,11 +4141,7 @@ Rules:
             draft_title = getattr(input_file, "filename", None) or input_file.path()
         else:
             draft_title = self.uploaded_templates[0].filename
-        return (
-            os.path.splitext(os.path.basename(draft_title))[0]
-            .replace("_", " ")
-            .capitalize()
-        )
+        return title_from_filename(draft_title)
 
     def _set_template_from_url(self, url: str):
         self.uploaded_templates = DAFileList(
@@ -6498,7 +6495,7 @@ def _apply_exact_name_to_interview(interview: DAInterview, exact_name: str) -> N
     ].strip()
     if not exact_base:
         return
-    exact_title = exact_base.replace("_", " ").capitalize()
+    exact_title = title_from_filename(exact_base)
     interview.title = exact_title
     interview.short_title = exact_title[:25]
     interview.short_filename_with_spaces = exact_title
