@@ -433,6 +433,7 @@ code: |
 % endif
 % for custom_signature in interview.all_fields.custom_signatures():
 ---
+id: ${ fix_id(custom_signature.variable + " signature") }
 question: |
   ${custom_signature.variable.replace("_", " ").capitalize()}, add your signature
 signature: ${ custom_signature }
