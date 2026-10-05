@@ -144,7 +144,9 @@ confirm: True\
   % for raw_name in field.raw_field_names: # handle multiple appearance indicators
     ## A field mapped to an AssemblyLine attribute, like `children[0].birthdate.format()`,
     ## already says how to print it, so only plain variables get formatted here
-    % if hasattr(field, "field_type") and field.field_type=="date" and field.final_display_var == field.variable:
+    % if getattr(field, "row_list", None):
+      - "${ raw_name }": <%text>${</%text> ${ row_attachment_expression(field, item_lists) } }
+    % elif hasattr(field, "field_type") and field.field_type=="date" and field.final_display_var == field.variable:
       - "${ raw_name }": <%text>${</%text> ${ field.variable }.format() }
     % elif hasattr(field, "field_type") and field.field_type=="currency" and getattr(field, "pdf_prints_dollar_sign", False) and field.final_display_var == field.variable:
       - "${ raw_name }": <%text>${</%text> thousands(${ field.variable }, show_decimals=True) }

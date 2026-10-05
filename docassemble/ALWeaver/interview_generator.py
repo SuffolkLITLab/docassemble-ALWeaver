@@ -9,6 +9,7 @@ from .field_grouping import (
 from .name_datatypes import datatype_from_name
 from .pdf_layout import fields_after_a_dollar_sign
 from .titles import title_from_filename
+from .repeated_rows import MONEY_ATTRIBUTES, find_row_families, row_family_yaml
 from .review_screen import build_review_entries, table_edit_attributes
 from .project_filenames import safe_project_filename, unique_project_filenames
 from .validate_template_files import matching_reserved_names, has_fields
@@ -1402,6 +1403,9 @@ class DAField(DAObject):
         """
 
         GATHER_CALL = ".gather()"
+        # A box in a numbered row is filled by gathering the whole list
+        if getattr(self, "row_list", None):
+            return self.row_list + GATHER_CALL
         # HACK LITCon 2023 TODO
         # preferred_name and previous_names won't work w/ current structure of generator_constants
         if self.final_display_var.endswith(".preferred_name"):
@@ -1547,6 +1551,26 @@ class DAField(DAObject):
 
 
 INDEXED_LIST_REFERENCE = re.compile(r"^([A-Za-z_]\w*)\[(\d+)\]")
+
+
+def row_attachment_expression(field: "DAField", item_lists: Mapping[str, bool]) -> str:
+    """What one box of a numbered row prints: its item's attribute, or blank.
+
+    Money is formatted only when the row exists, since `currency()` of a
+    missing item's blank value would fail if `skip undefined` is off.
+    """
+    expression = attachment_reference(field.final_display_var, item_lists)
+    if not getattr(field, "row_money", False):
+        return expression
+    formatter = (
+        "thousands({}, show_decimals=True)"
+        if getattr(field, "pdf_prints_dollar_sign", False)
+        else "currency({})"
+    )
+    return (
+        f"{formatter.format(field.final_display_var)} "
+        f'if {field.row_list}.number() > {field.row_index} else ""'
+    )
 
 
 def lists_that_may_run_short(objects: Iterable[Any]) -> Dict[str, bool]:
@@ -1798,6 +1822,58 @@ class DAFieldList(DAList):
 
         self.delitem(*mark_to_remove)
         self.there_are_any = len(self.elements) > 0
+
+    def consolidate_repeated_rows(self) -> None:
+        """Turn a PDF's numbered rows into lists. See :mod:`.repeated_rows`.
+
+        Runs after people are recognized, so only fields still left as plain
+        variables are considered. Each family's fields read their item, the
+        list joins the interview's lists, and the family is kept so the
+        interview can declare, ask about and overflow it.
+        """
+        candidates = [
+            field
+            for field in self.elements
+            if getattr(field, "source_document_type", "") == "pdf"
+            and getattr(field, "group", None) == DAFieldGroup.CUSTOM
+            and field.final_display_var == field.variable
+            and not field.is_option_group()
+        ]
+        taken = (
+            {field.variable for field in self.elements}
+            | set(_AL_MANAGED_OBJECTS)
+            | set(self.custom_people_plurals.values())
+            | set(generator_constants.RESERVED_PLURALIZERS_MAP.values())
+        )
+        by_variable = {field.variable: field for field in candidates}
+        people = (
+            set(self.custom_people_plurals.keys())
+            | set(self.custom_people_plurals.values())
+            | set(generator_constants.RESERVED_PLURALIZERS_MAP.keys())
+            | set(generator_constants.RESERVED_PLURALIZERS_MAP.values())
+        )
+        families = find_row_families(
+            [field.variable for field in candidates], taken, people
+        )
+        if not hasattr(self, "row_families"):
+            self.row_families = []
+        for family in families:
+            datatypes: Dict[str, str] = {}
+            for variable, expression in family.variables.items():
+                field = by_variable[variable]
+                field.final_display_var = expression
+                field.group = DAFieldGroup.BUILT_IN
+                field.row_list = family.list_name
+                field.row_index = int(expression.split("[", 1)[1].split("]", 1)[0])
+                attribute = expression.split("].", 1)[1] if "]." in expression else ""
+                guess = getattr(field, "field_type", field.field_type_guess)
+                field.row_money = attribute in MONEY_ATTRIBUTES or guess == "currency"
+                datatypes.setdefault(
+                    attribute, "currency" if field.row_money else guess
+                )
+            family_datatypes = dict(datatypes)
+            self.custom_people_plurals[family.stem] = family.list_name
+            self.row_families.append((family, family_datatypes))
 
     def link_other_details(self) -> None:
         """Show an "Other: please explain" field only when "Other" is chosen.
@@ -3024,6 +3100,17 @@ class DAInterview(DAObject):
             result.append(_PersonObjectSpec(name=person, params=params))
         for singleton in sorted(singletons):
             result.append(_PersonObjectSpec(name=singleton, type="ALIndividual"))
+        for family, _datatypes in getattr(self.all_fields, "row_families", []):
+            row_params: Dict[str, Any] = {"complete_attribute": "complete"}
+            if family.object_type == "DAList":
+                row_params = {"object_type": _BareName("DAObject"), **row_params}
+            elif family.uses_al_income:
+                row_params = {"ask_number": True, **row_params}
+            spec = _PersonObjectSpec(
+                name=family.list_name, type=family.object_type, params=row_params
+            )
+            result = [existing for existing in result if existing.name != spec.name]
+            result.append(spec)
         declared = {spec.name for spec in result} | _AL_MANAGED_OBJECTS
         for name, holds_objects in sorted(self._referenced_dicts().items()):
             if name in declared:
@@ -3273,6 +3360,7 @@ class DAInterview(DAObject):
         self._auto_load_fields()
         self.all_fields.auto_label_fields()
         self.all_fields.auto_mark_people_as_builtins()
+        self.all_fields.consolidate_repeated_rows()
         self.all_fields.link_other_details()
 
     def _process_fields_and_group(
@@ -7718,6 +7806,8 @@ def _render_interview_yaml(
         "varname": varname,
         "remove_multiple_appearance_indicator": remove_multiple_appearance_indicator,
         "attachment_reference": attachment_reference,
+        "row_attachment_expression": row_attachment_expression,
+        "row_family_yaml": row_family_yaml,
         "item_lists": lists_that_may_run_short(objects or []),
         "get_yml_deps_from_choices": get_yml_deps_from_choices,
     }

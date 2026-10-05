@@ -305,6 +305,7 @@ generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX = {
     r"\.name.middle_initial\(\)$": ".name.first",
     r"\.phone_numbers\(\)$": ".phone_number",
     r"\.preferred_name$": ".preferred_name.first",
+    r"\.year_make_model\(\)$": ".year",
 }
 
 # Test needed: Jinja `{{ parents[0].name_of_dog }}` should remain the same,

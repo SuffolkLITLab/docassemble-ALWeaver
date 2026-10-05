@@ -1973,3 +1973,48 @@ class TestOtherDetailsShowOnlyWhenOtherIsChosen(unittest.TestCase):
         # Only the two "other" details are conditional
         self.assertEqual(len(re.findall(r"(?m)^    show if: \S", yaml_text)), 2)
         TestGenerateInterviewFromPath._run_dayamlchecker_text(self, yaml_text)
+
+
+class TestNumberedRowsBecomeLists(unittest.TestCase):
+    def test_vehicle_rows_are_gathered_as_an_al_vehicle_list(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "assets.pdf"),
+                [
+                    f"vehicle_{attribute}_{row}"
+                    for row in (1, 2)
+                    for attribute in ("year_make_model", "pv", "purpose")
+                ],
+            )
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        self.assertIn("  - docassemble.ALToolbox:al_income.yml\n", yaml_text)
+        self.assertIn(
+            "  - vehicles: ALVehicleList.using(ask_number=True,"
+            "complete_attribute='complete')",
+            yaml_text,
+        )
+        order = yaml_text.split("id: interview_order_", 1)[1].split("\n---", 1)[0]
+        self.assertIn("  vehicles.gather()\n", order)
+        self.assertNotIn("vehicle_pv_1", order)
+        self.assertIn('  - "Purpose": vehicles[i].purpose\n', yaml_text)
+        attachment = yaml_text.split("pdf template file:", 1)[1]
+        self.assertIn(
+            '"vehicle_year_make_model_1": ${ vehicles.item(0).year_make_model() }',
+            attachment,
+        )
+        self.assertIn(
+            '"vehicle_pv_2": ${ currency(vehicles[1].market_value) '
+            'if vehicles.number() > 1 else "" }',
+            attachment,
+        )
+        # A third vehicle goes to the addendum
+        self.assertIn('.overflow_fields["vehicles"].overflow_trigger = 2', yaml_text)
+        self.assertIn("has_addendum=True", yaml_text)
+        TestGenerateInterviewFromPath._run_dayamlchecker_text(self, yaml_text)
