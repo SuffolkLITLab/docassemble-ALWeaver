@@ -7,6 +7,7 @@ from .field_grouping import (
     unique_titles,
 )
 from .name_datatypes import datatype_from_name
+from .pdf_layout import fields_after_a_dollar_sign
 from .review_screen import build_review_entries, table_edit_attributes
 from .project_filenames import safe_project_filename, unique_project_filenames
 from .validate_template_files import matching_reserved_names, has_fields
@@ -1095,6 +1096,12 @@ class DAField(DAObject):
 
         variable_name_guess = self.variable.replace("_", " ").capitalize()
         self.has_label = True
+        if len(pdf_field_tuple) >= 4 and pdf_field_tuple[2] and pdf_field_tuple[3]:
+            # Where the box sits, to read what the PDF prints around it
+            self.pdf_location = (
+                int(pdf_field_tuple[2]),
+                [float(value) for value in pdf_field_tuple[3]],
+            )
         dimensions = get_input_dimensions(pdf_field_tuple)
         if dimensions:
             self.input_rows, self.input_width = dimensions
@@ -1789,6 +1796,35 @@ class DAFieldList(DAList):
         self.delitem(*mark_to_remove)
         self.there_are_any = len(self.elements) > 0
 
+    def mark_money_after_printed_dollar_signs(self, document: Any) -> None:
+        """Note which money fields the PDF already prints a "$" in front of.
+
+        Those are filled with `thousands()`, since `currency()` would print a
+        second "$". See :func:`.pdf_layout.fields_after_a_dollar_sign`.
+        """
+        money = {
+            field.raw_field_names[0]: field
+            for field in self.elements
+            if field.field_type_guess == "currency"
+            and getattr(field, "pdf_location", None)
+            and getattr(field, "source_document_type", "") == "pdf"
+        }
+        if not money:
+            return
+        try:
+            marked = fields_after_a_dollar_sign(
+                document.path(),
+                [
+                    (name, field.pdf_location[0], field.pdf_location[1])
+                    for name, field in money.items()
+                ],
+            )
+        except Exception as exc:
+            log(f"Couldn't read the text around {document.filename}'s fields: {exc!r}")
+            return
+        for name in marked:
+            money[name].pdf_prints_dollar_sign = True
+
     def consolidate_checkbox_sets(self, filename: str = "") -> None:
         """Combine a run of checkboxes that share a name into one question.
 
@@ -2220,6 +2256,7 @@ class DAFieldList(DAList):
         self.consolidate_yesnos()
         if document_type == "pdf":
             self.consolidate_checkbox_sets(document.filename)
+            self.mark_money_after_printed_dollar_signs(document)
 
     def ask_about_fields(self) -> List[dict]:
         """

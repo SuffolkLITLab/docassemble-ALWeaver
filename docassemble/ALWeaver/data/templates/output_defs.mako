@@ -136,6 +136,8 @@ confirm: True\
   % for raw_name in field.raw_field_names: # handle multiple appearance indicators
     % if hasattr(field, "field_type") and field.field_type=="date":
       - "${ raw_name }": <%text>${</%text> ${ field.variable }.format() }
+    % elif hasattr(field, "field_type") and field.field_type=="currency" and getattr(field, "pdf_prints_dollar_sign", False):
+      - "${ raw_name }": <%text>${</%text> thousands(${ field.variable }, show_decimals=True) }
     % elif hasattr(field, "field_type") and field.field_type=="currency":
       - "${ raw_name }": <%text>${</%text> currency(${ field.variable }) }
     % elif hasattr(field, "field_type") and field.field_type=="number":
