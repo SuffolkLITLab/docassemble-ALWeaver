@@ -286,6 +286,8 @@ code: |
   # allowed_courts = ["Boston Municipal Court"]
   % endif
   % endif
+  ## "Did you start this case?" doesn't mean anything outside a court case
+  % if getattr(interview, "form_type", "other") in ("starts_case", "existing_case", "appeal"):
   % if interview.typical_role == 'unknown':
   # Below sets the user_role and user_ask_role by asking a question.
   # You can set user_ask_role directly instead to either 'plaintiff' or 'defendant'
@@ -293,6 +295,7 @@ code: |
   % else:
   user_role = "${ interview.typical_role }"
   user_ask_role = "${ interview.typical_role }"
+  % endif
   % endif
   % for line in interview_order_lines:
 ${ indent_by(line, 2) }\

@@ -1626,3 +1626,28 @@ class TestZeroBasedGeneration(unittest.TestCase):
             any("numbers users from 0" in warning for warning in result.warnings),
             result.warnings,
         )
+
+
+class TestRoleQuestion(unittest.TestCase):
+    def _order_for(self, **overrides):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "role_form.pdf"), ["users1_name_first"]
+            )
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+                interview_overrides={"typical_role": "unknown", **overrides},
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+        return yaml_text.split("id: interview_order_", 1)[1].split("\n---", 1)[0]
+
+    def test_a_court_case_asks_which_side_the_user_is_on(self):
+        self.assertIn("\n  user_ask_role\n", self._order_for(form_type="existing_case"))
+
+    def test_forms_outside_a_court_case_do_not(self):
+        for form_type in ["letter", "other_form", "other"]:
+            with self.subTest(form_type=form_type):
+                self.assertNotIn("user_ask_role", self._order_for(form_type=form_type))
