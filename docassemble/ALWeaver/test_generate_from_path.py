@@ -2018,3 +2018,83 @@ class TestNumberedRowsBecomeLists(unittest.TestCase):
         self.assertIn('.overflow_fields["vehicles"].overflow_trigger = 2', yaml_text)
         self.assertIn("has_addendum=True", yaml_text)
         TestGenerateInterviewFromPath._run_dayamlchecker_text(self, yaml_text)
+
+
+class _StructureOnlyLlms:
+    """Answers the structure prompt; every other AI step gets nothing back."""
+
+    def chat_completion(self, **kwargs):
+        if "Propose only changes the form's own text supports" not in str(
+            kwargs.get("system_message", "")
+        ):
+            return {}
+        return {
+            "remaps": [
+                {
+                    "field": "date_of_birth",
+                    "label": "user_birthdate",
+                    "evidence": "Date of Birth",
+                },
+                {
+                    "field": "case_name",
+                    "label": "user_birthdate",
+                    "evidence": "not in the form",
+                },
+            ],
+            "choice_groups": [
+                {"field": "proceeding_is", "kind": "radio", "evidence": "check one"}
+            ],
+            "conditions": [],
+        }
+
+    def classify_text(self, **kwargs):
+        return "other"
+
+
+class TestAIStructureProposals(unittest.TestCase):
+    def test_checked_proposals_reshape_the_draft_and_are_reported(self):
+        from .interview_generator import DAInterview
+
+        context = "Type of proceeding (check one): Adoption Other. Date of Birth"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "cari.pdf"),
+                [
+                    ("proceeding_is_adoption", "/Btn"),
+                    ("proceeding_is_other", "/Btn"),
+                    "date_of_birth",
+                    "case_name",
+                ],
+            )
+            with (
+                patch.object(
+                    interview_generator_module,
+                    "_load_llms_module",
+                    return_value=_StructureOnlyLlms(),
+                ),
+                patch.object(
+                    DAInterview, "_llm_context_text", lambda self, **kwargs: context
+                ),
+            ):
+                result = generate_interview_from_path(
+                    pdf_path,
+                    output_dir=tmpdir,
+                    create_package_zip=False,
+                    include_next_steps=False,
+                    use_llm_assist=True,
+                )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        attachment = yaml_text.split("pdf template file:", 1)[1]
+        self.assertIn('"date_of_birth": ${ users[0].birthdate.format() }', attachment)
+        self.assertIn(
+            "\"proceeding_is_other\": ${ proceeding_is == 'other' }", attachment
+        )
+        self.assertIn(": proceeding_is\n    input type: radio\n", yaml_text)
+        # The remap with no support in the form text was not applied
+        self.assertIn('"case_name": ${ case_name }', attachment)
+        notes = "\n".join(result.warnings)
+        self.assertIn("date_of_birth is now users[0].birthdate.format()", notes)
+        self.assertIn("“Date of Birth”", notes)
+        self.assertIn("only one of proceeding_is may be chosen", notes)
+        self.assertNotIn("change it to radio buttons", notes)

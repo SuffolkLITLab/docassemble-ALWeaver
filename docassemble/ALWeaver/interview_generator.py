@@ -10,6 +10,11 @@ from .name_datatypes import datatype_from_name
 from .pdf_layout import fields_after_a_dollar_sign
 from .titles import title_from_filename
 from .repeated_rows import MONEY_ATTRIBUTES, find_row_families, row_family_yaml
+from .llm_structure import (
+    STRUCTURE_PROMPT,
+    build_structure_request,
+    validated_proposals,
+)
 from .review_screen import build_review_entries, table_edit_attributes
 from .project_filenames import safe_project_filename, unique_project_filenames
 from .validate_template_files import matching_reserved_names, has_fields
@@ -891,6 +896,13 @@ def _classification_key(response: Any, choices: Mapping[str, str]) -> str:
     if len(named) == 1:
         return named.pop()
     return text
+
+
+def _current_field_type(field: "DAField") -> str:
+    """The type a field is asked with: the author's choice, else the guess."""
+    if hasattr(field, "field_type"):
+        return str(field.field_type)
+    return str(getattr(field, "field_type_guess", "text"))
 
 
 def _grouped_field_definition(field: "DAField") -> "FieldDefinition":
@@ -1866,7 +1878,7 @@ class DAFieldList(DAList):
                 field.row_list = family.list_name
                 field.row_index = int(expression.split("[", 1)[1].split("]", 1)[0])
                 attribute = expression.split("].", 1)[1] if "]." in expression else ""
-                guess = getattr(field, "field_type", field.field_type_guess)
+                guess = _current_field_type(field)
                 field.row_money = attribute in MONEY_ATTRIBUTES or guess == "currency"
                 datatypes.setdefault(
                     attribute, "currency" if field.row_money else guess
@@ -1888,7 +1900,7 @@ class DAFieldList(DAList):
         fields = list(self.custom())
         controllers: List[Tuple[int, Set[str], Any, str]] = []
         for position, field in enumerate(fields):
-            field_type = getattr(field, "field_type", field.field_type_guess)
+            field_type = _current_field_type(field)
             variable = field.final_display_var
             if set(_name_words(field.variable)) & _NEGATING_WORDS:
                 # `do_not_know_of_other_case` turns things off, not on
@@ -1921,7 +1933,7 @@ class DAFieldList(DAList):
                 )
 
         for position, field in enumerate(fields):
-            field_type = getattr(field, "field_type", field.field_type_guess)
+            field_type = _current_field_type(field)
             if field_type not in ("text", "area") or not _names_an_other_detail(
                 field.variable
             ):
@@ -1974,6 +1986,39 @@ class DAFieldList(DAList):
         for name in marked:
             money[name].pdf_prints_dollar_sign = True
 
+    def _merge_into_choice(
+        self,
+        members: Sequence["DAField"],
+        variable: str,
+        options: Sequence[str],
+        field_type: str,
+    ) -> List[int]:
+        """Make `members` one choice question; return the indexes to remove.
+
+        The first field becomes the question and every PDF box keeps its place
+        in `option_values`, so the attachment ticks the right one.
+        """
+        first = members[0]
+        first.variable = variable
+        first.final_display_var = variable
+        first.variable_name_guess = variable.replace("_", " ").capitalize()
+        first.field_type_guess = field_type
+        if hasattr(first, "field_type"):
+            first.field_type = field_type
+            first.label = first.variable_name_guess
+        first.choice_options = []
+        first.option_values = {}
+        raw_names: List[str] = []
+        for member, option in zip(members, options):
+            first.choice_options.append(option)
+            for raw_name in member.raw_field_names:
+                first.option_values[raw_name] = option
+                raw_names.append(raw_name)
+        first.raw_field_names = raw_names
+        if hasattr(first, "field_type"):
+            first.choices = first.choices_string()
+        return [self.elements.index(member) for member in members[1:]]
+
     def consolidate_checkbox_sets(self, filename: str = "") -> None:
         """Combine a run of checkboxes that share a name into one question.
 
@@ -2021,22 +2066,10 @@ class DAFieldList(DAList):
             options = [member.variable[len(prefix) :] for member in members]
             if _options_are_parallel_questions(options):
                 continue
-            first = members[0]
-            first.variable = variable
-            first.final_display_var = variable
-            first.variable_name_guess = variable.replace("_", " ").capitalize()
-            first.field_type_guess = "multiple choice checkboxes"
-            first.choice_options = []
-            first.option_values = {}
-            raw_names: List[str] = []
-            for member, option in zip(members, options):
-                first.choice_options.append(option)
-                for raw_name in member.raw_field_names:
-                    first.option_values[raw_name] = option
-                    raw_names.append(raw_name)
-                if member is not first:
-                    mark_to_remove.append(self.elements.index(member))
-            first.raw_field_names = raw_names
+            raw_names = [name for member in members for name in member.raw_field_names]
+            mark_to_remove += self._merge_into_choice(
+                members, variable, options, "multiple choice checkboxes"
+            )
             taken.add(variable)
             if not hasattr(self, "generation_notes"):
                 self.generation_notes = []
@@ -3454,6 +3487,18 @@ class DAInterview(DAObject):
             or "gpt-4o-mini"
         )
 
+    def _llm_structure_model(self) -> str:
+        """The model for structure proposals, which needs more than labelling.
+
+        The default drafting model echoed every field's own name back as its
+        AssemblyLine label, so this one call defaults to a stronger model. Set
+        `weaver structure model` under `assembly line` to use another.
+        """
+        return (
+            get_config("assembly line", {}).get("weaver structure model")
+            or "gpt-6-luna"
+        )
+
     def _cached_template_context_text(self) -> str:
         template_fingerprints: List[Tuple[str, Optional[int], Optional[int]]] = []
         if hasattr(self, "uploaded_templates"):
@@ -3936,6 +3981,201 @@ Return JSON object with shape:
             log(f"LLM field-label refinement failed: {exc!r}")
             return {} if not apply else 0
 
+    def llm_propose_structure(
+        self, apply: bool = True, regroup: bool = True
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Ask the model for structural changes and apply the ones that check out.
+
+        See :mod:`.llm_structure`. Each applied change is listed in the
+        generation notes with the text from the form that supports it.
+
+        Args:
+            apply (bool): whether to change the interview's fields.
+            regroup (bool): whether to redo the screens afterwards, which the
+                caller turns off when the author supplied the screens.
+
+        Returns:
+            Dict[str, List[Dict[str, Any]]]: the accepted proposals.
+        """
+        empty: Dict[str, List[Dict[str, Any]]] = {}
+        llms = _load_llms_module()
+        if not llms:
+            return empty
+        context_text = self._llm_context_text(max_chars=14000)
+        if not context_text:
+            return empty
+        fields, rows = self._structure_field_inventory()
+        if not rows:
+            return empty
+        try:
+            response = llms.chat_completion(
+                system_message=_prompt_str("structure_system_prompt", STRUCTURE_PROMPT),
+                user_message="Form text:\n"
+                + context_text
+                + "\n\nFields:\n"
+                + build_structure_request(rows),
+                json_mode=True,
+                model=self._llm_structure_model(),
+                # ALToolbox only knows o1/o3/gpt-5 reject a temperature; newer
+                # models such as gpt-6-luna accept only the default of 1
+                temperature=1,
+            )
+        except Exception as exc:
+            log(f"LLM structure proposals failed: {exc!r}")
+            return empty
+
+        def label_maps_to(label: str) -> Optional[str]:
+            settable = varname(str(label))
+            try:
+                target = map_raw_to_final_display(
+                    settable,
+                    custom_people_plurals_map=self.all_fields.custom_people_plurals,
+                )
+            except ParsingException:
+                return None
+            return target if target and target != settable else None
+
+        proposals = validated_proposals(response, context_text, fields, label_maps_to)
+        if apply:
+            self.apply_structure_proposals(proposals, regroup=regroup)
+        return proposals
+
+    def _structure_field_inventory(
+        self,
+    ) -> Tuple[Dict[str, Dict[str, Any]], List[Dict[str, Any]]]:
+        """The fields the model may name, for checking and for the prompt."""
+        fields: Dict[str, Dict[str, Any]] = {}
+        rows: List[Dict[str, Any]] = []
+        for field in self.all_fields.custom():
+            field_type = _current_field_type(field)
+            if field_type in ("code", "skip this field"):
+                continue
+            info: Dict[str, Any] = {
+                "type": field_type,
+                "pdf": getattr(field, "source_document_type", "") == "pdf"
+                and field.final_display_var == field.variable
+                and not field.is_option_group(),
+            }
+            row: Dict[str, Any] = {
+                "field": field.variable,
+                "label": (
+                    field.label
+                    if hasattr(field, "label")
+                    else getattr(field, "variable_name_guess", field.variable)
+                ),
+                "type": field_type,
+            }
+            if field.is_option_group():
+                info["choices"] = [str(o) for o in getattr(field, "choice_options", [])]
+                row["choices"] = info["choices"]
+            fields[field.variable] = info
+            rows.append(row)
+        return fields, rows
+
+    def apply_structure_proposals(
+        self, proposals: Optional[Mapping[str, Any]], regroup: bool = True
+    ) -> None:
+        """Apply checked structure proposals; see :meth:`llm_propose_structure`."""
+        if not proposals:
+            return
+        all_fields = self.all_fields
+        if not hasattr(all_fields, "generation_notes"):
+            all_fields.generation_notes = []
+        notes = all_fields.generation_notes
+        by_variable = {field.variable: field for field in all_fields.elements}
+        changed_fields = False
+
+        for remap in proposals.get("remaps") or []:
+            field = by_variable.get(remap["field"])
+            if field is None:
+                continue
+            field.variable = varname(remap["label"])
+            field.final_display_var = remap["target"]
+            field.group = DAFieldGroup.BUILT_IN
+            field.label = field.variable_name_guess
+            changed_fields = True
+            notes.append(
+                f"AI: {remap['field']} is now {remap['target']} "
+                f"(the form says \u201c{remap['evidence']}\u201d)."
+            )
+
+        to_remove: List[int] = []
+        for group in proposals.get("choice_groups") or []:
+            if "fields" not in group:
+                field = by_variable.get(group["field"])
+                if field is not None and field.is_option_group():
+                    field.field_type_guess = "multiple choice radio"
+                    if hasattr(field, "field_type"):
+                        field.field_type = "multiple choice radio"
+                    # The rules' "make it radio if only one is allowed" note
+                    # has been acted on
+                    notes[:] = [
+                        note
+                        for note in notes
+                        if f"one checkboxes question, {group['field']}." not in note
+                    ]
+                    notes.append(
+                        f"AI: only one of {group['field']} may be chosen, so it "
+                        f"is radio buttons (the form says \u201c{group['evidence']}\u201d)."
+                    )
+                continue
+            members = [
+                by_variable[name] for name in group["fields"] if name in by_variable
+            ]
+            if len(members) != len(group["fields"]):
+                continue
+            prefix = os.path.commonprefix([member.variable for member in members])
+            prefix = prefix[: prefix.rfind("_") + 1] if "_" in prefix else ""
+            options = [
+                member.variable[len(prefix) :] or member.variable for member in members
+            ]
+            field_type = (
+                "multiple choice radio"
+                if group["kind"] == "radio"
+                else "multiple choice checkboxes"
+            )
+            to_remove += all_fields._merge_into_choice(
+                members, group["variable"], options, field_type
+            )
+            changed_fields = True
+            notes.append(
+                f"AI: {', '.join(group['fields'])} are one question, "
+                f"{group['variable']} (the form says \u201c{group['evidence']}\u201d)."
+            )
+        if to_remove:
+            all_fields.delitem(*sorted(set(to_remove)))
+        if changed_fields:
+            all_fields.consolidate_duplicate_fields("pdf")
+            by_variable = {field.variable: field for field in all_fields.elements}
+
+        for condition in proposals.get("conditions") or []:
+            field, control = by_variable.get(condition["field"]), by_variable.get(
+                condition["when"]
+            )
+            if field is None or control is None:
+                continue
+            choice = condition.get("choice")
+            control_type = _current_field_type(control)
+            if choice is None:
+                field.show_if = control.final_display_var
+                field.shown_when = control.final_display_var
+            elif control_type == "multiple choice radio":
+                field.show_if = {"variable": control.final_display_var, "is": choice}
+                field.shown_when = f"{control.final_display_var} == {choice!r}"
+            else:
+                field.show_if = f"{control.final_display_var}[{choice!r}]"
+                field.shown_when = field.show_if
+            field.shown_after = control.variable
+            notes.append(
+                f"AI: {condition['field']} is only asked after {condition['when']}"
+                f"{' is ' + choice if choice else ''} (the form says "
+                f"\u201c{condition['evidence']}\u201d)."
+            )
+
+        if regroup and changed_fields and hasattr(self, "questions"):
+            self.questions.clear()
+            self.auto_group_fields()
+
     def llm_group_fields(self, apply: bool = True) -> Union[bool, List[Screen]]:
         llms = _load_llms_module()
         if not llms:
@@ -4126,6 +4366,11 @@ Rules:
             if hasattr(self, key):
                 payload[key] = getattr(self, key)
 
+        # Restructure this copy first, so the screens below match the fields
+        # the live interview will have once it applies the same proposals
+        payload["structure_proposals"] = self.llm_propose_structure(
+            apply=True, regroup=False
+        )
         field_updates = self.llm_refine_field_labels(apply=False)
         if not isinstance(field_updates, dict):
             field_updates = {}
@@ -4248,6 +4493,12 @@ Rules:
                     "existing_case",
                     "appeal",
                 }
+
+        structure = payload.get("structure_proposals")
+        if isinstance(structure, Mapping):
+            # Same proposals the background copy applied before grouping, so
+            # the screens below name fields this interview now has
+            self.apply_structure_proposals(structure, regroup=False)
 
         field_updates = payload.get("field_updates")
         if isinstance(field_updates, Mapping):
@@ -8469,6 +8720,9 @@ def generate_interview_from_path(
         interview._prefetch_reference_site()
         interview.llm_prefill_metadata(apply=True)
         interview.llm_predict_state(apply=True)
+        interview.llm_propose_structure(
+            apply=True, regroup=not bool(screen_definitions)
+        )
         interview.llm_refine_field_labels(apply=True)
         if not screen_definitions:
             interview.llm_group_fields(apply=True)
