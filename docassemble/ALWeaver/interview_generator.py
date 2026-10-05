@@ -3537,6 +3537,7 @@ Predicted role: {{ROLE}}
                     drafted_next_steps_what_happens_next = drafted_when_finished
                 if apply:
                     if drafted_title:
+                        self.title_drafted_by_llm = True
                         self.title = drafted_title
                         self.short_title = drafted_title[:25]
                         self.short_filename_with_spaces = drafted_title
@@ -4029,6 +4030,7 @@ Rules:
         if hasattr(self, "llm_draft_title"):
             drafted_title = _safe_short_label(str(self.llm_draft_title), 100)
             if drafted_title:
+                self.title_drafted_by_llm = True
                 self.title = drafted_title
                 self.short_title = drafted_title[:25]
                 self.short_filename_with_spaces = drafted_title
@@ -6489,6 +6491,14 @@ def _make_static_file_from_path(
     return _LocalDAStaticFile(full_path=path)
 
 
+def _apply_title_to_interview(interview: DAInterview, title: str) -> None:
+    """Name the interview `title`, as auto assignment does for a given title."""
+    interview.title = title
+    interview.short_title = title
+    interview.short_filename_with_spaces = title
+    interview.short_filename = space_to_underscore(varname(title))
+
+
 def _apply_exact_name_to_interview(interview: DAInterview, exact_name: str) -> None:
     exact_base = os.path.splitext(os.path.basename(str(exact_name or "").strip()))[
         0
@@ -8155,7 +8165,25 @@ def generate_interview_from_path(
         if not screen_definitions:
             interview.llm_group_fields(apply=True)
 
-    if exact_name and not str(title or "").strip() and not override_title_requested:
+    # A title the author typed wins, then one AI drafting wrote from the form
+    # itself, and only then one made from the upload's filename
+    if getattr(interview, "title_drafted_by_llm", False):
+        if str(title or "").strip():
+            _apply_title_to_interview(interview, str(title).strip())
+        overrides: Dict[str, Any] = dict(interview_overrides or {})
+        for key in ("title", "short_title", "short_filename_with_spaces"):
+            if override_title_requested and key in overrides:
+                setattr(interview, key, overrides[key])
+        if override_title_requested and "short_filename" not in overrides:
+            interview.short_filename = space_to_underscore(
+                varname(interview.short_filename_with_spaces)
+            )
+    if (
+        exact_name
+        and not str(title or "").strip()
+        and not override_title_requested
+        and not getattr(interview, "title_drafted_by_llm", False)
+    ):
         _apply_exact_name_to_interview(interview, exact_name)
 
     interview_label = varname(interview.title)

@@ -1945,3 +1945,60 @@ class TestMappedFieldsKeepTheirExpression(unittest.TestCase):
         self.assertIn(
             '"users1_signature": ${ users[0].signature_if_final(i) }', attachment
         )
+
+
+class TestTitlePrecedence(unittest.TestCase):
+    def _generate(self, drafted_title, **options):
+        from .interview_generator import DAInterview
+
+        def fake_prefill(interview, apply=True):
+            if drafted_title:
+                interview.title_drafted_by_llm = True
+                interview.title = drafted_title
+            return True
+
+        def no_op(interview, *args, **kwargs):
+            return False
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "upload_123.pdf"), ["reason_for_request"]
+            )
+            with (
+                patch.object(DAInterview, "llm_prefill_metadata", fake_prefill),
+                patch.object(DAInterview, "llm_predict_state", no_op),
+                patch.object(DAInterview, "llm_refine_field_labels", no_op),
+                patch.object(DAInterview, "llm_group_fields", no_op),
+                patch.object(DAInterview, "_prefetch_reference_site", no_op),
+            ):
+                result = generate_interview_from_path(
+                    pdf_path,
+                    output_dir=tmpdir,
+                    create_package_zip=False,
+                    include_next_steps=False,
+                    use_llm_assist=True,
+                    exact_name="Motion_to_Reconsider_fielded.pdf",
+                    **options,
+                )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+            return yaml_text.split("metadata:\n  title: >-\n    ", 1)[1].split("\n")[0]
+
+    def test_an_ai_drafted_title_beats_the_upload_name(self):
+        self.assertEqual(
+            self._generate("Motion to Reconsider a Court Decision"),
+            "Motion to Reconsider a Court Decision",
+        )
+
+    def test_the_cleaned_upload_name_is_the_fallback(self):
+        self.assertEqual(self._generate(""), "Motion to reconsider")
+
+    def test_a_title_the_author_typed_beats_both(self):
+        self.assertEqual(
+            self._generate("AI title", title="My own title"), "My own title"
+        )
+        self.assertEqual(
+            self._generate(
+                "AI title", interview_overrides={"title": "From the editor"}
+            ),
+            "From the editor",
+        )
