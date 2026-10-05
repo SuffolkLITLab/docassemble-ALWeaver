@@ -1,6 +1,7 @@
 from .custom_values import get_matching_deps, get_output_mako_package_and_path
 from .generator_constants import generator_constants
 from .question_library import baseline_question_specs
+from .field_grouping import group_fields_into_screens, unique_titles
 from .review_screen import build_review_entries, table_edit_attributes
 from .project_filenames import safe_project_filename, unique_project_filenames
 from .validate_template_files import matching_reserved_names, has_fields
@@ -3116,8 +3117,8 @@ class DAInterview(DAObject):
         categories: Optional[str] = None,
         default_country_code: str = "US",
     ):
-        """Like auto_assign_attributes but skips the slow formfyxer.cluster_screens()
-        call. Use when LLM-based grouping will be done in a background task instead."""
+        """Like auto_assign_attributes but skips grouping fields into screens.
+        Use when LLM-based grouping will be done in a background task instead."""
         self._initialize_basic_attributes(
             url=url,
             input_file=input_file,
@@ -4467,36 +4468,40 @@ Rules:
         self.questions.gathered = True
 
     def auto_group_fields(self):
+        """Put the custom fields on screens, without calling a language model.
+
+        Generation with AI assist off makes no model calls; the AI path regroups
+        with :meth:`llm_group_fields` instead. See :mod:`.field_grouping`.
         """
-        Use FormFyxer to assign fields to screens.
-        To assist with "I'm feeling lucky" button
-        """
-        try:
-            field_grouping = formfyxer.cluster_screens(
-                [field.variable for field in self.all_fields.custom()],
+        custom_fields = list(self.all_fields.custom())
+        labels = {
+            field.variable: str(
+                getattr(field, "label", "") or field.variable_name_guess
             )
-            if not field_grouping:
-                field_grouping = self._null_group_fields()
-        except Exception as ex:
-            log(f"Auto field grouping failed. {ex}")
-            field_grouping = self._null_group_fields()
+            for field in custom_fields
+        }
+        field_grouping = unique_titles(
+            group_fields_into_screens(
+                [field.variable for field in custom_fields],
+                label_for=lambda variable: labels.get(variable, variable),
+            )
+        )
         self.field_grouping = field_grouping
         self.questions.auto_gather = False
-        for group in field_grouping:
-            group_fields = [name for name in (field_grouping[group] or []) if name]
-            if not group_fields:
-                continue
+        by_variable: Dict[str, DAField] = {}
+        for field in self.all_fields:
+            by_variable.setdefault(field.variable, field)
+        for title, group_fields in field_grouping.items():
             new_screen = self.questions.appendObject()
             new_screen.is_informational_screen = False
             new_screen.has_mandatory_field = True
             new_screen.type = "question"
             new_screen.needs_continue_button_field = False
-            new_screen.question_text = group_fields[0].capitalize().replace("_", " ")
+            new_screen.question_text = title
             new_screen.subquestion_text = ""
             new_screen.field_list.clear()
-            for field in self.all_fields:
-                if field.variable in group_fields:
-                    new_screen.field_list.append(field)
+            for variable in group_fields:
+                new_screen.field_list.append(by_variable[variable])
             new_screen.field_list.gathered = True
             if not new_screen.field_list:
                 new_screen.needs_continue_button_field = True

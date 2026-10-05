@@ -603,7 +603,11 @@ question: |
         reviewed_values = re.findall(r"(?m)^      [^%*].*: \$\{ (.+) \}$", review)
 
         # Several variables share one entry, which is the whole point of #865.
-        self.assertGreater(len(reviewed_values), len(entries))
+        values_per_entry = [
+            len(re.findall(r"(?m)^      [^%*].*: \$\{ (.+) \}$", entry))
+            for entry in review.split("\n  - Edit: ")[1:]
+        ]
+        self.assertTrue(any(count > 1 for count in values_per_entry))
         # Every entry has a bold heading and at least one value or a list loop.
         self.assertEqual(review.count("    button: |"), len(entries))
         self.assertEqual(
@@ -1737,3 +1741,26 @@ def ig_lists(objects):
     from .interview_generator import lists_that_may_run_short
 
     return lists_that_may_run_short(objects)
+
+
+class TestNoAIGroupingMakesNoModelCalls(unittest.TestCase):
+    def test_generation_without_ai_never_asks_formfyxer_to_group(self):
+        """It used to send field names to gpt-5-nano whenever a key was set."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "grouping.pdf"),
+                ["notice_type_mail", "notice_type_email", "vehicle_year"],
+            )
+            with patch.object(
+                interview_generator_module.formfyxer,
+                "cluster_screens",
+                side_effect=AssertionError("no-AI generation called a model"),
+            ):
+                result = generate_interview_from_path(
+                    pdf_path,
+                    output_dir=tmpdir,
+                    create_package_zip=False,
+                    include_next_steps=False,
+                )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+        self.assertIn("question: |\n  Notice type\n", yaml_text)
