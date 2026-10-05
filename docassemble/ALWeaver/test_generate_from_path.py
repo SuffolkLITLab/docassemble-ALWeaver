@@ -1925,3 +1925,51 @@ class TestTitlePrecedence(unittest.TestCase):
             ),
             "From the editor",
         )
+
+
+class TestOtherDetailsShowOnlyWhenOtherIsChosen(unittest.TestCase):
+    def test_other_details_follow_their_choice(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "release_request.pdf"),
+                [
+                    ("proceeding_is_adoption", "/Btn"),
+                    ("proceeding_is_name_change", "/Btn"),
+                    ("proceeding_is_other", "/Btn"),
+                    "case_name",
+                    "docket_number_text",
+                    "type_of_proceeding_other",
+                    ("has_other_income", "/Btn"),
+                    "other_income_explain",
+                ],
+            )
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        # On the same screen as its choice, right after it, shown only for it
+        self.assertRegex(
+            yaml_text,
+            r": proceeding_is\n    datatype: checkboxes\n(?:    .*\n)*"
+            r"  - \".*\": type_of_proceeding_other\n(?:    .*\n)*?"
+            r"    show if: proceeding_is\['other'\]\n",
+        )
+        self.assertIn("    show if: has_other_income\n", yaml_text)
+        attachment = yaml_text.split("pdf template file:", 1)[1]
+        self.assertIn(
+            '"type_of_proceeding_other": ${ type_of_proceeding_other if '
+            "proceeding_is['other'] else \"\" }",
+            attachment,
+        )
+        self.assertIn(
+            '"other_income_explain": ${ other_income_explain if has_other_income '
+            'else "" }',
+            attachment,
+        )
+        # Only the two "other" details are conditional
+        self.assertEqual(len(re.findall(r"(?m)^    show if: \S", yaml_text)), 2)
+        TestGenerateInterviewFromPath._run_dayamlchecker_text(self, yaml_text)

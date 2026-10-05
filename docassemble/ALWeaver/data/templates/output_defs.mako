@@ -4,6 +4,7 @@
 
 </%doc>\
 <%
+    import json
     from more_itertools import unique_everseen
 %>\
 <%def name="field_entry_yaml(field)">\
@@ -56,6 +57,13 @@
   % endif
   % if hasattr(field, "is_optional") and field.is_optional:
     required: False
+  % endif
+  % if isinstance(getattr(field, "show_if", None), dict):
+    show if:
+      variable: ${ field.show_if["variable"] }
+      is: ${ json.dumps(field.show_if["is"]) }
+  % elif getattr(field, "show_if", None):
+    show if: ${ field.show_if }
   % endif
 </%def>\
 <%doc>
@@ -154,6 +162,9 @@ confirm: True\
     % else: # all other variable types including text
       % if hasattr(field, "send_to_addendum") and field.send_to_addendum and attachment_name:
       - "${ raw_name }": <%text>${</%text> ${ attachment_name }.safe_value("${ field.final_display_var }"${ field.safe_value_kwargs() }) }
+      % elif getattr(field, "shown_when", None):
+      ## Only asked when its "Other" choice is made, so blank otherwise
+      - "${ raw_name }": <%text>${</%text> ${ field.final_display_var } if ${ field.shown_when } else "" }
       % else:
       - "${ raw_name }": <%text>${</%text> ${ attachment_reference(field.final_display_var, item_lists) } }
       % endif

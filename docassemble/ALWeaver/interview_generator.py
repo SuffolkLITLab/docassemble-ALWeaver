@@ -903,6 +903,8 @@ def _grouped_field_definition(field: "DAField") -> "FieldDefinition":
     }
     if getattr(field, "choices", ""):
         definition["choices"] = str(field.choices).splitlines()
+    if getattr(field, "show_if", None):
+        definition["show if"] = field.show_if
     return cast("FieldDefinition", definition)
 
 
@@ -1796,6 +1798,76 @@ class DAFieldList(DAList):
 
         self.delitem(*mark_to_remove)
         self.there_are_any = len(self.elements) > 0
+
+    def link_other_details(self) -> None:
+        """Show an "Other: please explain" field only when "Other" is chosen.
+
+        A form's `type_of_proceeding_other` box only means something when the
+        `proceeding_is_other` box is ticked. A quarter of the fields in
+        published interviews have a `show if`; drafts had none. Each text field
+        whose name says "other" is tied to the "other" choice that shares a
+        word with it (or sits right before it), so it is shown only when that
+        choice is made and left blank in the document otherwise.
+        """
+        fields = list(self.custom())
+        controllers: List[Tuple[int, Set[str], Any, str]] = []
+        for position, field in enumerate(fields):
+            field_type = getattr(field, "field_type", field.field_type_guess)
+            variable = field.final_display_var
+            if set(_name_words(field.variable)) & _NEGATING_WORDS:
+                # `do_not_know_of_other_case` turns things off, not on
+                continue
+            if field_type == "yesno" and "other" in _name_words(field.variable):
+                controllers.append(
+                    (position, _topic_words(field.variable), variable, variable)
+                )
+                continue
+            if field_type not in (
+                "multiple choice checkboxes",
+                "multiple choice radio",
+            ):
+                continue
+            options = [
+                str(option) for option in getattr(field, "choice_options", []) or []
+            ]
+            other_options = [o for o in options if o.lower() == "other"] or [
+                o for o in options if "other" in _name_words(o)
+            ]
+            for option in other_options[:1]:
+                if field_type == "multiple choice checkboxes":
+                    show_if: Any = f"{variable}[{option!r}]"
+                    shown_when = show_if
+                else:
+                    show_if = {"variable": variable, "is": option}
+                    shown_when = f"{variable} == {option!r}"
+                controllers.append(
+                    (position, _topic_words(field.variable), show_if, shown_when)
+                )
+
+        for position, field in enumerate(fields):
+            field_type = getattr(field, "field_type", field.field_type_guess)
+            if field_type not in ("text", "area") or not _names_an_other_detail(
+                field.variable
+            ):
+                continue
+            words = _topic_words(field.variable)
+            best = None
+            for c_position, c_words, show_if, shown_when in controllers:
+                if c_position == position:
+                    continue
+                shared = len(words & c_words)
+                adjacent = c_position == position - 1
+                if not shared and not adjacent:
+                    continue
+                rank = (shared, adjacent, -abs(position - c_position))
+                if best is None or rank > best[0]:
+                    best = (rank, c_position, show_if, shown_when)
+            if best is None:
+                continue
+            _rank, c_position, show_if, shown_when = best
+            field.show_if = show_if
+            field.shown_when = shown_when
+            field.shown_after = fields[c_position].variable
 
     def mark_money_after_printed_dollar_signs(self, document: Any) -> None:
         """Note which money fields the PDF already prints a "$" in front of.
@@ -3201,6 +3273,7 @@ class DAInterview(DAObject):
         self._auto_load_fields()
         self.all_fields.auto_label_fields()
         self.all_fields.auto_mark_people_as_builtins()
+        self.all_fields.link_other_details()
 
     def _process_fields_and_group(
         self,
@@ -3881,6 +3954,14 @@ Rules:
 
             if not screen_list:
                 return [] if not apply else False
+            _place_detail_definitions_after_controls(
+                screen_list,
+                {
+                    field.variable: field.shown_after
+                    for field in custom_fields
+                    if getattr(field, "shown_after", None)
+                },
+            )
             if not apply:
                 return screen_list
             if hasattr(self, "questions"):
@@ -4616,6 +4697,8 @@ Rules:
                     new_field.range_step = field.get("step", None)
                 if field.get("required") == False:
                     new_field.is_optional = True
+                if field.get("show if"):
+                    new_field.show_if = field.get("show if")
             new_screen.field_list.gathered = True
             if not screen.get("fields"):
                 new_screen.needs_continue_button_field = True
@@ -4639,6 +4722,14 @@ Rules:
                 [field.variable for field in custom_fields],
                 label_for=lambda variable: labels.get(variable, variable),
             )
+        )
+        _place_details_after_controls(
+            field_grouping,
+            {
+                field.variable: field.shown_after
+                for field in custom_fields
+                if getattr(field, "shown_after", None)
+            },
         )
         self.field_grouping = field_grouping
         self.questions.auto_gather = False
@@ -5710,6 +5801,112 @@ def _options_are_parallel_questions(options: Sequence[str]) -> bool:
         return True
     last_words = {option.rsplit("_", 1)[-1] for option in options}
     return len(last_words) == 1 and all("_" in option for option in options)
+
+
+def _place_details_after_controls(
+    screens: Dict[str, List[str]], shown_after: Mapping[str, str]
+) -> None:
+    """Move each "please explain" field onto its control's screen, just after it.
+
+    `show if` only reacts on the screen where the control is, so the two have
+    to be asked together. Screens left empty by the move are dropped.
+    """
+    for detail, control in shown_after.items():
+        home = next((t for t, v in screens.items() if control in v), None)
+        if home is None:
+            continue
+        for variables in screens.values():
+            if detail in variables:
+                variables.remove(detail)
+        screens[home].insert(screens[home].index(control) + 1, detail)
+    for title in [t for t, v in screens.items() if not v]:
+        del screens[title]
+
+
+def _place_detail_definitions_after_controls(
+    screen_list: List[Screen], shown_after: Mapping[str, str]
+) -> None:
+    """:func:`_place_details_after_controls`, for screens the AI drafted."""
+    titles = [f"{index}" for index in range(len(screen_list))]
+    by_title = {
+        title: [str(entry.get("field")) for entry in screen.get("fields", []) or []]
+        for title, screen in zip(titles, screen_list)
+    }
+    definitions = {
+        str(entry.get("field")): entry
+        for screen in screen_list
+        for entry in screen.get("fields", []) or []
+    }
+    _place_details_after_controls(by_title, shown_after)
+    kept = []
+    for title, screen in zip(titles, screen_list):
+        if title in by_title:
+            screen["fields"] = [definitions[name] for name in by_title[title]]
+            kept.append(screen)
+    screen_list[:] = kept
+
+
+def _name_words(name: str) -> List[str]:
+    return [word for word in re.split(r"[_\.\[\]'\" ]+", name.lower()) if word]
+
+
+# Words that don't say what a field is about, for matching a field to its control
+_NOT_TOPIC_WORDS = (
+    FILLER_NAME_WORDS
+    | CHECKBOX_TYPE_WORDS
+    | {
+        "other",
+        "explain",
+        "explanation",
+        "specify",
+        "describe",
+        "description",
+        "details",
+        "text",
+        "please",
+        "yes",
+        "no",
+    }
+)
+
+
+_NEGATING_WORDS = frozenset({"not", "no", "dont", "never"})
+# Words that say a field holds the details of an answer
+_DETAIL_WORDS = frozenset(
+    {
+        "explain",
+        "explanation",
+        "explination",
+        "specify",
+        "describe",
+        "description",
+        "details",
+        "detail",
+        "reason",
+        "reasons",
+    }
+)
+
+
+def _names_an_other_detail(name: str) -> bool:
+    """True for `type_of_proceeding_other` or `other_relief_description`.
+
+    "Other" is often just an adjective: `other_case_1_docket` is about some
+    other case, not the details of an "Other" answer, so it needs a word like
+    "explain" too, unless "other" is the last word of the name.
+    """
+    words = _name_words(name)
+    return "other" in words and (
+        words[-1] == "other" or bool(set(words) & _DETAIL_WORDS)
+    )
+
+
+def _topic_words(name: str) -> Set[str]:
+    return {
+        word
+        for word in _name_words(name)
+        if word not in _NOT_TOPIC_WORDS and not word.isdigit()
+    }
 
 
 def _shared_name_prefix(first: str, second: str) -> str:
