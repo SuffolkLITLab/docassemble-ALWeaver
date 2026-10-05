@@ -171,3 +171,101 @@ class TestLLMRobustness(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class _FakeChoiceLlms:
+    """Suggests a radio for `custom_one`, with or without choices to pick from."""
+
+    def __init__(self, choices):
+        self.choices = choices
+
+    def chat_completion(self, **kwargs):
+        if "Group fields" in str(kwargs.get("system_message", "")):
+            return {"screens": [{"question": "Fees", "fields": ["custom_one"]}]}
+        suggestion = {"label": "How you will pay", "datatype": "radio"}
+        if self.choices is not None:
+            suggestion["choices"] = self.choices
+        return {"custom_one": suggestion}
+
+
+class TestLLMChoiceSuggestions(unittest.TestCase):
+    setUp = TestLLMRobustness.setUp
+    _build_interview_with_custom_field = (
+        TestLLMRobustness._build_interview_with_custom_field
+    )
+
+    def _refine(self, choices):
+        interview = self._build_interview_with_custom_field()
+        interview.questions = DAQuestionList()
+        interview.questions.gathered = True
+        interview._llm_context_text = MethodType(
+            lambda self, **kwargs: "context", interview
+        )
+        interview._llm_default_model = MethodType(lambda self: "gpt-5-mini", interview)
+        with patch.object(
+            ig, "_load_llms_module", return_value=_FakeChoiceLlms(choices)
+        ):
+            interview.llm_refine_field_labels(apply=True)
+            interview.llm_group_fields(apply=True)
+        return interview
+
+    def test_suggested_choices_survive_refinement_and_regrouping(self):
+        interview = self._refine(["Pay the fee", "Ask for a waiver: fee waiver"])
+
+        field = interview.all_fields[0]
+        self.assertEqual(field.field_type, "multiple choice radio")
+        expected = '"Pay the fee": pay_the_fee\n"Ask for a waiver: fee waiver": ask_for_a_waiver_fee_waiver'
+        self.assertEqual(field.choices, expected)
+        regrouped = interview.questions[0].field_list[0]
+        self.assertEqual(regrouped.field_type, "multiple choice radio")
+        self.assertEqual(regrouped.choices, expected)
+
+    def test_a_choice_type_without_choices_keeps_the_old_type(self):
+        """This used to render `.choices` that was never defined, and crash."""
+        interview = self._refine(None)
+
+        self.assertEqual(interview.all_fields[0].field_type, "text")
+        self.assertEqual(interview.all_fields[0].label, "How you will pay")
+        self.assertEqual(interview.questions[0].field_list[0].field_type, "text")
+
+    def test_a_screen_definition_without_choices_is_asked_as_text(self):
+        interview = self._build_interview_with_custom_field()
+        interview.questions = DAQuestionList()
+        interview.questions.gathered = True
+        interview.apply_llm_draft_payload(
+            {
+                "screen_list": [
+                    {
+                        "question": "Fees",
+                        "fields": [
+                            {"field": "custom_one", "label": "Pay", "datatype": "radio"}
+                        ],
+                    }
+                ]
+            }
+        )
+        self.assertEqual(interview.questions[0].field_list[0].field_type, "text")
+
+
+class TestClassificationKey(unittest.TestCase):
+    choices = {"appeal": "Part of an appeal", "other_form": "Not a court form"}
+
+    def test_a_plain_key_is_used_as_is(self):
+        self.assertEqual(ig._classification_key(" Appeal ", self.choices), "appeal")
+
+    def test_an_echoed_choice_entry_still_names_its_key(self):
+        """classify_text often answers `"{'appeal': '...'}"`; that was thrown away."""
+        self.assertEqual(
+            ig._classification_key(
+                "{'appeal': 'Part of an appeal of a court case'}", self.choices
+            ),
+            "appeal",
+        )
+        self.assertEqual(
+            ig._classification_key("{'MA': 'Massachusetts'}", {"MA": "Massachusetts"}),
+            "MA",
+        )
+
+    def test_a_reply_naming_two_keys_is_not_guessed_at(self):
+        reply = "'appeal' or 'other_form'"
+        self.assertEqual(ig._classification_key(reply, self.choices), reply)

@@ -354,6 +354,8 @@ def get_input_dimensions(
 OPTION_SEPARATOR = "+"
 
 # Field types that ask with a list of `choices`
+# The most choices taken from a model's suggestion for one question
+MAX_LLM_CHOICES = 20
 CHOICE_FIELD_TYPES = [
     "multiple choice radio",
     "multiple choice checkboxes",
@@ -813,22 +815,113 @@ def _normalize_field_type(value: str) -> Optional[str]:
     return candidate if candidate in allowed else None
 
 
+def _llm_choice_lines(raw_choices: Any) -> List[str]:
+    """Turn the choices a model suggested into `choices:` lines.
+
+    Each line is `"Label": value`. Quoting the label keeps a choice like
+    `Other: explain` from breaking the YAML, and the value is an identifier so
+    it is safe to compare against in an attachment.
+
+    Args:
+        raw_choices (Any): a list of labels, or of `{"label", "value"}` dicts.
+
+    Returns:
+        List[str]: one line per usable choice, without duplicates.
+    """
+    if not isinstance(raw_choices, list):
+        return []
+    lines: List[str] = []
+    seen: Set[str] = set()
+    for raw in raw_choices[:MAX_LLM_CHOICES]:
+        if isinstance(raw, dict):
+            label = str(raw.get("label") or raw.get("value") or "")
+            value = str(raw.get("value") or label)
+        else:
+            label = value = str(raw)
+        label = _safe_short_label(label, 80)
+        value = varname(value).lower()
+        if not label or not value or value in seen:
+            continue
+        seen.add(value)
+        lines.append(f"{json.dumps(label)}: {value}")
+    return lines
+
+
+def _classification_key(response: Any, choices: Mapping[str, str]) -> str:
+    """The choice key a `classify_text` reply names, or the reply unchanged.
+
+    The model is shown the choices as a dict, and often answers by echoing one
+    entry of it -- `"{'appeal': 'Part of an appeal'}"` instead of `appeal`.
+    Taking that at face value silently threw the classification away.
+
+    Args:
+        response (Any): what `classify_text` returned.
+        choices (Mapping[str, str]): the choices it was asked to pick from.
+
+    Returns:
+        str: the one choice key the reply names, else the stripped reply.
+    """
+    text = str(response or "").strip()
+    by_folded_key = {str(key).casefold(): str(key) for key in choices}
+    if text.casefold() in by_folded_key:
+        return by_folded_key[text.casefold()]
+    try:
+        parsed = ast.literal_eval(text)
+    except (ValueError, SyntaxError, MemoryError, RecursionError):
+        parsed = None
+    if isinstance(parsed, dict) and len(parsed) == 1:
+        key = str(next(iter(parsed))).casefold()
+        if key in by_folded_key:
+            return by_folded_key[key]
+    # Otherwise, accept a reply that quotes exactly one of the keys
+    named = {
+        key
+        for folded, key in by_folded_key.items()
+        if re.search(r"""['"]""" + re.escape(folded) + r"""['"]""", text.casefold())
+    }
+    if len(named) == 1:
+        return named.pop()
+    return text
+
+
+def _grouped_field_definition(field: "DAField") -> "FieldDefinition":
+    """The definition a regrouped screen uses to recreate `field`."""
+    definition: Dict[str, Any] = {
+        "field": field.variable,
+        "label": field.label if hasattr(field, "label") else field.variable_name_guess,
+        "datatype": getattr(
+            field, "field_type", getattr(field, "field_type_guess", "text")
+        ),
+    }
+    if getattr(field, "choices", ""):
+        definition["choices"] = str(field.choices).splitlines()
+    return cast("FieldDefinition", definition)
+
+
 def _field_updates_from_llm_response(
     response: Dict[str, Any], custom_fields: List["DAField"]
-) -> Dict[str, Dict[str, str]]:
-    updates: Dict[str, Dict[str, str]] = {}
+) -> Dict[str, Dict[str, Any]]:
+    updates: Dict[str, Dict[str, Any]] = {}
     by_variable = {field.variable: field for field in custom_fields}
     for variable, llm_value in response.items():
         if variable not in by_variable:
             continue
+        choice_lines: List[str] = []
         if isinstance(llm_value, dict):
             new_label = llm_value.get("label", "")
             new_datatype = llm_value.get("datatype", "")
+            choice_lines = _llm_choice_lines(llm_value.get("choices"))
         else:
             new_label = llm_value
             new_datatype = ""
         cleaned = _safe_short_label(str(new_label), 45)
         normalized_datatype = _normalize_field_type(str(new_datatype))
+        if normalized_datatype in CHOICE_FIELD_TYPES and not (
+            choice_lines or getattr(by_variable[variable], "choices", None)
+        ):
+            # A choice question with nothing to choose from can't be rendered,
+            # so keep the type the field already had
+            normalized_datatype = ""
         if not cleaned and not normalized_datatype:
             continue
         updates[variable] = {}
@@ -836,6 +929,8 @@ def _field_updates_from_llm_response(
             updates[variable]["label"] = cleaned
         if normalized_datatype:
             updates[variable]["datatype"] = normalized_datatype
+            if normalized_datatype in CHOICE_FIELD_TYPES and choice_lines:
+                updates[variable]["choices"] = choice_lines
     return updates
 
 
@@ -3081,17 +3176,23 @@ class DAInterview(DAObject):
                     "unknown": "Cannot confidently determine role from available text",
                 },
             )
-            form_type = llms.classify_text(
-                text=f"Title: {self.title}\n\n{context_text[:6000]}",
-                choices=form_type_choices,
-                default_response=getattr(self, "form_type", "other"),
-                model=self._llm_default_model(),
+            form_type = _classification_key(
+                llms.classify_text(
+                    text=f"Title: {self.title}\n\n{context_text[:6000]}",
+                    choices=form_type_choices,
+                    default_response=getattr(self, "form_type", "other"),
+                    model=self._llm_default_model(),
+                ),
+                form_type_choices,
             )
-            role = llms.classify_text(
-                text=f"Title: {self.title}\n\n{context_text[:6000]}",
-                choices=role_choices,
-                default_response=getattr(self, "typical_role", "unknown"),
-                model=self._llm_default_model(),
+            role = _classification_key(
+                llms.classify_text(
+                    text=f"Title: {self.title}\n\n{context_text[:6000]}",
+                    choices=role_choices,
+                    default_response=getattr(self, "typical_role", "unknown"),
+                    model=self._llm_default_model(),
+                ),
+                role_choices,
             )
 
             prompt_template = _prompt_str(
@@ -3338,7 +3439,7 @@ Predicted role: {{ROLE}}
                 default_response=(getattr(self, "state", "") or "MA"),
                 model=self._llm_default_model(),
             )
-            predicted_state = str(predicted_state or "").strip().upper()
+            predicted_state = _classification_key(predicted_state, choices).upper()
             if predicted_state not in choices:
                 return False
             if apply:
@@ -3508,22 +3609,7 @@ Rules:
                     ):
                         continue
                     used.add(variable)
-                    field_obj = by_variable[variable]
-                    field_defs.append(
-                        {
-                            "field": variable,
-                            "label": (
-                                field_obj.label
-                                if hasattr(field_obj, "label")
-                                else field_obj.variable_name_guess
-                            ),
-                            "datatype": getattr(
-                                field_obj,
-                                "field_type",
-                                getattr(field_obj, "field_type_guess", "text"),
-                            ),
-                        }
-                    )
+                    field_defs.append(_grouped_field_definition(by_variable[variable]))
                 if field_defs:
                     screen_list.append(
                         {
@@ -3546,21 +3632,7 @@ Rules:
                             else field.variable_name_guess
                         ),
                         "subquestion": "",
-                        "fields": [
-                            {
-                                "field": field.variable,
-                                "label": (
-                                    field.label
-                                    if hasattr(field, "label")
-                                    else field.variable_name_guess
-                                ),
-                                "datatype": getattr(
-                                    field,
-                                    "field_type",
-                                    getattr(field, "field_type_guess", "text"),
-                                ),
-                            }
-                        ],
+                        "fields": [_grouped_field_definition(field)],
                     }
                 )
 
@@ -3583,7 +3655,7 @@ Rules:
             return [] if not apply else False
 
     def apply_llm_field_updates(
-        self, field_updates: Mapping[str, Mapping[str, str]]
+        self, field_updates: Mapping[str, Mapping[str, Any]]
     ) -> int:
         if not field_updates:
             return 0
@@ -3598,6 +3670,13 @@ Rules:
             if label:
                 field_obj.label = label
                 field_obj.has_label = True
+            choices = update.get("choices")
+            if datatype in CHOICE_FIELD_TYPES:
+                if choices:
+                    field_obj.choices = "\n".join(choices)
+                elif not getattr(field_obj, "choices", ""):
+                    # Never leave a choice question with nothing to choose
+                    datatype = ""
             if datatype:
                 field_obj.field_type = datatype
             if label or datatype:
@@ -4253,6 +4332,14 @@ Rules:
                 new_field.source_document_type = "docx"
                 # For some reason we made the field_type not exactly the same as the datatype in Docassemble
                 # TODO: consider refactoring this
+                if field_type in CHOICE_FIELD_TYPES and not field.get("choices"):
+                    # Rendering a choice question needs something to choose
+                    log(
+                        f"Field {new_field.variable!r} is {field_type!r} but has no "
+                        "choices; asking for it as text instead",
+                        "warning",
+                    )
+                    field_type = "text"
                 if field_type:
                     new_field.field_type = field_type
                 else:
