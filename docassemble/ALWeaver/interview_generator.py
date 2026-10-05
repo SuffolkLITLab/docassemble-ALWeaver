@@ -1002,6 +1002,7 @@ class DAField(DAObject):
         reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP,
         used_as_condition: bool = False,
         type_hint: Optional[str] = None,
+        choice_hint: Optional[Tuple[str, List[str]]] = None,
     ):
         """The DAField class expects a few attributes to be filled in.
         We have a lot less info than for PDF fields, so the name carries most
@@ -1026,6 +1027,17 @@ class DAField(DAObject):
 
         if self.variable.endswith(".signature"):
             self.field_type_guess = "signature"
+        elif choice_hint:
+            # The template's own `if` tests say what the answers can be
+            kind, values = choice_hint
+            self.field_type_guess = {
+                "checkboxes": "multiple choice checkboxes",
+            }.get(kind, "multiple choice radio")
+            self.choices = "\n".join(docx_choice_lines(kind, values))
+            if kind == "yesno_value":
+                self.variable_name_guess = (
+                    f"{variable_name_guess.rstrip('?')}: {_choice_label(values[0])}?"
+                )
         elif type_hint:
             # The author wrapped this in something like `output_checkbox()`,
             # which is a stronger signal than anything the name can give us
@@ -1986,6 +1998,7 @@ class DAFieldList(DAList):
 
         boolean_fields: Set[str] = set()
         type_hints: Dict[str, str] = {}
+        choice_hints: Dict[str, Tuple[str, List[str]]] = {}
         if document_type == "docx":
             # Read the template once so the variables and the "used as a
             # condition" hints come from the same pass over the text
@@ -1993,6 +2006,20 @@ class DAFieldList(DAList):
             all_fields: Iterable = get_docx_variables(docx_text)
             boolean_fields = get_docx_boolean_variables(docx_text)
             type_hints = get_docx_function_type_hints(docx_text)
+            choice_hints = get_docx_choice_hints(docx_text)
+            checkbox_roots = {
+                name
+                for name, (kind, _values) in choice_hints.items()
+                if kind == "checkboxes"
+            }
+            # Each ticked box is one key of the checkbox answer, not a question
+            all_fields = [
+                field
+                for field in all_fields
+                if re.sub(r"\[.*", "", field) not in checkbox_roots
+                or not STRING_KEYED_VARIABLE.match(field)
+            ]
+            all_fields += sorted(checkbox_roots - set(all_fields))
         else:
             all_fields = list(get_fields(document))
 
@@ -2093,6 +2120,11 @@ class DAFieldList(DAList):
                     field,
                     used_as_condition=field in boolean_fields,
                     type_hint=type_hints.get(field),
+                    choice_hint=(
+                        choice_hints.get(field)
+                        if new_field.group == DAFieldGroup.CUSTOM
+                        else None
+                    ),
                 )
                 new_field.source_template_types = [
                     (
@@ -4994,6 +5026,126 @@ def get_docx_function_type_hints(text: str) -> Dict[str, str]:
             settable = _settable_docx_variable(resolved)
             if settable:
                 hints[settable] = DOCX_FUNCTION_TYPE_HINTS[call.group(1)]
+    return hints
+
+
+# Word's curly quotes, as the straight ones Jinja reads them as
+_CURLY_TO_STRAIGHT_QUOTES = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"'})
+_JINJA_CHAIN = r"[A-Za-z_]\w*(?:\[[^\[\]]*\]|\.[A-Za-z_]\w*)*"
+_JINJA_QUOTED = r"""(?:'[^']*'|"[^"]*")"""
+_COMPARED_TO_LITERAL = re.compile(
+    rf"({_JINJA_CHAIN})\s*(?:==|!=)\s*({_JINJA_QUOTED})"
+    rf"|({_JINJA_QUOTED})\s*(?:==|!=)\s*({_JINJA_CHAIN})"
+)
+_IN_LITERAL_LIST = re.compile(
+    rf"({_JINJA_CHAIN})\s+(?:not\s+)?in\s*[\[\(]((?:\s*{_JINJA_QUOTED}\s*,?)+)[\]\)]"
+)
+_CHECKBOX_METHOD = re.compile(
+    rf"({_JINJA_CHAIN})\.(?:true_values|false_values|any_true|all_true|all_false)\s*\("
+)
+_KEYED_LOOKUP = re.compile(rf"({_JINJA_CHAIN}?)\[\s*({_JINJA_QUOTED})\s*\]")
+# `i` is the attachment's preview/final marker, not something to ask about
+_NOT_TEMPLATE_VARIABLES = frozenset({"i", "loop"})
+
+
+def _choice_label(value: str) -> str:
+    """How to show a template's literal value as a choice."""
+    if "_" in value or value == value.lower():
+        return option_label(value)
+    return value
+
+
+def docx_choice_lines(kind: str, values: Sequence[str]) -> List[str]:
+    """The `choices:` lines for a choice the template's own logic revealed.
+
+    The value of each choice has to be the template's literal exactly, since
+    that is what `{% if fee_option == 'pay' %}` compares against.
+    """
+    if kind == "yesno_value":
+        value = values[0]
+        return [
+            f"{json.dumps('Yes')}: {json.dumps(value)}",
+            f"{json.dumps('No')}: {json.dumps('not_' + varname(value).lower())}",
+        ]
+    return [
+        f"{json.dumps(_choice_label(value))}: {json.dumps(value)}" for value in values
+    ]
+
+
+def get_docx_choice_hints(text: str) -> Dict[str, Tuple[str, List[str]]]:
+    """Find the variables whose choices a DOCX template's own logic spells out.
+
+    * `{% if fee_option == 'pay' %}` and `== 'waiver'`: a radio with those two
+      choices (kind `radio`).
+    * A single `{% if filer_role == 'attorney' %}`: a yes/no question whose
+      "yes" stores `attorney`, so the comparison still works (`yesno_value`).
+    * `{% if evaluations['Other'] %}`, `{% for key in evaluations %}` with
+      `evaluations[key]`, or `evaluations.true_values()`: checkboxes, whose
+      choices are the keys the template names (`checkboxes`).
+
+    Args:
+        text (str): the full text of a DOCX template.
+
+    Returns:
+        Dict[str, Tuple[str, List[str]]]: variable -> (kind, values in order).
+    """
+    compared: Dict[str, List[str]] = {}
+    keys: Dict[str, List[str]] = {}
+    tested_keyed: Set[str] = set()
+    printed_keyed: Set[str] = set()
+    checkbox_roots: Set[str] = set()
+    loop_targets: Dict[str, str] = {}
+
+    def add(store: Dict[str, List[str]], name: str, value: str) -> None:
+        values = store.setdefault(name, [])
+        if value not in values:
+            values.append(value)
+
+    for match in JINJA_ANY_TAG.finditer(text.translate(_CURLY_TO_STRAIGHT_QUOTES)):
+        output, statement = match.group(1), match.group(2)
+        body = output if output is not None else statement
+        for keyed in _KEYED_LOOKUP.finditer(body):
+            root = keyed.group(1)
+            add(keys, root, keyed.group(2)[1:-1])
+            (printed_keyed if output is not None else tested_keyed).add(root)
+        for method in _CHECKBOX_METHOD.finditer(body):
+            checkbox_roots.add(method.group(1))
+        if output is not None:
+            continue
+        statement = JINJA_STATEMENT_PREFIX.sub("", statement.strip())
+        statement = JINJA_STATEMENT_SUFFIX.sub("", statement)
+        for_match = JINJA_FOR_STATEMENT.match(statement)
+        if for_match:
+            target = for_match.group(1).strip()
+            if target.isidentifier():
+                loop_targets[target] = for_match.group(2).strip()
+            continue
+        for target, iterable in loop_targets.items():
+            if re.search(
+                re.escape(iterable) + r"\[\s*" + re.escape(target) + r"\s*\]", statement
+            ):
+                checkbox_roots.add(iterable)
+        for comparison in _COMPARED_TO_LITERAL.finditer(statement):
+            name = comparison.group(1) or comparison.group(4)
+            literal = comparison.group(2) or comparison.group(3)
+            add(compared, name, literal[1:-1])
+        for membership in _IN_LITERAL_LIST.finditer(statement):
+            for literal in re.findall(_JINJA_QUOTED, membership.group(2)):
+                add(compared, membership.group(1), literal[1:-1])
+
+    hints: Dict[str, Tuple[str, List[str]]] = {}
+    for root, root_keys in keys.items():
+        # Keys that are only ever tested, never printed, are boxes to tick
+        if root in checkbox_roots or (
+            root in tested_keyed and root not in printed_keyed
+        ):
+            hints[_normalize_literal_subscripts(root)] = ("checkboxes", root_keys)
+    for name, values in compared.items():
+        name = _normalize_literal_subscripts(name)
+        root = re.split(r"[.\[]", name, maxsplit=1)[0]
+        if name in hints or root in _NOT_TEMPLATE_VARIABLES or root in loop_targets:
+            continue
+        hints[name] = ("radio" if len(values) > 1 else "yesno_value", values)
     return hints
 
 

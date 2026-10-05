@@ -1764,3 +1764,49 @@ class TestNoAIGroupingMakesNoModelCalls(unittest.TestCase):
                 )
             yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
         self.assertIn("question: |\n  Notice type\n", yaml_text)
+
+
+class TestChoicesFromDocxLogic(unittest.TestCase):
+    def test_the_templates_own_tests_become_the_choices(self):
+        import docx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docx_path = os.path.join(tmpdir, "appeal_entry.docx")
+            document = docx.Document()
+            for line in [
+                "{%p if filing_fee_option == 'pay' %}Paid{%p endif %}",
+                "{%p if filing_fee_option == ‘waiver’ %}Waived{%p endif %}",
+                "{%p if filer_role == 'attorney' %}Counsel{%p endif %}",
+                "{%p for key in evaluations %}{%p if evaluations[key] %}"
+                "{{ key }}{%p endif %}{%p endfor %}",
+                "{%p if evaluations['Speech therapy'] %}S{%p endif %}",
+            ]:
+                document.add_paragraph(line)
+            document.save(docx_path)
+            result = generate_interview_from_path(
+                docx_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        self.assertIn(
+            ": filing_fee_option\n    input type: radio\n    choices:\n"
+            '      - "Pay": "pay"\n      - "Waiver": "waiver"\n',
+            yaml_text,
+        )
+        self.assertIn(
+            ": filer_role\n    input type: radio\n    choices:\n"
+            '      - "Yes": "attorney"\n      - "No": "not_attorney"\n',
+            yaml_text,
+        )
+        self.assertIn(
+            ": evaluations\n    datatype: checkboxes\n    choices:\n"
+            '      - "Speech therapy": "Speech therapy"\n',
+            yaml_text,
+        )
+        # The ticked box is one key of the answer, not a question of its own
+        self.assertNotIn(": evaluations['Speech therapy']", yaml_text)
+        self.assertNotIn("evaluations: DADict", yaml_text)
+        TestGenerateInterviewFromPath._run_dayamlchecker_text(self, yaml_text)
