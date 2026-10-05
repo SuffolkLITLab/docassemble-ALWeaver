@@ -152,6 +152,20 @@ class TestWhichQuestionsGetCopied(unittest.TestCase):
         )
         self.assertEqual(kinds_for(specs, "landlord"), ["name", "address"])
 
+    def test_a_dictionary_of_answers_gets_no_person_questions(self):
+        specs = baseline_question_specs(
+            fake_interview(["users[0].name.first"]),
+            [
+                person_object("users"),
+                person_object(
+                    "print_options",
+                    {"auto_gather": False, "gathered": True},
+                    object_type="DADict",
+                ),
+            ],
+        )
+        self.assertEqual(kinds_for(specs, "print_options"), [])
+
     def test_objects_assembly_line_manages_itself_are_left_alone(self):
         # `plaintiffs` never reaches the generated `objects:` block, so nothing
         # about it should be copied in even though fields reference it.

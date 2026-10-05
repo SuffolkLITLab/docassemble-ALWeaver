@@ -138,6 +138,17 @@ class WeaverInterviewArtifacts:
     package_file: Optional[Any] = None
 
 
+class _BareName(str):
+    """A `.using()` argument that names a class, so it renders without quotes."""
+
+    def __repr__(self) -> str:
+        return str(self)
+
+
+# `name['key']` or `name['key'].attribute`: a lookup in a dictionary of answers
+STRING_KEYED_VARIABLE = re.compile(r"^([A-Za-z_]\w*)\[('[^']*'|\"[^\"]*\")\](\..+)?$")
+
+
 @dataclass
 class _PersonObjectSpec:
     """Represents one entry in the generated interview's ``objects:`` block."""
@@ -910,6 +921,10 @@ class DAField(DAObject):
 
         # variable_name_guess is the placeholder label for the field
         variable_name_guess = self.variable.replace("_", " ").capitalize()
+        keyed = STRING_KEYED_VARIABLE.match(self.variable)
+        if keyed and not keyed.group(3):
+            # `inspector_information['Zip']`: the key is what the author called it
+            variable_name_guess = keyed.group(2)[1:-1]
         self.variable_name_guess = variable_name_guess
 
         if self.variable.endswith(".signature"):
@@ -2600,7 +2615,37 @@ class DAInterview(DAObject):
             result.append(_PersonObjectSpec(name=person, params=params))
         for singleton in sorted(singletons):
             result.append(_PersonObjectSpec(name=singleton, type="ALIndividual"))
+        declared = {spec.name for spec in result} | _AL_MANAGED_OBJECTS
+        for name, holds_objects in sorted(self._referenced_dicts().items()):
+            if name in declared:
+                continue
+            dict_params: Dict[str, Any] = {"auto_gather": False, "gathered": True}
+            if holds_objects:
+                dict_params = {"object_type": _BareName("DAObject"), **dict_params}
+            result.append(
+                _PersonObjectSpec(name=name, type="DADict", params=dict_params)
+            )
         return result
+
+    def _referenced_dicts(self) -> Dict[str, bool]:
+        """Names the interview only ever looks up by a string key.
+
+        `inspector_information['Zip']` needs `inspector_information` to exist as
+        a dictionary before a question can set the key. Returns each such name,
+        mapped to whether its entries carry attributes (`fees['Filing'].waive`),
+        which needs the entries to be objects. A name that is also used on its
+        own is left out: that is a checkbox group, not a lookup table.
+        """
+        plain_variables = {field.final_display_var for field in self.all_fields}
+        dicts: Dict[str, bool] = {}
+        for field in self.all_fields:
+            match = STRING_KEYED_VARIABLE.match(field.final_display_var)
+            if not match or match.group(1) in plain_variables:
+                continue
+            dicts[match.group(1)] = dicts.get(match.group(1), False) or bool(
+                match.group(3)
+            )
+        return dicts
 
     def draft_screen_order(self, instanceName: str = "screen_order") -> DAList:
         """
@@ -4432,7 +4477,27 @@ JINJA_SIMPLE_OUTPUT = re.compile(r"^ *([^\} ]+) *$")
 # A chain we can safely index into, i.e. `mylist` or `user.children`
 JINJA_INDEXABLE_CHAIN = re.compile(r"^[A-Za-z_]\w*(?:\[[^\[\]]*\]|\.[A-Za-z_]\w*)*$")
 # Straight and curly quotes -- Word likes to autocorrect the ones an author types
-JINJA_STRING_LITERAL = re.compile(r"'[^']*'|\"[^\"]*\"|‘[^’]*’|“[^”]*”")
+# Word also mixes them, so `‘Inputs'` still counts as one string
+JINJA_STRING_LITERAL = re.compile(r"['‘’][^'‘’]*['‘’]|[\"“”][^\"“”]*[\"“”]")
+# A string-literal subscript, i.e. the `["Address Line 1"]` in a dictionary lookup
+JINJA_LITERAL_SUBSCRIPT = re.compile(
+    r"\[\s*(['‘’][^'‘’]*['‘’]|[\"“”][^\"“”]*[\"“”])\s*\]"
+)
+JINJA_KEY_PLACEHOLDER = re.compile(r"__alweaver_key_(\d+)__")
+
+
+def _normalize_literal_subscripts(chain: str) -> str:
+    """Rewrite string-literal subscripts the way Docassemble names them.
+
+    A missing dictionary key raises an error naming the variable with the key's
+    `repr()`, so `x["Zip"]` and `x[‘Zip’]` are both asked for as `x['Zip']`. The
+    question that sets it has to use that exact spelling to be found.
+    """
+    return JINJA_LITERAL_SUBSCRIPT.sub(
+        lambda match: "[" + repr(match.group(1)[1:-1]) + "]", chain
+    )
+
+
 # A dotted/subscripted chain like `users[0].name.first` or `child.name.full()`
 JINJA_VARIABLE_CHAIN = re.compile(
     r"[A-Za-z_]\w*(?:\[[^\[\]]*\]|\.[A-Za-z_]\w*(?:\(\s*\))?)*"
@@ -4495,7 +4560,16 @@ def _variables_in_jinja_expression(expression: str) -> Set[str]:
     Returns:
         Set[str]: the variable chains found in the expression.
     """
-    # Blank out string literals so their contents are never read as variables
+    # Dictionary keys belong to the variable, so set them aside before blanking
+    # out the other string literals, whose contents must never be read as
+    # variables. Blanking a key too would leave a `x[ ]` that isn't Python.
+    keys: List[str] = []
+
+    def set_key_aside(match: "re.Match[str]") -> str:
+        keys.append(_normalize_literal_subscripts(match.group(0)))
+        return f"[__alweaver_key_{len(keys) - 1}__]"
+
+    expression = JINJA_LITERAL_SUBSCRIPT.sub(set_key_aside, expression)
     expression = JINJA_STRING_LITERAL.sub(" ", expression)
     found = set()
     for match in JINJA_VARIABLE_CHAIN.finditer(expression):
@@ -4510,7 +4584,10 @@ def _variables_in_jinja_expression(expression: str) -> Set[str]:
         root = re.split(r"[.\[]", chain, maxsplit=1)[0]
         if root in JINJA_NON_VARIABLE_WORDS or keyword.iskeyword(root):
             continue
-        found.add(chain)
+        # Put the keys back, minus the brackets the placeholder already sits in
+        found.add(
+            JINJA_KEY_PLACEHOLDER.sub(lambda key: keys[int(key.group(1))][1:-1], chain)
+        )
     return found
 
 
@@ -4546,6 +4623,18 @@ def _resolve_loop_variable(
         Optional[str]: the rewritten chain, or None if it should be dropped.
     """
     root = re.split(r"[.\[]", chain, maxsplit=1)[0]
+    for scope in reversed(loop_scopes):
+        for target, replacement in scope.items():
+            subscript = re.search(r"\[\s*" + re.escape(target) + r"\s*\]", chain)
+            if not subscript:
+                continue
+            # `selected[key]` inside `for key in selected` looks up each key of
+            # the collection in turn; there is no one variable to ask for, and
+            # the `for` statement already recorded the collection itself
+            if replacement == chain[: subscript.start()] + "[0]":
+                return None
+            # Any other `users[i]` is a loop counter standing in for an index
+            chain = chain[: subscript.start()] + "[0]" + chain[subscript.end() :]
     for scope in reversed(loop_scopes):
         if root not in scope:
             continue
@@ -4592,7 +4681,9 @@ def _raw_variables_from_template(text: str) -> Set[str]:
 
     def keep(chains: Iterable[str]) -> None:
         for chain in chains:
-            resolved = _resolve_loop_variable(chain, loop_scopes)
+            resolved = _resolve_loop_variable(
+                _normalize_literal_subscripts(chain), loop_scopes
+            )
             if resolved:
                 found.add(resolved)
 

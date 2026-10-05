@@ -193,6 +193,9 @@ def baseline_question_specs(
         object_type = str(getattr(spec, "type", "ALPeopleList") or "ALPeopleList")
         params = dict(getattr(spec, "params", None) or {})
         is_list = object_type.endswith("List")
+        # A `DADict` of answers has no name or address to ask for
+        if not is_list and object_type not in PERSON_CLASSES:
+            continue
 
         common = {
             "var": name,

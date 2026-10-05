@@ -258,6 +258,51 @@ question: |
         self.assertIn("id: Duplicate title 2\n", fixed)
         self.assertIn("id: Duplicate title 3\n", fixed)
 
+    def test_docx_dictionary_lookups_are_declared_and_valid(self):
+        """Keys with spaces or curly quotes once produced `x[ ]` in the order block."""
+        import docx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docx_path = os.path.join(tmpdir, "inspection_letter.docx")
+            document = docx.Document()
+            document.add_paragraph('{{ inspector_information["Address Line 1"] }}')
+            document.add_paragraph("{{ inspector_information[‘Zip’] }}")
+            document.add_paragraph("{{ fees['Filing fee'].amount }}")
+            document.save(docx_path)
+
+            result = generate_interview_from_path(
+                docx_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        self.assertNotIn("[ ]", yaml_text)
+        self.assertIn("inspector_information['Address Line 1']", yaml_text)
+        self.assertIn("inspector_information['Zip']", yaml_text)
+        self.assertIn(
+            "- inspector_information: DADict.using(auto_gather=False,gathered=True)",
+            yaml_text,
+        )
+        self.assertIn(
+            "- fees: DADict.using(object_type=DAObject,auto_gather=False,gathered=True)",
+            yaml_text,
+        )
+        self.assertNotIn("inspector_information.name", yaml_text)
+        self._run_dayamlchecker_text(yaml_text)
+
+    def _run_dayamlchecker_text(self, yaml_text: str) -> None:
+        from dayamlchecker.yaml_structure import find_errors_from_string
+
+        errors = [
+            str(getattr(error, "err_str", "") or error).strip()
+            for error in find_errors_from_string(yaml_text, input_file="generated.yml")
+        ]
+        # The publishing metadata only comes from the LLM drafting step
+        errors = [error for error in errors if "CourtFormsOnline" not in error]
+        self.assertFalse(errors, "\n".join(errors))
+
     def test_generate_from_docx(self):
         docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
         with tempfile.TemporaryDirectory() as tmpdir:
