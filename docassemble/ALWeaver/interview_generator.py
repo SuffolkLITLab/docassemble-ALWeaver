@@ -1,7 +1,11 @@
 from .custom_values import get_matching_deps, get_output_mako_package_and_path
 from .generator_constants import generator_constants
 from .question_library import baseline_question_specs
-from .field_grouping import group_fields_into_screens, unique_titles
+from .field_grouping import (
+    FILLER_NAME_WORDS,
+    group_fields_into_screens,
+    unique_titles,
+)
 from .name_datatypes import datatype_from_name
 from .review_screen import build_review_entries, table_edit_attributes
 from .project_filenames import safe_project_filename, unique_project_filenames
@@ -1785,6 +1789,80 @@ class DAFieldList(DAList):
         self.delitem(*mark_to_remove)
         self.there_are_any = len(self.elements) > 0
 
+    def consolidate_checkbox_sets(self, filename: str = "") -> None:
+        """Combine a run of checkboxes that share a name into one question.
+
+        `notice_type_mail`, `notice_type_in_person` and `notice_type_email` are
+        three boxes for one question. Authors of 39 real forms combined boxes
+        like these by hand, and in 35 of them the boxes shared a name prefix
+        like this. They become one `notice_type` checkboxes question, and each
+        box reads its own key, like a `parent+option` group.
+
+        Checkboxes never lose an answer even when the form only allows one, so
+        that is the type used; a note tells the author to make it a radio if
+        only one box may be ticked. Only boxes next to each other merge, and the
+        shared part has to name a topic: `has_car` and `has_bank_account` stay
+        separate questions.
+        """
+        taken = {field.variable for field in self.elements}
+        candidates = [
+            field
+            for field in self.elements
+            if getattr(field, "source_document_type", "") == "pdf"
+            and getattr(field, "group", None) == DAFieldGroup.CUSTOM
+            and field.field_type_guess == "yesno"
+            and not getattr(field, "paired_yesno", False)
+            and not field.is_option_group()
+            and field.final_display_var == field.variable
+        ]
+
+        runs: List[Tuple[str, List[DAField]]] = []
+        for field in candidates:
+            if runs:
+                prefix, members = runs[-1]
+                shared = _shared_name_prefix(
+                    prefix or members[0].variable, field.variable
+                )
+                if shared and (not prefix or shared == prefix):
+                    runs[-1] = (shared, members + [field])
+                    continue
+            runs.append(("", [field]))
+
+        mark_to_remove: List[int] = []
+        for prefix, members in runs:
+            variable = prefix.rstrip("_")
+            if len(members) < 2 or variable in taken or not variable.isidentifier():
+                continue
+            options = [member.variable[len(prefix) :] for member in members]
+            if _options_are_parallel_questions(options):
+                continue
+            first = members[0]
+            first.variable = variable
+            first.final_display_var = variable
+            first.variable_name_guess = variable.replace("_", " ").capitalize()
+            first.field_type_guess = "multiple choice checkboxes"
+            first.choice_options = []
+            first.option_values = {}
+            raw_names: List[str] = []
+            for member, option in zip(members, options):
+                first.choice_options.append(option)
+                for raw_name in member.raw_field_names:
+                    first.option_values[raw_name] = option
+                    raw_names.append(raw_name)
+                if member is not first:
+                    mark_to_remove.append(self.elements.index(member))
+            first.raw_field_names = raw_names
+            taken.add(variable)
+            if not hasattr(self, "generation_notes"):
+                self.generation_notes = []
+            self.generation_notes.append(
+                f"{filename}: the boxes {', '.join(m for m in raw_names)} were "
+                f"combined into one checkboxes question, {variable}. If the form "
+                "allows only one of them, change it to radio buttons."
+            )
+        self.delitem(*mark_to_remove)
+        self.there_are_any = len(self.elements) > 0
+
     def consolidate_options(self) -> None:
         """Combine `parent+option` fields into one multiple-choice variable.
 
@@ -2031,10 +2109,10 @@ class DAFieldList(DAList):
                     for field in all_fields
                 ]
             )
-            if not hasattr(self, "index_warnings"):
-                self.index_warnings = []
+            if not hasattr(self, "generation_notes"):
+                self.generation_notes = []
             for prefix in zero_based_prefixes:
-                self.index_warnings.append(
+                self.generation_notes.append(
                     f"{document.filename} numbers {prefix} from 0, so its "
                     f"{prefix}0 fields were read as the first of the {prefix}. "
                     "Check that the people line up in the generated interview."
@@ -2140,6 +2218,8 @@ class DAFieldList(DAList):
         self.consolidate_radios()
         self.consolidate_duplicate_fields(document_type)
         self.consolidate_yesnos()
+        if document_type == "pdf":
+            self.consolidate_checkbox_sets(document.filename)
 
     def ask_about_fields(self) -> List[dict]:
         """
@@ -5574,6 +5654,43 @@ def one_based_field_names(
     return renames, sorted(zero_based)
 
 
+# Words that say a field is a checkbox, rather than which choice it is
+CHECKBOX_TYPE_WORDS = frozenset({"yesno", "checkbox", "check", "box", "cb", "x"})
+
+
+def _options_are_parallel_questions(options: Sequence[str]) -> bool:
+    """True if what's left after a shared prefix names questions, not choices.
+
+    `fmv_yesno` and `fmv_authorization_yesno` share `fmv_`, but what's left,
+    `yesno` and `authorization_yesno`, ends the same way: these are two
+    separate yes/no questions named by a pattern, not two answers to one.
+    """
+    if any(option in CHECKBOX_TYPE_WORDS or not option for option in options):
+        return True
+    last_words = {option.rsplit("_", 1)[-1] for option in options}
+    return len(last_words) == 1 and all("_" in option for option in options)
+
+
+def _shared_name_prefix(first: str, second: str) -> str:
+    """The name two checkboxes share, up to an underscore, if it names a topic.
+
+    `notice_type_mail` and `notice_type_email` share `notice_type_`. A shared
+    part made only of words like `is_` or `user_has_` says nothing about what
+    the boxes are about, so it doesn't count.
+    """
+    first_words, second_words = first.split("_"), second.split("_")
+    shared: List[str] = []
+    for first_word, second_word in zip(first_words[:-1], second_words[:-1]):
+        if first_word != second_word:
+            break
+        shared.append(first_word)
+    if not shared or all(
+        word in FILLER_NAME_WORDS or word.isdigit() for word in shared
+    ):
+        return ""
+    return "_".join(shared) + "_"
+
+
 def get_reserved_label_parts(prefixes: list, label: str):
     """
     Return an re.matches object for all matching variable names,
@@ -8066,7 +8183,7 @@ def generate_interview_from_path(
         generated_template_paths.append(next_steps_output_path)
 
     generation_warnings = interview.all_fields.cross_template_type_warnings()
-    generation_warnings.extend(getattr(interview.all_fields, "index_warnings", []))
+    generation_warnings.extend(getattr(interview.all_fields, "generation_notes", []))
     if interview.has_all_unlabeled_pdfs():
         generation_warnings.append(
             "No fillable PDF fields were detected. Weaver created a general "

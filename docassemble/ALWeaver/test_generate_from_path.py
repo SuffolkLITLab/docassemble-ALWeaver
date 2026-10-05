@@ -838,18 +838,23 @@ class TestGuardIndexedReference(unittest.TestCase):
 
 
 def _build_pdf_with_fields(pdf_path: str, field_names) -> str:
-    """Write a one-page PDF carrying exactly these AcroForm text fields."""
+    """Write a one-page PDF carrying exactly these AcroForm fields.
+
+    Each entry is a field name for a text field, or a `(name, "/Btn")` pair
+    for a checkbox.
+    """
     import pikepdf
 
     pdf = pikepdf.Pdf.new()
     page = pdf.add_blank_page(page_size=(612, 792))
     fields = []
     top = 730
-    for field_name in field_names:
+    for entry in field_names:
+        field_name, field_type = entry if isinstance(entry, tuple) else (entry, "/Tx")
         fields.append(
             pdf.make_indirect(
                 pikepdf.Dictionary(
-                    FT=pikepdf.Name("/Tx"),
+                    FT=pikepdf.Name(field_type),
                     T=pikepdf.String(field_name),
                     Ff=0,
                     Type=pikepdf.Name("/Annot"),
@@ -1810,3 +1815,61 @@ class TestChoicesFromDocxLogic(unittest.TestCase):
         self.assertNotIn(": evaluations['Speech therapy']", yaml_text)
         self.assertNotIn("evaluations: DADict", yaml_text)
         TestGenerateInterviewFromPath._run_dayamlchecker_text(self, yaml_text)
+
+
+class TestCheckboxSets(unittest.TestCase):
+    def _generate(self, field_names):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "release_request.pdf"), field_names
+            )
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            return Path(result.yaml_path).read_text(encoding="utf-8"), result
+
+    def test_boxes_sharing_a_name_become_one_checkboxes_question(self):
+        yaml_text, result = self._generate(
+            [
+                ("proceeding_is_adoption", "/Btn"),
+                ("proceeding_is_name_change", "/Btn"),
+                ("proceeding_is_other", "/Btn"),
+                "type_of_proceeding_other",
+            ]
+        )
+        self.assertIn(
+            ": proceeding_is\n    datatype: checkboxes\n    choices:\n"
+            "      - Adoption: adoption\n      - Name change: name_change\n"
+            "      - Other: other\n",
+            yaml_text,
+        )
+        attachment = yaml_text.split("pdf template file:", 1)[1]
+        self.assertIn(
+            "\"proceeding_is_name_change\": ${ proceeding_is['name_change'] }",
+            attachment,
+        )
+        self.assertNotIn(": proceeding_is_adoption\n", yaml_text)
+        self.assertTrue(
+            any("change it to radio buttons" in note for note in result.warnings)
+        )
+
+    def test_boxes_that_only_share_a_filler_word_stay_separate(self):
+        yaml_text, _result = self._generate(
+            [("has_car", "/Btn"), ("has_bank_account", "/Btn")]
+        )
+        self.assertIn(": has_car\n    datatype: yesno", yaml_text)
+        self.assertIn(": has_bank_account\n    datatype: yesno", yaml_text)
+
+
+class TestCheckboxSetsLeaveParallelQuestionsAlone(unittest.TestCase):
+    _generate = TestCheckboxSets._generate
+
+    def test_boxes_named_by_a_pattern_stay_separate(self):
+        yaml_text, _result = self._generate(
+            [("fmv_yesno", "/Btn"), ("fmv_authorization_yesno", "/Btn")]
+        )
+        self.assertIn(": fmv_yesno\n    datatype: yesno", yaml_text)
+        self.assertIn(": fmv_authorization_yesno\n    datatype: yesno", yaml_text)

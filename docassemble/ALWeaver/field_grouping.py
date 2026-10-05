@@ -14,13 +14,18 @@ unmatched field on a single screen of up to 180 fields.
 import re
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
-__all__ = ["MAX_FIELDS_PER_SCREEN", "group_fields_into_screens", "unique_titles"]
+__all__ = [
+    "FILLER_NAME_WORDS",
+    "MAX_FIELDS_PER_SCREEN",
+    "group_fields_into_screens",
+    "unique_titles",
+]
 
 # Authors' screens average under 3 fields; 6 leaves room for an address block
 MAX_FIELDS_PER_SCREEN = 6
 
 # Words that start many unrelated names, so they can't say what a field is about
-_LEADING_FILLER_WORDS = frozenset(
+FILLER_NAME_WORDS = frozenset(
     {
         "a",
         "are",
@@ -60,7 +65,7 @@ def _topic(variable: str) -> str:
     topic: List[str] = []
     for word in _words(variable):
         topic.append(word)
-        if word not in _LEADING_FILLER_WORDS:
+        if word not in FILLER_NAME_WORDS:
             break
     return "_".join(topic)
 
