@@ -5,11 +5,9 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
 
 import mako.template
 
-import docassemble.ALWeaver.interview_generator as interview_generator_module
 from docassemble.ALWeaver.interview_generator import (
     _resolve_template_path,
     fix_id,
@@ -326,33 +324,20 @@ class TestRenderedQuestions(unittest.TestCase):
 
 
 class TestGeneratedInterviewIncludesTheCopies(unittest.TestCase):
-    @staticmethod
-    def _offline_cluster_screens(fields, tools_token=None):
-        del tools_token
-        unique_fields = list(dict.fromkeys(fields or []))
-        return {
-            f"Screen {index // 4 + 1}": unique_fields[index : index + 4]
-            for index in range(0, len(unique_fields), 4)
-        }
 
     def _generate(self, **kwargs):
         pdf_path = (
             Path(__file__).parent / "test/test_petition_to_enforce_sanitary_code.pdf"
         )
-        with patch.object(
-            interview_generator_module.formfyxer,
-            "cluster_screens",
-            side_effect=self._offline_cluster_screens,
-        ):
-            with tempfile.TemporaryDirectory() as tmpdir:
-                result = generate_interview_from_path(
-                    str(pdf_path),
-                    output_dir=tmpdir,
-                    create_package_zip=False,
-                    include_next_steps=False,
-                    **kwargs,
-                )
-                return Path(result.yaml_path).read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = generate_interview_from_path(
+                str(pdf_path),
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+                **kwargs,
+            )
+            return Path(result.yaml_path).read_text(encoding="utf-8")
 
     def test_the_copies_are_written_in_by_default(self):
         yaml_text = self._generate()

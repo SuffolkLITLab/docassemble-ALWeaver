@@ -38,35 +38,6 @@ class TestGenerateInterviewFromPath(unittest.TestCase):
         self.assertNotIn("interview.custom_next_steps_instructions", rewritten)
         self.assertEqual(rewritten.count("<w:r>"), 2)
 
-    @staticmethod
-    def _offline_cluster_screens(fields, tools_token=None):
-        """Deterministic fallback grouping for test runs without OpenAI credentials."""
-        del tools_token
-        unique_fields = list(dict.fromkeys(fields or []))
-        if not unique_fields:
-            return {}
-        grouped = {}
-        chunk_size = 4
-        for index in range(0, len(unique_fields), chunk_size):
-            grouped[f"Screen {index // chunk_size + 1}"] = unique_fields[
-                index : index + chunk_size
-            ]
-        return grouped
-
-    def setUp(self):
-        self._cluster_patch = None
-        if not os.environ.get("OPENAI_API_KEY"):
-            self._cluster_patch = patch.object(
-                interview_generator_module.formfyxer,
-                "cluster_screens",
-                side_effect=self._offline_cluster_screens,
-            )
-            self._cluster_patch.start()
-
-    def tearDown(self):
-        if self._cluster_patch is not None:
-            self._cluster_patch.stop()
-
     def _run_dayamlchecker(self, yaml_path: str) -> None:
         from dayamlchecker.yaml_structure import find_errors_from_string
 
@@ -169,18 +140,13 @@ class TestGenerateInterviewFromPath(unittest.TestCase):
                 "shared_answer",
                 "/Btn",
             )
-            with patch.object(
-                interview_generator_module.formfyxer,
-                "cluster_screens",
-                side_effect=self._offline_cluster_screens,
-            ):
-                result = generate_interview_from_path(
-                    text_path,
-                    additional_templates=[checkbox_path],
-                    output_dir=os.path.join(tmpdir, "output"),
-                    create_package_zip=False,
-                    include_next_steps=False,
-                )
+            result = generate_interview_from_path(
+                text_path,
+                additional_templates=[checkbox_path],
+                output_dir=os.path.join(tmpdir, "output"),
+                create_package_zip=False,
+                include_next_steps=False,
+            )
 
             self.assertEqual(len(result.warnings), 1)
             warning = result.warnings[0]
@@ -911,32 +877,19 @@ def _build_pdf_with_typed_field(pdf_path: str, field_name: str, pdf_type: str) -
 class _TestAutoDraftBase(unittest.TestCase):
     """Shared helpers for automatic-draft regression tests."""
 
-    @staticmethod
-    def _offline_cluster(fields, tools_token=None):
-        unique = list(dict.fromkeys(fields or []))
-        return {
-            f"Screen {index // 4 + 1}": unique[index : index + 4]
-            for index in range(0, len(unique), 4)
-        }
-
     def _generate(self, field_names, **options):
         """Build a one-page PDF with these field names and draft an interview."""
         with tempfile.TemporaryDirectory() as tmpdir:
             pdf_path = _build_pdf_with_fields(
                 os.path.join(tmpdir, "auto_draft.pdf"), field_names
             )
-            with patch.object(
-                interview_generator_module.formfyxer,
-                "cluster_screens",
-                side_effect=self._offline_cluster,
-            ):
-                result = generate_interview_from_path(
-                    pdf_path,
-                    output_dir=tmpdir,
-                    create_package_zip=False,
-                    include_next_steps=False,
-                    **options,
-                )
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+                **options,
+            )
             return result, Path(result.yaml_path).read_text(encoding="utf-8")
 
 
@@ -1181,18 +1134,13 @@ class TestAutoDraftFieldNameNormalization(_TestAutoDraftBase):
 
             output_dir = os.path.join(tmpdir, "out")
             os.makedirs(output_dir)
-            with patch.object(
-                interview_generator_module.formfyxer,
-                "cluster_screens",
-                side_effect=self._offline_cluster,
-            ):
-                result = generate_interview_from_path(
-                    pdf_path,
-                    output_dir=output_dir,
-                    create_package_zip=False,
-                    include_next_steps=False,
-                    normalize_field_names=True,
-                )
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=output_dir,
+                create_package_zip=False,
+                include_next_steps=False,
+                normalize_field_names=True,
+            )
             self.assertTrue(result.renames_applied)
             after = hashlib.sha256(Path(pdf_path).read_bytes()).hexdigest()
             self.assertEqual(before, after)
@@ -1208,21 +1156,16 @@ class TestRestApiFieldNameNormalization(unittest.TestCase):
             pdf_path = _build_pdf_with_fields(
                 os.path.join(tmpdir, "api.pdf"), field_names
             )
-            with patch.object(
-                interview_generator_module.formfyxer,
-                "cluster_screens",
-                side_effect=_TestAutoDraftBase._offline_cluster,
-            ):
-                return generate_interview_from_bytes(
-                    filename="api.pdf",
-                    content_bytes=Path(pdf_path).read_bytes(),
-                    mimetype="application/pdf",
-                    generation_options={
-                        "create_package_zip": False,
-                        "include_next_steps": False,
-                        **options,
-                    },
-                )
+            return generate_interview_from_bytes(
+                filename="api.pdf",
+                content_bytes=Path(pdf_path).read_bytes(),
+                mimetype="application/pdf",
+                generation_options={
+                    "create_package_zip": False,
+                    "include_next_steps": False,
+                    **options,
+                },
+            )
 
     def test_renames_are_reported_and_can_be_asked_for(self):
         payload = self._generate(["Name", "users1_name_first"])
@@ -1250,27 +1193,22 @@ class TestRestApiFieldNameNormalization(unittest.TestCase):
                 "shared_answer",
                 "/Btn",
             )
-            with patch.object(
-                interview_generator_module.formfyxer,
-                "cluster_screens",
-                side_effect=_TestAutoDraftBase._offline_cluster,
-            ):
-                payload = generate_interview_from_bytes(
-                    filename="api_text.pdf",
-                    content_bytes=Path(text_path).read_bytes(),
-                    mimetype="application/pdf",
-                    additional_documents=[
-                        {
-                            "filename": "api_checkbox.pdf",
-                            "content_bytes": Path(checkbox_path).read_bytes(),
-                            "mimetype": "application/pdf",
-                        }
-                    ],
-                    generation_options={
-                        "create_package_zip": False,
-                        "include_next_steps": False,
-                    },
-                )
+            payload = generate_interview_from_bytes(
+                filename="api_text.pdf",
+                content_bytes=Path(text_path).read_bytes(),
+                mimetype="application/pdf",
+                additional_documents=[
+                    {
+                        "filename": "api_checkbox.pdf",
+                        "content_bytes": Path(checkbox_path).read_bytes(),
+                        "mimetype": "application/pdf",
+                    }
+                ],
+                generation_options={
+                    "create_package_zip": False,
+                    "include_next_steps": False,
+                },
+            )
 
         self.assertEqual(len(payload["warnings"]), 1)
         self.assertIn("shared_answer", payload["warnings"][0])
@@ -1377,19 +1315,14 @@ class TestMultipleTemplates(unittest.TestCase):
         ]
         output_dir = os.path.join(tmpdir, "out")
         os.makedirs(output_dir)
-        with patch.object(
-            interview_generator_module.formfyxer,
-            "cluster_screens",
-            side_effect=_TestAutoDraftBase._offline_cluster,
-        ):
-            result = generate_interview_from_path(
-                paths[0],
-                output_dir=output_dir,
-                create_package_zip=False,
-                include_next_steps=False,
-                additional_templates=paths[1:],
-                **options,
-            )
+        result = generate_interview_from_path(
+            paths[0],
+            output_dir=output_dir,
+            create_package_zip=False,
+            include_next_steps=False,
+            additional_templates=paths[1:],
+            **options,
+        )
         return result, Path(result.yaml_path).read_text(encoding="utf-8")
 
     def test_every_template_contributes_fields_and_an_attachment(self):
@@ -1488,18 +1421,13 @@ class TestMultipleTemplates(unittest.TestCase):
         )
         output_dir = os.path.join(tmpdir, "out")
         os.makedirs(output_dir)
-        with patch.object(
-            interview_generator_module.formfyxer,
-            "cluster_screens",
-            side_effect=_TestAutoDraftBase._offline_cluster,
-        ):
-            result = generate_interview_from_path(
-                first,
-                output_dir=output_dir,
-                create_package_zip=False,
-                include_next_steps=False,
-                additional_templates=[second],
-            )
+        result = generate_interview_from_path(
+            first,
+            output_dir=output_dir,
+            create_package_zip=False,
+            include_next_steps=False,
+            additional_templates=[second],
+        )
         yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
         self.assertIn("pdf template file: form.pdf", yaml_text)
         self.assertIn("pdf template file: form_2.pdf", yaml_text)
@@ -1517,18 +1445,13 @@ class TestMultipleTemplates(unittest.TestCase):
         )
         output_dir = os.path.join(tmpdir, "out")
         os.makedirs(output_dir)
-        with patch.object(
-            interview_generator_module.formfyxer,
-            "cluster_screens",
-            side_effect=_TestAutoDraftBase._offline_cluster,
-        ):
-            result = generate_interview_from_path(
-                pdf,
-                output_dir=output_dir,
-                create_package_zip=False,
-                include_next_steps=False,
-                additional_templates=[docx],
-            )
+        result = generate_interview_from_path(
+            pdf,
+            output_dir=output_dir,
+            create_package_zip=False,
+            include_next_steps=False,
+            additional_templates=[docx],
+        )
         # Both files keep the name they arrived with.
         self.assertEqual(result.template_names, ["petition.pdf", "petition.docx"])
         yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")

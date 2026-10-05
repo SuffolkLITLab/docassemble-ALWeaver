@@ -8,14 +8,11 @@ with that same set, against a template whose fields already carry canonical AL
 labels, and assert the mapped names come out the other side.
 """
 
-import os
 import tempfile
 import re
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
-from . import interview_generator as interview_generator_module
 from .interview_generator import generate_interview_from_path
 
 PDF_PATH = Path(__file__).parent / "test/test_petition_to_enforce_sanitary_code.pdf"
@@ -50,30 +47,6 @@ EXPECTED_MAPPINGS = {
 
 
 class TestEditorUploadFieldNaming(unittest.TestCase):
-    @staticmethod
-    def _offline_cluster_screens(fields, tools_token=None):
-        """Deterministic fallback grouping for test runs without OpenAI credentials."""
-        del tools_token
-        unique_fields = list(dict.fromkeys(fields or []))
-        grouped = {}
-        for index in range(0, len(unique_fields), 4):
-            grouped[f"Screen {index // 4 + 1}"] = unique_fields[index : index + 4]
-        return grouped
-
-    def setUp(self):
-        self._cluster_patch = None
-        if not os.environ.get("OPENAI_API_KEY"):
-            self._cluster_patch = patch.object(
-                interview_generator_module.formfyxer,
-                "cluster_screens",
-                side_effect=self._offline_cluster_screens,
-            )
-            self._cluster_patch.start()
-
-    def tearDown(self):
-        if self._cluster_patch is not None:
-            self._cluster_patch.stop()
-
     def _generate(self, **overrides):
         options = dict(EDITOR_UPLOAD_OPTIONS)
         options.update(overrides)
