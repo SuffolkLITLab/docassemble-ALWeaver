@@ -2,6 +2,7 @@ from .custom_values import get_matching_deps, get_output_mako_package_and_path
 from .generator_constants import generator_constants
 from .question_library import baseline_question_specs
 from .field_grouping import group_fields_into_screens, unique_titles
+from .name_datatypes import datatype_from_name
 from .review_screen import build_review_entries, table_edit_attributes
 from .project_filenames import safe_project_filename, unique_project_filenames
 from .validate_template_files import matching_reserved_names, has_fields
@@ -1042,7 +1043,7 @@ class DAField(DAObject):
             # The template only ever asks "is this set?", so it's a yes/no
             self.field_type_guess = "yesno"
         else:
-            self.field_type_guess = "text"
+            self.field_type_guess = datatype_from_name(self.variable, "docx") or "text"
 
     def fill_in_pdf_attributes(
         self,
@@ -1128,7 +1129,12 @@ class DAField(DAObject):
         elif self.variable.endswith("_value"):
             self.field_type_guess = "currency"
         else:
-            self.field_type_guess = "text"
+            self.field_type_guess = (
+                datatype_from_name(
+                    self.variable, "pdf", knows_box_size=bool(dimensions)
+                )
+                or "text"
+            )
 
         # `/Ch` is a drop-down or list box. Docassemble can't fill one reliably,
         # so it needs to be called out rather than silently treated as text.
