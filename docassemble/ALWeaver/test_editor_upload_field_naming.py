@@ -45,7 +45,7 @@ EXPECTED_MAPPINGS = {
     "plaintiff1_phone": "plaintiffs[0].phone_number",
     "plaintiff2_email": "plaintiffs[1].email",
     "plaintiff2_signature": "plaintiffs[1].signature",
-    "court1_address_county": "courts[0].address.county",
+    "court1_address_county": "trial_court.address.county",
 }
 
 

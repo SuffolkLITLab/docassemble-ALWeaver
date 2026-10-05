@@ -5500,6 +5500,11 @@ def map_raw_to_final_display(
         digit_str = ""
         index = ""
 
+    # AssemblyLine's court is `trial_court`; it keeps `courts[0] = trial_court`
+    # only so older interviews still work
+    if adjusted_prefix == "courts" and index == "[0]":
+        adjusted_prefix, index = "trial_court", ""
+
     # it's just a standalone, like "defendant", or it's a numbered singular
     # prefix, e.g. user3
     if label == prefix or label == prefix + digit_str:

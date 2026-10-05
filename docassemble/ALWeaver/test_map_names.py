@@ -55,8 +55,8 @@ attachment_scenarios = {
     # County
     # "county_name_short": not implemented,
     # "county_division": not implemented,
-    "court_address_county": "courts[0].address.county",
-    "court_county": "courts[0].address.county",
+    "court_address_county": "trial_court.address.county",
+    "court_county": "trial_court.address.county",
     # Singluar prefixes that still have suffixes
     "trial_court": "trial_court",
     "trial_court_address_county": "trial_court.address.county",
@@ -77,7 +77,8 @@ attachment_scenarios = {
     "translator": "translators[0]",
     "debt_collector": "debt_collectors[0]",
     "creditor": "creditors[0]",
-    "court": "courts[0]",
+    "court": "trial_court",
+    "court2_division": "courts[1].division",
     "other_party": "other_parties[0]",
     "child": "children[0]",
     "guardian_ad_litem": "guardians_ad_litem[0]",
@@ -144,8 +145,8 @@ interview_order_scenarios = {
     # County
     # "county_name_short": not implemented,
     # "county_division": not implemented,
-    "court_address_county": "courts[0].address.address",
-    "court_county": "courts[0].address.address",
+    "court_address_county": "trial_court.address.address",
+    "court_county": "trial_court.address.address",
     # Singluar prefixes that still have suffixes
     "trial_court": "trial_court",
     "trial_court_address_county": "trial_court.address.address",
