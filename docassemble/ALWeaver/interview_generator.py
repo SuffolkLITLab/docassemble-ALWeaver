@@ -1044,9 +1044,16 @@ class DAField(DAObject):
             self.field_type_guess = "text"
 
     def fill_in_pdf_attributes(
-        self, pdf_field_tuple: Any, custom_plurals: Dict[str, str]
+        self,
+        pdf_field_tuple: Any,
+        custom_plurals: Dict[str, str],
+        one_based_names: Optional[Mapping[str, str]] = None,
     ) -> None:
-        """Let's guess the type of each field from the name / info from PDF"""
+        """Let's guess the type of each field from the name / info from PDF
+
+        `one_based_names` respells zero-based people fields for this template;
+        see :func:`one_based_field_names`.
+        """
         if not custom_plurals:
             custom_plurals = {}
         # The raw name of the field from the PDF: must go in attachment block
@@ -1057,6 +1064,10 @@ class DAField(DAObject):
         name_for_variable = (
             parent_and_option[0] if parent_and_option else self.raw_field_names[0]
         )
+        if one_based_names:
+            name_for_variable = one_based_names.get(
+                name_for_variable, name_for_variable
+            )
         # turns field_name into a valid python identifier: must be one per field
         self.variable = remove_multiple_appearance_indicator(varname(name_for_variable))
         # the variable, in python: i.e., users[1].name.first
@@ -1924,7 +1935,24 @@ class DAFieldList(DAList):
             boolean_fields = get_docx_boolean_variables(docx_text)
             type_hints = get_docx_function_type_hints(docx_text)
         else:
-            all_fields = get_fields(document)
+            all_fields = list(get_fields(document))
+
+        one_based_names: Dict[str, str] = {}
+        if document_type == "pdf":
+            one_based_names, zero_based_prefixes = one_based_field_names(
+                [
+                    (split_option_field_name(field[0]) or (field[0],))[0]
+                    for field in all_fields
+                ]
+            )
+            if not hasattr(self, "index_warnings"):
+                self.index_warnings = []
+            for prefix in zero_based_prefixes:
+                self.index_warnings.append(
+                    f"{document.filename} numbers {prefix} from 0, so its "
+                    f"{prefix}0 fields were read as the first of the {prefix}. "
+                    "Check that the people line up in the generated interview."
+                )
 
         if document_type == "pdf":
             # Use pikepdf to get more info about each field
@@ -1968,7 +1996,7 @@ class DAFieldList(DAList):
                 # This function determines what type of variable
                 # we're dealing with
                 new_field.fill_in_pdf_attributes(
-                    pdf_field_tuple, self.custom_people_plurals
+                    pdf_field_tuple, self.custom_people_plurals, one_based_names
                 )
                 # Some PDFs declare the field type on a parent field, so a
                 # drop-down can reach us looking like plain text. pikepdf sees
@@ -2215,12 +2243,17 @@ class DAFieldList(DAList):
                     field.label = field.variable_name_guess
                     # Try checking to see if the custom prefix + predefined suffixes
                     # result in a new variable name
-                    new_potential_name = map_raw_to_final_display(
-                        field.variable,
-                        document_type=field.source_document_type,
-                        reserved_prefixes=people_list,
-                        custom_people_plurals_map=self.custom_people_plurals,
-                    )
+                    try:
+                        new_potential_name = map_raw_to_final_display(
+                            field.variable,
+                            document_type=field.source_document_type,
+                            reserved_prefixes=people_list,
+                            custom_people_plurals_map=self.custom_people_plurals,
+                        )
+                    except ParsingException:
+                        # A custom person counted from 0 (`guardian0_name`):
+                        # keep the field as it is rather than stop generating
+                        new_potential_name = field.variable
                     if new_potential_name != field.variable:
                         field.final_display_var = new_potential_name
             elif is_reserved_docx_label(
@@ -5103,6 +5136,10 @@ def map_raw_to_final_display(
                 err_str = f"Full issue: {ex}. This is likely a developer error! Please [let us know](https://github.com/SuffolkLITLab/docassemble.ALWeaver/issues/new)!"
                 raise ParsingException(main_issue, err_str)
 
+            if digit == 0 and label_groups[3] not in ("", *reserved_suffixes_map):
+                # `user0_unknown` was never going to become `users[...]`, so
+                # there is no list index to object to; keep it as it is
+                return label
             if digit == 0:
                 correct_label = adjusted_prefix + "1" + label_groups[3]
                 main_issue = "Cannot get the 0th item in a list"
@@ -5233,6 +5270,76 @@ def substitute_suffix(
             new_label = re.sub(sub_regex, display_suffixes[suffix], label)
             return new_label
     return label
+
+
+# A PDF field named like Python, with the index written out: `users[0]_signature`
+EXPLICIT_INDEX_FIELD_NAME = re.compile(r"^([A-Za-z_]+)\[(\d+)\](.*)$")
+
+
+def one_based_field_names(
+    field_names: Iterable[str],
+    reserved_prefixes=generator_constants.RESERVED_PREFIXES,
+    reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP,
+    reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP,
+) -> Tuple[Dict[str, str], List[str]]:
+    """Respell one template's zero-based people fields the one-based way.
+
+    The labelling convention counts people from 1, so `users1_name_first` is
+    the first user. Some authors count from 0 instead: either a whole series
+    (`users0_name_first`, `users1_name_first`, ...) or Python-style names like
+    `users[0]_signature`. Both used to stop generation. Rewriting them up front
+    means every later step only ever sees the convention it already handles,
+    while the attachment block keeps the PDF's own field names.
+
+    A series is only treated as zero-based when its `0` field is one the
+    Weaver would actually map; `user0_unknown` stays a plain variable. The
+    decision is made per prefix, for one template, so another template that
+    counts from 1 is unaffected.
+
+    Args:
+        field_names (Iterable[str]): every field name in one PDF.
+
+    Returns:
+        Tuple[Dict[str, str], List[str]]: the raw names to respell, mapped to
+        their one-based spelling, and the prefixes found counting from 0.
+    """
+    names = list(field_names)
+    prefixes = list(reserved_prefixes)
+    renames: Dict[str, str] = {}
+
+    def mappable(groups: "re.Match[str]") -> bool:
+        suffix = remove_multiple_appearance_indicator(groups.group(3))
+        return suffix == "" or suffix in reserved_suffixes_map
+
+    for name in names:
+        explicit = EXPLICIT_INDEX_FIELD_NAME.match(name)
+        if explicit:
+            renames[name] = (
+                f"{explicit.group(1)}{int(explicit.group(2)) + 1}{explicit.group(3)}"
+            )
+
+    zero_based: Set[str] = set()
+    for name in names:
+        if name in renames:
+            continue
+        groups = get_reserved_label_parts(prefixes, varname(name))
+        if groups and groups.group(2) == "0" and mappable(groups):
+            zero_based.add(
+                reserved_pluralizers_map.get(groups.group(1), groups.group(1))
+            )
+
+    for name in names:
+        if name in renames:
+            continue
+        groups = get_reserved_label_parts(prefixes, varname(name))
+        if not groups or groups.group(2) == "":
+            continue
+        plural = reserved_pluralizers_map.get(groups.group(1), groups.group(1))
+        if plural in zero_based:
+            renames[name] = (
+                f"{groups.group(1)}{int(groups.group(2)) + 1}{groups.group(3)}"
+            )
+    return renames, sorted(zero_based)
 
 
 def get_reserved_label_parts(prefixes: list, label: str):
@@ -7725,6 +7832,7 @@ def generate_interview_from_path(
         generated_template_paths.append(next_steps_output_path)
 
     generation_warnings = interview.all_fields.cross_template_type_warnings()
+    generation_warnings.extend(getattr(interview.all_fields, "index_warnings", []))
     if interview.has_all_unlabeled_pdfs():
         generation_warnings.append(
             "No fillable PDF fields were detected. Weaver created a general "

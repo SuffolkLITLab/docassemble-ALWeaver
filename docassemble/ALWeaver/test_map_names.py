@@ -250,3 +250,50 @@ class TestListTaxonomy(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestZeroBasedFieldNames(unittest.TestCase):
+    def setUp(self):
+        from .interview_generator import one_based_field_names, varname
+
+        self.respell = one_based_field_names
+        self.varname = varname
+
+    def mapped(self, names):
+        renames, _prefixes = self.respell(names)
+        return [
+            map_raw_to_final_display(self.varname(renames.get(name, name)))
+            for name in names
+        ]
+
+    def test_a_zero_based_series_keeps_every_person_distinct(self):
+        names = ["users0_name_first", "users1_name_first", "users2_name_first"]
+        self.assertEqual(
+            self.mapped(names),
+            ["users[0].name.first", "users[1].name.first", "users[2].name.first"],
+        )
+        self.assertEqual(self.respell(names)[1], ["users"])
+
+    def test_the_one_based_convention_is_unchanged(self):
+        names = ["users1_name_first", "users2_name_first"]
+        self.assertEqual(self.respell(names), ({}, []))
+        self.assertEqual(
+            self.mapped(names), ["users[0].name.first", "users[1].name.first"]
+        )
+
+    def test_a_python_style_index_means_what_it_says(self):
+        """`users[0]_signature`, from a real MA form, used to stop generation."""
+        self.assertEqual(
+            self.mapped(["users[0]_signature", "users1_name_first"]),
+            ["users[0].signature", "users[0].name.first"],
+        )
+
+    def test_repeats_and_bare_names_in_a_zero_based_series(self):
+        self.assertEqual(
+            self.mapped(["users0_name_first__2", "users0", "user_phone"]),
+            ["users[0].name.first", "users[0]", "users[0].phone_number"],
+        )
+
+    def test_a_zero_with_no_attribute_to_map_is_left_alone(self):
+        self.assertEqual(self.respell(["user0_unknown"]), ({}, []))
+        self.assertEqual(map_raw_to_final_display("user0_unknown"), "user0_unknown")

@@ -1602,3 +1602,27 @@ class TestUploadedTemplateNaming(unittest.TestCase):
                 path, filename="petition (1).docx"
             )
             self.assertEqual(self._interview_with([static_file]), ["petition (1).docx"])
+
+
+class TestZeroBasedGeneration(unittest.TestCase):
+    def test_zero_based_people_generate_with_a_warning(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "zero_based.pdf"),
+                ["users0_name_first", "users1_name_first", "users[0]_phone"],
+            )
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        self.assertIn('"users0_name_first": ${ users[0].name.first }', yaml_text)
+        self.assertIn('"users1_name_first": ${ users[1].name.first }', yaml_text)
+        self.assertIn('"users[0]_phone": ${ users[0].phone_number }', yaml_text)
+        self.assertTrue(
+            any("numbers users from 0" in warning for warning in result.warnings),
+            result.warnings,
+        )
