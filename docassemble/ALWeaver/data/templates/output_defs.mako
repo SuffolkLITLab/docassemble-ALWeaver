@@ -134,13 +134,15 @@ confirm: True\
       % endfor
 % else:
   % for raw_name in field.raw_field_names: # handle multiple appearance indicators
-    % if hasattr(field, "field_type") and field.field_type=="date":
+    ## A field mapped to an AssemblyLine attribute, like `children[0].birthdate.format()`,
+    ## already says how to print it, so only plain variables get formatted here
+    % if hasattr(field, "field_type") and field.field_type=="date" and field.final_display_var == field.variable:
       - "${ raw_name }": <%text>${</%text> ${ field.variable }.format() }
-    % elif hasattr(field, "field_type") and field.field_type=="currency" and getattr(field, "pdf_prints_dollar_sign", False):
+    % elif hasattr(field, "field_type") and field.field_type=="currency" and getattr(field, "pdf_prints_dollar_sign", False) and field.final_display_var == field.variable:
       - "${ raw_name }": <%text>${</%text> thousands(${ field.variable }, show_decimals=True) }
-    % elif hasattr(field, "field_type") and field.field_type=="currency":
+    % elif hasattr(field, "field_type") and field.field_type=="currency" and field.final_display_var == field.variable:
       - "${ raw_name }": <%text>${</%text> currency(${ field.variable }) }
-    % elif hasattr(field, "field_type") and field.field_type=="number":
+    % elif hasattr(field, "field_type") and field.field_type=="number" and field.final_display_var == field.variable:
       - "${ raw_name }": <%text>${</%text> "{:,.2f}".format(${ field.variable }) }
     % elif field.field_type_guess == "signature":
       % if field.final_display_var.endswith("].signature"): # signature of ALIndividual

@@ -1915,3 +1915,33 @@ class TestMoneyAfterAPrintedDollarSign(unittest.TestCase):
             attachment,
         )
         self.assertIn('"fee_amount": ${ currency(fee_amount) }', attachment)
+
+
+class TestMappedFieldsKeepTheirExpression(unittest.TestCase):
+    def test_people_fields_print_their_assembly_line_attribute(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "people.pdf"),
+                [
+                    "children1_birthdate",
+                    ("users1_signature", "/Sig"),
+                    "users1_name_first",
+                ],
+            )
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            attachment = (
+                Path(result.yaml_path)
+                .read_text(encoding="utf-8")
+                .split("pdf template file:", 1)[1]
+            )
+        self.assertIn(
+            '"children1_birthdate": ${ children[0].birthdate.format() }', attachment
+        )
+        self.assertIn(
+            '"users1_signature": ${ users[0].signature_if_final(i) }', attachment
+        )
