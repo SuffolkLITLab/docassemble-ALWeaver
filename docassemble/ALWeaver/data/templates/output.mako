@@ -116,7 +116,9 @@ ${ indent(interview.description, by=4) }
   can_I_use_this_form: |
 ${ indent(interview.can_I_use_this_form, by=4) }
 % else:
-  can_I_use_this_form: ""
+  ## A starting point for the author, so the metadata isn't left empty
+  can_I_use_this_form: |
+${ indent(interview.default_can_I_use_this_form(), by=4) }
 % endif
 % if getattr(interview, "getting_started", ""):
   before_you_start: |

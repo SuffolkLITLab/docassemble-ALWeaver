@@ -4107,6 +4107,23 @@ Rules:
             + completion_text
         )
 
+    def default_can_I_use_this_form(self) -> str:
+        """A plain first draft of who the form is for, from its title and type.
+
+        Only the publishing metadata uses it, when nothing better was written;
+        the intro screen already says what the interview helps with.
+        """
+        title_text = str(getattr(self, "title", "") or "").strip() or "this form"
+        form_type = getattr(self, "form_type", "other")
+        if form_type == "letter":
+            return f"Use this interview if you need to write the {title_text}."
+        if form_type in ("starts_case", "existing_case", "appeal"):
+            return (
+                f"Use this interview if you need to file the {title_text} "
+                "in your court case."
+            )
+        return f"Use this interview if you need to fill out the {title_text}."
+
     def _guess_role(self, title: str):
         """Guess role from the form's title, using some simple heuristics.
 

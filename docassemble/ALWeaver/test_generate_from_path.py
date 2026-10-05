@@ -1651,3 +1651,35 @@ class TestRoleQuestion(unittest.TestCase):
         for form_type in ["letter", "other_form", "other"]:
             with self.subTest(form_type=form_type):
                 self.assertNotIn("user_ask_role", self._order_for(form_type=form_type))
+
+
+class TestDefaultPublishingMetadata(unittest.TestCase):
+    def test_metadata_has_a_drafted_can_i_use_this_form_without_ai(self):
+        """Every no-AI draft used to fail the CourtFormsOnline metadata check."""
+        from dayamlchecker.yaml_structure import find_errors_from_string
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "motion_to_reconsider.pdf"),
+                ["users1_name_first", "reason_for_request"],
+            )
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+                interview_overrides={"form_type": "existing_case"},
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "  can_I_use_this_form: |\n    Use this interview if you need to file the",
+            yaml_text,
+        )
+        intro = yaml_text.split(" intro\n", 1)[1].split("\n---", 1)[0]
+        self.assertNotIn("Use this interview if you need to", intro)
+        errors = [
+            str(getattr(error, "err_str", "") or error)
+            for error in find_errors_from_string(yaml_text, input_file="draft.yml")
+        ]
+        self.assertFalse(errors, "\n".join(errors))
