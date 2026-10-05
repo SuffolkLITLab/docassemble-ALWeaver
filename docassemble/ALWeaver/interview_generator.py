@@ -1516,6 +1516,58 @@ class DAField(DAObject):
 INDEXED_LIST_REFERENCE = re.compile(r"^([A-Za-z_]\w*)\[(\d+)\]")
 
 
+def lists_that_may_run_short(objects: Iterable[Any]) -> Dict[str, bool]:
+    """The lists in an `objects:` block, and whether each always has a first item.
+
+    `users` declared with `there_are_any=True`, or any list with a
+    `target_number`, can't be empty, so its `[0]` is always there.
+
+    Args:
+        objects (Iterable[Any]): the generated interview's object entries.
+
+    Returns:
+        Dict[str, bool]: each list's name, mapped to True if it always has
+        a first item.
+    """
+    lists: Dict[str, bool] = {}
+    for spec in objects:
+        name = str(getattr(spec, "name", "") or "")
+        if not name.isidentifier() or not str(getattr(spec, "type", "")).endswith(
+            "List"
+        ):
+            continue
+        params = dict(getattr(spec, "params", None) or {})
+        lists[name] = params.get("there_are_any") is True or bool(
+            params.get("target_number")
+        )
+    return lists
+
+
+def attachment_reference(expression: str, item_lists: Mapping[str, bool]) -> str:
+    """Point an attachment field at a list item that may not exist.
+
+    A form with room for four children shouldn't break when the user has two.
+    `children[3].name` raises an error when there is no fourth child, unless
+    the attachment has `skip undefined` on, which an author may well turn off.
+    `children.item(3).name` gathers the list and then reads as blank instead.
+    A list that always has a first item keeps its plain `[0]`.
+
+    Args:
+        expression (str): the Python expression for one attachment field.
+        item_lists (Mapping[str, bool]): from :func:`lists_that_may_run_short`.
+
+    Returns:
+        str: the expression, reading the list through `.item()` if needed.
+    """
+    match = INDEXED_LIST_REFERENCE.match(expression)
+    if not match or match.group(1) not in item_lists:
+        return expression
+    name, index = match.group(1), int(match.group(2))
+    if index == 0 and item_lists[name]:
+        return expression
+    return f"{name}.item({index}){expression[match.end():]}"
+
+
 def _guard_indexed_reference(line: str, known_lists: Container[str]) -> str:
     """Wrap an interview order line that reaches past the first list item.
 
@@ -7139,6 +7191,8 @@ def _render_interview_yaml(
         "fix_id": fix_id,
         "varname": varname,
         "remove_multiple_appearance_indicator": remove_multiple_appearance_indicator,
+        "attachment_reference": attachment_reference,
+        "item_lists": lists_that_may_run_short(objects or []),
         "get_yml_deps_from_choices": get_yml_deps_from_choices,
     }
     yaml_text = _tidy_generated_yaml(template.render(**context))

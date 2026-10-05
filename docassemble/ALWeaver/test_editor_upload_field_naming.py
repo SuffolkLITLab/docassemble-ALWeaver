@@ -10,6 +10,7 @@ labels, and assert the mapped names come out the other side.
 
 import os
 import tempfile
+import re
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -91,7 +92,10 @@ class TestEditorUploadFieldNaming(unittest.TestCase):
         missing = [
             f"{raw} -> {mapped}"
             for raw, mapped in EXPECTED_MAPPINGS.items()
+            # Attachments read later list slots through `.item()`, so a
+            # missing person reads as blank
             if mapped not in yaml_text
+            and re.sub(r"^(\w+)\[(\d+)\]", r"\1.item(\2)", mapped) not in yaml_text
         ]
         self.assertFalse(
             missing,

@@ -1620,7 +1620,7 @@ class TestZeroBasedGeneration(unittest.TestCase):
             yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
 
         self.assertIn('"users0_name_first": ${ users[0].name.first }', yaml_text)
-        self.assertIn('"users1_name_first": ${ users[1].name.first }', yaml_text)
+        self.assertIn('"users1_name_first": ${ users.item(1).name.first }', yaml_text)
         self.assertIn('"users[0]_phone": ${ users[0].phone_number }', yaml_text)
         self.assertTrue(
             any("numbers users from 0" in warning for warning in result.warnings),
@@ -1683,3 +1683,57 @@ class TestDefaultPublishingMetadata(unittest.TestCase):
             for error in find_errors_from_string(yaml_text, input_file="draft.yml")
         ]
         self.assertFalse(errors, "\n".join(errors))
+
+
+class TestListSlotsInAttachments(unittest.TestCase):
+    def test_slots_past_what_the_user_entered_read_as_blank(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "family_form.pdf"),
+                [
+                    "users1_name_first",
+                    "users2_name_first",
+                    "children1_name_first",
+                    "children2_name_first",
+                ],
+            )
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        attachment = yaml_text.split("pdf template file:", 1)[1]
+        # Both lists are declared with `there_are_any=True`, so their first
+        # slot is always filled and read directly
+        self.assertIn("- children: ALPeopleList.using(there_are_any=True)", yaml_text)
+        self.assertIn('"users1_name_first": ${ users[0].name.first }', attachment)
+        self.assertIn('"children1_name_first": ${ children[0].name.first }', attachment)
+        # Later slots may be past the people the user entered
+        self.assertIn('"users2_name_first": ${ users.item(1).name.first }', attachment)
+        self.assertIn(
+            '"children2_name_first": ${ children.item(1).name.first }', attachment
+        )
+
+    def test_a_list_that_always_has_someone_is_left_plain(self):
+        from .interview_generator import _PersonObjectSpec
+
+        lists = ig_lists(
+            [
+                _PersonObjectSpec("users", params={"there_are_any": True}),
+                _PersonObjectSpec("children", params={"ask_number": True}),
+                _PersonObjectSpec(
+                    "decedents", params={"ask_number": True, "target_number": 1}
+                ),
+                _PersonObjectSpec("fees", type="DADict"),
+            ]
+        )
+        self.assertEqual(lists, {"users": True, "children": False, "decedents": True})
+
+
+def ig_lists(objects):
+    from .interview_generator import lists_that_may_run_short
+
+    return lists_that_may_run_short(objects)

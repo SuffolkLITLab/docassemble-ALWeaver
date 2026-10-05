@@ -127,9 +127,9 @@ confirm: True\
 % elif hasattr(field, "paired_yesno") and field.paired_yesno:
       % for raw_name in field.raw_field_names:
         % if remove_multiple_appearance_indicator(varname(raw_name)).endswith("_yes"):
-      - "${ raw_name }": <%text>${</%text> ${ field.final_display_var } }
+      - "${ raw_name }": <%text>${</%text> ${ attachment_reference(field.final_display_var, item_lists) } }
         % else:
-      - "${ raw_name }": <%text>${</%text> not ${ field.final_display_var } }
+      - "${ raw_name }": <%text>${</%text> not ${ attachment_reference(field.final_display_var, item_lists) } }
         % endif # ends with yes
       % endfor
 % else:
@@ -142,7 +142,7 @@ confirm: True\
       - "${ raw_name }": <%text>${</%text> "{:,.2f}".format(${ field.variable }) }
     % elif field.field_type_guess == "signature":
       % if field.final_display_var.endswith("].signature"): # signature of ALIndividual
-      - "${ raw_name }": <%text>${</%text> ${ field.final_display_var}_if_final(i) }
+      - "${ raw_name }": <%text>${</%text> ${ attachment_reference(field.final_display_var + "_if_final(i)", item_lists) } }
       % else: # standalone signature field
       # It's a signature: test which file version this is; leave empty unless it's the final version)
       - "${ raw_name }": <%text>${</%text> ${ field.final_display_var} if i == "final" else '' }
@@ -151,7 +151,7 @@ confirm: True\
       % if hasattr(field, "send_to_addendum") and field.send_to_addendum and attachment_name:
       - "${ raw_name }": <%text>${</%text> ${ attachment_name }.safe_value("${ field.final_display_var }"${ field.safe_value_kwargs() }) }
       % else:
-      - "${ raw_name }": <%text>${</%text> ${ field.final_display_var } }
+      - "${ raw_name }": <%text>${</%text> ${ attachment_reference(field.final_display_var, item_lists) } }
       % endif
     % endif
   % endfor
