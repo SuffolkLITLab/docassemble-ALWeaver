@@ -307,3 +307,33 @@ class TestPlainLanguageRewritesAreBatched(unittest.TestCase):
 
         with patch.object(ig, "_load_llms_module", return_value=Invents()):
             self.assertEqual(ig._llm_rewrite_for_plain_language(["Asked"]), {})
+
+
+class TestTemplateBoundChoicesStayPut(unittest.TestCase):
+    setUp = TestLLMRobustness.setUp
+    _build_interview_with_custom_field = (
+        TestLLMRobustness._build_interview_with_custom_field
+    )
+
+    def test_a_model_cannot_replace_the_choices_a_pdf_group_ticks(self):
+        """It renamed `name_change_petition` and dropped `other` on a live draft."""
+        interview = self._build_interview_with_custom_field()
+        field = interview.all_fields[0]
+        field.field_type = "multiple choice checkboxes"
+        field.option_values = {"box_other": "other", "box_adoption": "adoption"}
+        field.choice_options = ["adoption", "other"]
+        field.choices = field.choices_string()
+        before = field.choices
+
+        interview.apply_llm_field_updates(
+            {
+                "custom_one": {
+                    "label": "Type of proceeding",
+                    "datatype": "multiple choice radio",
+                    "choices": ['"Change of Name": change_of_name'],
+                }
+            }
+        )
+        self.assertEqual(field.label, "Type of proceeding")
+        self.assertEqual(field.choices, before)
+        self.assertEqual(field.field_type, "multiple choice checkboxes")

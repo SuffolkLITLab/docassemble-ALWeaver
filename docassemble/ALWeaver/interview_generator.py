@@ -1060,6 +1060,7 @@ class DAField(DAObject):
                 "checkboxes": "multiple choice checkboxes",
             }.get(kind, "multiple choice radio")
             self.choices = "\n".join(docx_choice_lines(kind, values))
+            self.choices_from_template = True
             if kind == "yesno_value":
                 self.variable_name_guess = (
                     f"{variable_name_guess.rstrip('?')}: {_choice_label(values[0])}?"
@@ -4457,6 +4458,14 @@ Rules:
             if label:
                 field_obj.label = label
                 field_obj.has_label = True
+            if field_obj.is_option_group() or getattr(
+                field_obj, "choices_from_template", False
+            ):
+                # Each choice is a box in the PDF, or a value the template
+                # compares against; a model's rewording would unhook them
+                if label:
+                    updated += 1
+                continue
             choices = update.get("choices")
             if datatype in CHOICE_FIELD_TYPES:
                 if choices:
