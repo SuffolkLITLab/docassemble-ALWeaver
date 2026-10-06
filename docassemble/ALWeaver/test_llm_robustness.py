@@ -360,40 +360,28 @@ class TestEveryStageUsesTheConfiguredModel(unittest.TestCase):
         self.assertEqual(seen, ["gpt-6-luna", "gpt-6-luna"])
 
 
-class _ScreensWithFiller:
-    def chat_completion(self, **kwargs):
-        return {
-            "screens": [
-                {
-                    "question": "Your contact information",
-                    "subquestion": "Type your contact information below.",
-                    "fields": ["custom_one"],
-                }
-            ]
-        }
+class _CannedLlms:
+    """Answers every call with `response` and records what it was asked."""
 
-
-class _Rewrites:
-    def __init__(self, rewrites):
-        self.rewrites = rewrites
+    def __init__(self, response):
+        self.response = response
         self.calls = []
 
     def chat_completion(self, **kwargs):
         self.calls.append(kwargs)
-        return {
-            "rewrites": [
-                {"original": original, "rewrite": rewrite}
-                for original, rewrite in self.rewrites.items()
-            ]
-        }
+        return self.response
+
+
+def _rewrites(pairs):
+    return _CannedLlms(
+        {"rewrites": [{"original": o, "rewrite": r} for o, r in pairs.items()]}
+    )
 
 
 class TestDraftTextQuality(unittest.TestCase):
     """What the user reads: no filler, no legalese, room for long answers."""
 
-    def setUp(self):
-        docassemble.base.functions.this_thread.current_question = type("", (), {})()
-        docassemble.base.functions.this_thread.current_question.package = "ALWeaver"
+    setUp = TestLLMRobustness.setUp
 
     def _interview(self, variable="custom_one", source="docx", guess="text"):
         interview = DAInterview()
@@ -415,7 +403,18 @@ class TestDraftTextQuality(unittest.TestCase):
     def test_filler_subquestions_are_dropped(self):
         interview, _ = self._interview()
         interview.questions = DAQuestionList()
-        with patch.object(ig, "_load_llms_module", return_value=_ScreensWithFiller()):
+        screens = _CannedLlms(
+            {
+                "screens": [
+                    {
+                        "question": "Your contact information",
+                        "subquestion": "Type your contact information below.",
+                        "fields": ["custom_one"],
+                    }
+                ]
+            }
+        )
+        with patch.object(ig, "_load_llms_module", return_value=screens):
             interview.llm_group_fields(apply=True)
         self.assertEqual(interview.questions[0].subquestion_text, "")
 
@@ -440,24 +439,25 @@ class TestDraftTextQuality(unittest.TestCase):
         )
         self.assertEqual(field.field_type, "text")
 
+    def _plainer(self, fake, texts):
+        with (
+            patch.object(ig, "_load_llms_module", return_value=fake),
+            patch.object(ig, "_configured_llm_model", return_value="gpt-6-luna"),
+        ):
+            return ig._plainer_wording(texts)
+
     def test_formal_words_are_rewritten(self):
-        interview, _ = self._interview()
-        fake = _Rewrites({"Date order obtained": "Date you got the order"})
-        with patch.object(ig, "_load_llms_module", return_value=fake):
-            plainer = interview._plainer_wording(["Date order obtained", "Your email"])
+        fake = _rewrites({"Date order obtained": "Date you got the order"})
+        plainer = self._plainer(fake, ["Date order obtained", "Your email"])
         self.assertEqual(plainer, {"Date order obtained": "Date you got the order"})
         # Only the flagged text went to the model
         self.assertNotIn("Your email", fake.calls[0]["user_message"])
 
     def test_a_rewrite_that_keeps_the_word_is_rejected(self):
-        interview, _ = self._interview()
-        fake = _Rewrites({"Date order obtained": "Date the order was obtained"})
-        with patch.object(ig, "_load_llms_module", return_value=fake):
-            self.assertEqual(interview._plainer_wording(["Date order obtained"]), {})
+        fake = _rewrites({"Date order obtained": "Date the order was obtained"})
+        self.assertEqual(self._plainer(fake, ["Date order obtained"]), {})
 
     def test_nothing_flagged_means_no_call(self):
-        interview, _ = self._interview()
-        fake = _Rewrites({})
-        with patch.object(ig, "_load_llms_module", return_value=fake):
-            self.assertEqual(interview._plainer_wording(["Your email"]), {})
+        fake = _rewrites({})
+        self.assertEqual(self._plainer(fake, ["Your email"]), {})
         self.assertEqual(fake.calls, [])

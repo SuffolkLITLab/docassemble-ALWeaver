@@ -16,7 +16,7 @@ boxes, `rental_income_source` is a description rather than an amount, and
 import re
 from typing import Optional
 
-__all__ = ["datatype_from_name"]
+__all__ = ["datatype_from_name", "label_calls_for_area"]
 
 # Names that look like a type below but aren't: parts of a split date, and
 # words that describe an amount or a date rather than being one
@@ -38,6 +38,15 @@ _NARRATIVE = re.compile(
     r"(^|_)(describe|description|explain|explanation|explination|reason|reasons"
     r"|because|facts|arguments?|details|issues|conclusion|summary|relief_sought"
     r"|basis|harm|narrative|comments?|statement)($|_)"
+)
+# The same idea for a label someone reads ("Legal arguments", "What
+# happened"). Checked separately: of 135 text-or-area fields in authored
+# interviews whose labels use these words, 65% were text areas.
+_NARRATIVE_LABEL = re.compile(
+    r"\b(explain|explanation|describe|description|arguments?|facts|reasons?"
+    r"|what happened|details|conclusion|relief|issues|circumstances|summary"
+    r"|statement|history|background|narrative)\b",
+    re.IGNORECASE,
 )
 _QUESTION_WORD = re.compile(
     r"^(is|has|have|had|was|were|did|does|do|dont|can|will|wants?|needs?"
@@ -81,3 +90,15 @@ def datatype_from_name(
     if document_type == "docx" and _QUESTION_WORD.search(leaf):
         return "yesno"
     return None
+
+
+def label_calls_for_area(label: str) -> bool:
+    """True if a field's label asks for an answer longer than a line.
+
+    Args:
+        label (str): the label someone reads.
+
+    Returns:
+        bool: True for labels like "Legal arguments" or "What happened".
+    """
+    return bool(_NARRATIVE_LABEL.search(label or ""))

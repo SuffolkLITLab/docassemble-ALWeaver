@@ -74,7 +74,7 @@ def is_filler_subquestion(text: str) -> bool:
     )
 
 
-# What the prompts ask for, in the words ~/fetch's intake prompts settled on
+# What the plain-language rewrite asks for
 PLAIN_LANGUAGE_GUIDANCE = """
 Write the way a helpful person talks, at about a 6th grade reading level:
 - Use everyday words: "get" not "obtain", "want" not "seek", "ask the court"
@@ -160,12 +160,11 @@ def _load_table() -> Dict[str, str]:
 
 
 @lru_cache(maxsize=1)
-def _replacement_patterns() -> Tuple[Tuple[str, str, "re.Pattern[str]"], ...]:
-    """Each formal term as a pattern, longest phrases first, matched the way
-    DAYamlChecker's linter matches them."""
+def _replacement_patterns() -> Tuple[Tuple[str, "re.Pattern[str]"], ...]:
+    """Each formal term's suggestion and pattern, longest terms first, matched
+    the way DAYamlChecker's linter matches them."""
     return tuple(
         (
-            term,
             replacement,
             re.compile(
                 rf"(?<![A-Za-z0-9_]){re.escape(term)}(?![A-Za-z0-9_])", re.IGNORECASE
@@ -190,7 +189,7 @@ def plain_language_flags(text: str) -> List[Tuple[str, str]]:
         return []
     found: List[Tuple[str, str]] = []
     taken: List[Tuple[int, int]] = []
-    for _term, replacement, pattern in _replacement_patterns():
+    for replacement, pattern in _replacement_patterns():
         match = pattern.search(text)
         if not match:
             continue
