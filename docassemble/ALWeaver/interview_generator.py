@@ -1,4 +1,9 @@
-from .custom_values import get_matching_deps, get_output_mako_package_and_path
+from .custom_values import (
+    get_full_dep_details,
+    get_matching_deps,
+    get_output_mako_package_and_path,
+    get_pypi_deps_from_choices,
+)
 from .generator_constants import generator_constants
 from .question_library import baseline_question_specs
 from .field_grouping import (
@@ -3209,6 +3214,58 @@ class DAInterview(DAObject):
         screen_order.gathered = True
         return screen_order
 
+    def dependency_choices(self) -> List[str]:
+        """The YAML includes this interview's jurisdiction and organization need.
+
+        The choices are worked out from the jurisdiction given when the draft
+        starts, but the state is often only known later, from AI drafting or
+        the author. A Massachusetts draft without `al_massachusetts.yml` has a
+        `trial_court` with no department or division, so the interview fails
+        as soon as the form asks for one. The final state's jurisdiction
+        packages are added here.
+        """
+        chosen: List[str] = []
+        for choices in (
+            getattr(self, "jurisdiction_choices", None),
+            getattr(self, "org_choices", None),
+        ):
+            if choices is not None:
+                chosen.extend(choices.true_values())
+        state = str(getattr(self, "state", "") or "").strip().lower()
+        if state:
+            for choice in get_full_dep_details("jurisdiction"):
+                include = choice.get("include_name")
+                if str(choice.get("state", "")).lower() == state and include:
+                    chosen.append(include)
+        return list(dict.fromkeys(chosen))
+
+    def unasked_court_attributes(self) -> List[Tuple[str, str]]:
+        """Court attributes the form uses that nothing else will ask about.
+
+        AssemblyLine's own `trial_court` only has a name and address, so a
+        form's division, department or county has no question unless a
+        jurisdiction package like `al_massachusetts.yml` supplies one.
+
+        Returns:
+            List[Tuple[str, str]]: (label, variable) for each attribute.
+        """
+        if any(
+            "al_massachusetts.yml" in include for include in self.dependency_choices()
+        ):
+            return []
+        wanted = {
+            "trial_court.department": "Department",
+            "trial_court.division": "Division",
+            "trial_court.address.county": "County",
+        }
+        used = {
+            substitute_suffix(field.final_display_var, {r"\(\)$": ""})
+            for field in self.all_fields
+        }
+        return [
+            (label, variable) for variable, label in wanted.items() if variable in used
+        ]
+
     def package_info(self) -> Dict[str, Any]:
         assembly_line_dep = "docassemble.AssemblyLine"
         if not hasattr(self, "dependencies"):
@@ -3217,6 +3274,9 @@ class DAInterview(DAObject):
             self.dependencies = [assembly_line_dep]
         elif assembly_line_dep not in self.dependencies:
             self.dependencies.append(assembly_line_dep)
+        for dependency in get_pypi_deps_from_choices(self.dependency_choices()):
+            if dependency not in self.dependencies:
+                self.dependencies.append(dependency)
 
         info: Dict[str, Union[str, List[str]]] = {}
         for field in [

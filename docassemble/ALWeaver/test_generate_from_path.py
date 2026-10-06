@@ -2098,3 +2098,78 @@ class TestAIStructureProposals(unittest.TestCase):
         self.assertIn("“Date of Birth”", notes)
         self.assertIn("only one of proceeding_is may be chosen", notes)
         self.assertNotIn("change it to radio buttons", notes)
+
+
+class TestStateDependencies(unittest.TestCase):
+    def test_a_massachusetts_draft_includes_al_massachusetts(self):
+        """Without it, `trial_court.division` has no question and the interview fails."""
+        from .interview_generator import DAInterview
+
+        def predict_massachusetts(interview, apply=True):
+            interview.state = "MA"
+            return True
+
+        def no_op(interview, *args, **kwargs):
+            return False
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "court_form.pdf"), ["court_division", "case_name"]
+            )
+            with (
+                patch.object(DAInterview, "llm_predict_state", predict_massachusetts),
+                patch.object(DAInterview, "llm_prefill_metadata", no_op),
+                patch.object(DAInterview, "llm_propose_structure", no_op),
+                patch.object(DAInterview, "llm_refine_field_labels", no_op),
+                patch.object(DAInterview, "llm_group_fields", no_op),
+                patch.object(DAInterview, "_prefetch_reference_site", no_op),
+            ):
+                result = generate_interview_from_path(
+                    pdf_path,
+                    output_dir=tmpdir,
+                    create_package_zip=True,
+                    include_next_steps=False,
+                    use_llm_assist=True,
+                )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+            with zipfile.ZipFile(result.package_zip_path) as archive:
+                package_files = "\n".join(
+                    archive.read(name).decode("utf-8", "replace")
+                    for name in archive.namelist()
+                    if name.endswith(("setup.py", "pyproject.toml"))
+                )
+
+        self.assertIn(
+            "  - docassemble.ALMassachusetts:al_massachusetts.yml\n", yaml_text
+        )
+        self.assertIn("docassemble.ALMassachusetts", package_files)
+        self.assertIn('"court_division": ${ trial_court.division }', yaml_text)
+
+    def test_other_states_do_not_get_every_jurisdiction(self):
+        from .interview_generator import DAInterview
+
+        interview = DAInterview()
+        interview.state = "ZZ"
+        self.assertEqual(interview.dependency_choices(), [])
+
+
+class TestCourtDetailsOutsideMassachusetts(unittest.TestCase):
+    def test_court_attributes_get_a_question_without_al_massachusetts(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "court_form.pdf"),
+                ["court_division", "court_county", "case_name"],
+            )
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+                jurisdiction="VT",
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+        self.assertNotIn("al_massachusetts.yml", yaml_text)
+        self.assertIn('  - "Division": trial_court.division\n', yaml_text)
+        self.assertIn('  - "County": trial_court.address.county\n', yaml_text)
+        self.assertNotIn('"Department": trial_court.department', yaml_text)
+        TestGenerateInterviewFromPath._run_dayamlchecker_text(self, yaml_text)

@@ -2,11 +2,7 @@
     Initial metadata and includes
 </%doc>
 <%
-  selected_includes = list(
-      get_yml_deps_from_choices(
-          interview.jurisdiction_choices.true_values() + interview.org_choices.true_values()
-      )
-  )
+  selected_includes = list(get_yml_deps_from_choices(interview.dependency_choices()))
   state_for_theme = str(getattr(interview, "state", "") or "").strip().upper()
   massaccess_include = "docassemble.MassAccess:massaccess.yml"
   if state_for_theme == "MA" and massaccess_include not in selected_includes:
@@ -410,6 +406,16 @@ ${ baseline_question_yaml(baseline_question) }\
 % for family, datatypes in row_families:
 ${ row_family_yaml(family, datatypes) }\
 % endfor
+% if interview.unasked_court_attributes():
+---
+id: court details
+question: |
+  Tell us more about the court
+fields:
+  % for label, variable in interview.unasked_court_attributes():
+  - "${ label }": ${ variable }
+  % endfor
+% endif
 % if generate_download_screen and signature_field_triggers:
 ---
 id: preview ${ interview.interview_label }
