@@ -2391,7 +2391,7 @@ class DAFieldList(DAList):
             # Read the template once so the variables and the "used as a
             # condition" hints come from the same pass over the text
             docx_text = docx2python(document.path()).text
-            all_fields: Iterable = get_docx_variables(docx_text)
+            all_fields: Iterable = docx_variables_in_order(docx_text)
             boolean_fields = get_docx_boolean_variables(docx_text)
             type_hints = get_docx_function_type_hints(docx_text)
             choice_hints = get_docx_choice_hints(docx_text)
@@ -5598,7 +5598,7 @@ JINJA_NON_VARIABLE_WORDS = frozenset(
 )
 
 
-def _variables_in_jinja_expression(expression: str) -> Set[str]:
+def _variables_in_jinja_expression(expression: str) -> List[str]:
     """Pull everything that looks like a variable out of a Jinja expression.
 
     Unlike a simple "first word wins" match, this finds variables wherever they
@@ -5610,7 +5610,7 @@ def _variables_in_jinja_expression(expression: str) -> Set[str]:
             half of a `for` statement.
 
     Returns:
-        Set[str]: the variable chains found in the expression.
+        List[str]: the variable chains found in the expression, in order.
     """
     # Dictionary keys belong to the variable, so set them aside before blanking
     # out the other string literals, whose contents must never be read as
@@ -5623,7 +5623,7 @@ def _variables_in_jinja_expression(expression: str) -> Set[str]:
 
     expression = JINJA_LITERAL_SUBSCRIPT.sub(set_key_aside, expression)
     expression = JINJA_STRING_LITERAL.sub(" ", expression)
-    found = set()
+    found: Dict[str, None] = {}
     for match in JINJA_VARIABLE_CHAIN.finditer(expression):
         preceding = expression[: match.start()].rstrip()
         # `.attribute` and `|filter` continue the chain before them
@@ -5637,10 +5637,10 @@ def _variables_in_jinja_expression(expression: str) -> Set[str]:
         if root in JINJA_NON_VARIABLE_WORDS or keyword.iskeyword(root):
             continue
         # Put the keys back, minus the brackets the placeholder already sits in
-        found.add(
+        found.setdefault(
             JINJA_KEY_PLACEHOLDER.sub(lambda key: keys[int(key.group(1))][1:-1], chain)
         )
-    return found
+    return list(found)
 
 
 def _has_identifier_root(chain: str) -> bool:
@@ -5715,7 +5715,7 @@ def _loop_target_replacements(
     return {names[0]: f"{resolved}[0]"}
 
 
-def _raw_variables_from_template(text: str) -> Set[str]:
+def _raw_variables_from_template(text: str) -> List[str]:
     """Find every variable-looking chain in a DOCX template's Jinja tags.
 
     Walks the tags in document order so that `for` loops can be tracked: inside
@@ -5726,9 +5726,12 @@ def _raw_variables_from_template(text: str) -> Set[str]:
         text (str): the full text of a DOCX template.
 
     Returns:
-        Set[str]: the variable chains found, before any suffix mapping.
+        List[str]: the variable chains found, before any suffix mapping, in the
+        order the template first uses them.
     """
-    found: Set[str] = set()
+    # A dict keeps document order; a set made the fields, and so the screens,
+    # come out in a different order on every run
+    found: Dict[str, None] = {}
     loop_scopes: List[Dict[str, Optional[str]]] = []
 
     def keep(chains: Iterable[str]) -> None:
@@ -5737,7 +5740,7 @@ def _raw_variables_from_template(text: str) -> Set[str]:
                 _normalize_literal_subscripts(chain), loop_scopes
             )
             if resolved:
-                found.add(resolved)
+                found.setdefault(resolved)
 
     for match in JINJA_ANY_TAG.finditer(text):
         output, raw_statement = match.group(1), match.group(2)
@@ -5768,7 +5771,7 @@ def _raw_variables_from_template(text: str) -> Set[str]:
         conditional_match = JINJA_CONDITIONAL_STATEMENT.match(statement)
         if conditional_match:
             keep(_variables_in_jinja_expression(conditional_match.group(1)))
-    return found
+    return list(found)
 
 
 # Functions an author can wrap a variable in inside a DOCX template that say
@@ -6069,17 +6072,24 @@ def get_docx_variables(text: str) -> set:
 
     Special handling for methods that look like they belong to Individual/Address classes.
     """
-    #   Can be easily tested in a repl using the libs keyword and re
-    minimally_filtered = _raw_variables_from_template(text)
+    return set(docx_variables_in_order(text))
 
-    fields = set()
 
-    for possible_var in minimally_filtered:
+def docx_variables_in_order(text: str) -> List[str]:
+    """:func:`get_docx_variables`, in the order the template first uses them.
+
+    Args:
+        text (str): the full text of a DOCX template.
+
+    Returns:
+        List[str]: the settable variables, without repeats.
+    """
+    fields: Dict[str, None] = {}
+    for possible_var in _raw_variables_from_template(text):
         settable_var = _settable_docx_variable(possible_var)
         if settable_var:
-            fields.add(settable_var)
-
-    return fields
+            fields.setdefault(settable_var)
+    return list(fields)
 
 
 def _settable_docx_variable(possible_var: str) -> Optional[str]:

@@ -1,6 +1,7 @@
 # do not pre-load
 import unittest
 from .interview_generator import (
+    docx_variables_in_order,
     DAFieldList,
     get_docx_variables,
     get_docx_boolean_variables,
@@ -396,4 +397,25 @@ class test_docx_function_type_hints(unittest.TestCase):
                 "{% for item in mylist %}{{ output_checkbox(item.agreed) }}{% endfor %}"
             ),
             {"mylist[0].agreed": "yesno"},
+        )
+
+
+class test_docx_variable_order(unittest.TestCase):
+    def test_variables_come_in_the_order_the_template_uses_them(self):
+        """A set made fields, and so screens, come out in a new order every run."""
+        text = (
+            "{{ zebra_name }} {% if apple_count %}{{ mango_date }}{% endif %} "
+            "{{ currency(kiwi_amount) }} {{ zebra_name }} "
+            "{% for item in basket %}{{ item.label }}{% endfor %}"
+        )
+        self.assertEqual(
+            docx_variables_in_order(text),
+            [
+                "zebra_name",
+                "apple_count",
+                "mango_date",
+                "kiwi_amount",
+                "basket",
+                "basket[0].label",
+            ],
         )
