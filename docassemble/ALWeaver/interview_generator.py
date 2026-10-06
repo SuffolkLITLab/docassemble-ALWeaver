@@ -1590,6 +1590,31 @@ def row_attachment_expression(field: "DAField", item_lists: Mapping[str, bool]) 
     )
 
 
+def signature_fields_expression(
+    triggers: Sequence[str], item_lists: Mapping[str, bool]
+) -> str:
+    """The `signature_fields` list, leaving out people the user didn't enter.
+
+    A form with room for two guardians names `guardians[1].signature`, and
+    AssemblyLine's signature flow looks up every name on the list, so one
+    guardian meant an IndexError (found running a draft on a server). Slots
+    that may be missing are added only when the list is long enough.
+    """
+    always: List[str] = []
+    maybe: List[str] = []
+    for trigger in triggers:
+        match = INDEXED_LIST_REFERENCE.match(trigger)
+        if match and match.group(1) in item_lists:
+            index = int(match.group(2))
+            if index > 0 or not item_lists[match.group(1)]:
+                maybe.append(
+                    f"([{trigger!r}] if {match.group(1)}.number() > {index} else [])"
+                )
+                continue
+        always.append(trigger)
+    return " + ".join([repr(always)] + maybe)
+
+
 def lists_that_may_run_short(objects: Iterable[Any]) -> Dict[str, bool]:
     """The lists in an `objects:` block, and whether each always has a first item.
 
@@ -8171,6 +8196,7 @@ def _render_interview_yaml(
         "attachment_reference": attachment_reference,
         "row_attachment_expression": row_attachment_expression,
         "row_family_yaml": row_family_yaml,
+        "signature_fields_expression": signature_fields_expression,
         "item_lists": lists_that_may_run_short(objects or []),
         "get_yml_deps_from_choices": get_yml_deps_from_choices,
     }

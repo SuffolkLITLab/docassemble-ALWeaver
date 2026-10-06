@@ -2250,3 +2250,38 @@ class TestSingleDocxPerson(unittest.TestCase):
         self.assertNotIn("requestor: ALPeopleList", yaml_text)
         self.assertNotIn("requestor[i]", yaml_text)
         TestGenerateInterviewFromPath._run_dayamlchecker_text(self, yaml_text)
+
+
+class TestSignatureFieldsForMissingPeople(unittest.TestCase):
+    def test_a_second_signer_is_only_listed_when_there_is_one(self):
+        """`guardians[1].signature` with one guardian was an IndexError."""
+        from .interview_generator import signature_fields_expression
+
+        expression = signature_fields_expression(
+            ["users[0].signature", "users[1].signature", "children[0].signature"],
+            {"users": True, "children": False},
+        )
+        self.assertEqual(
+            expression,
+            "['users[0].signature'] + (['users[1].signature'] if users.number() > 1 "
+            "else []) + (['children[0].signature'] if children.number() > 0 else [])",
+        )
+
+    def test_generated_interview_guards_later_signers(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "two_guardians.pdf"),
+                [("users1_signature", "/Sig"), ("users2_signature", "/Sig")],
+            )
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+        self.assertIn(
+            "signature_fields = ['users[0].signature'] + (['users[1].signature'] "
+            "if users.number() > 1 else [])",
+            yaml_text,
+        )

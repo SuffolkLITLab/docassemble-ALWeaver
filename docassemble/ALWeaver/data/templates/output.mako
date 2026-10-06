@@ -444,7 +444,7 @@ continue button field: ${ interview.interview_label }_preview_question
 % if generate_download_screen and signature_field_triggers:
 ---
 code: |
-  signature_fields = ${ repr(signature_field_triggers) }
+  signature_fields = ${ signature_fields_expression(signature_field_triggers, item_lists) }
 % endif
 % for custom_signature in interview.all_fields.custom_signatures():
 ---
