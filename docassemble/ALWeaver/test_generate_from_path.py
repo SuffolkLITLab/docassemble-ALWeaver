@@ -2285,3 +2285,26 @@ class TestSignatureFieldsForMissingPeople(unittest.TestCase):
             "if users.number() > 1 else [])",
             yaml_text,
         )
+
+
+class TestIncludedDocxTemplates(unittest.TestCase):
+    def test_an_included_subdocument_is_called_out(self):
+        """SNAP's template included three files that weren't uploaded with it."""
+        import docx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docx_path = os.path.join(tmpdir, "snap_all.docx")
+            document = docx.Document()
+            document.add_paragraph("{{p include_docx_template(‘snap-summary.docx’) }}")
+            document.add_paragraph("{{ client_name }}")
+            document.save(docx_path)
+            result = generate_interview_from_path(
+                docx_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+        self.assertTrue(
+            any("includes snap-summary.docx" in note for note in result.warnings),
+            result.warnings,
+        )

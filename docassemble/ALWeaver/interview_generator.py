@@ -2333,6 +2333,17 @@ class DAFieldList(DAList):
             boolean_fields = get_docx_boolean_variables(docx_text)
             type_hints = get_docx_function_type_hints(docx_text)
             choice_hints = get_docx_choice_hints(docx_text)
+            for included in DOCX_INCLUDED_TEMPLATE.findall(
+                docx_text.translate(_CURLY_TO_STRAIGHT_QUOTES)
+            ):
+                if not hasattr(self, "generation_notes"):
+                    self.generation_notes = []
+                # The interview fails to assemble without the included file
+                self.generation_notes.append(
+                    f"{document.filename} includes {included} with "
+                    "include_docx_template(). Add that file to the package's "
+                    "templates, or the document can't be assembled."
+                )
             checkbox_roots = {
                 name
                 for name, (kind, _values) in choice_hints.items()
@@ -5696,6 +5707,8 @@ def get_docx_function_type_hints(text: str) -> Dict[str, str]:
     return hints
 
 
+# `{{p include_docx_template('summary.docx') }}` pulls another template in
+DOCX_INCLUDED_TEMPLATE = re.compile(r"include_docx_template\(\s*['\"]([^'\"]+)['\"]")
 # Word's curly quotes, as the straight ones Jinja reads them as
 _CURLY_TO_STRAIGHT_QUOTES = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"'})
 _JINJA_CHAIN = r"[A-Za-z_]\w*(?:\[[^\[\]]*\]|\.[A-Za-z_]\w*)*"
