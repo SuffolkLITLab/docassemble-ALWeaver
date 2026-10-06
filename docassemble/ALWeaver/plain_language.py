@@ -88,14 +88,39 @@ Write the way a helpful person talks, at about a 6th grade reading level:
 """.strip()
 
 
-# Formal words DAYamlChecker's table doesn't list yet
+# Entries from SuffolkLITLab/DAYamlChecker#95, until a release includes them.
+# The table only matches exact words, so the tense-matched forms are listed
+# one by one: checked against 180 published interviews, matching every ending
+# of every word also flagged ordinary words like "required" and "completed".
 _SUPPLEMENT: Dict[str, str] = {
-    "presented": "[given, made, (omit)]",
-    "set forth": "[listed, written]",
-    "aforementioned": "[this, that]",
-    "in the event": "if",
+    "advised": "[told, recommended]",
+    "aforementioned": "[this, that, (omit)]",
+    "anticipated": "expected",
+    "are employed": "[are working, have jobs]",
+    "attained": "[reached, finished]",
+    "commenced": "[started, began]",
+    "currently employed": "[working now, have a job]",
+    "expired": "[ran out, ended]",
+    "granted": "[approved, given]",
     "in the event that": "if",
-    "hereby": "(omit)",
+    "incurred": "[had, owed]",
+    "indicated": "[said, showed]",
+    "is employed": "[is working, has a job]",
+    "notified": "told",
+    "obligated": "[required, must]",
+    "obtained": "[got, received]",
+    "obtaining": "[getting, receiving]",
+    "permitted": "allowed",
+    "presented": "[shown, given]",
+    "prohibited": "not allowed",
+    "provided": "[gave, given]",
+    "providing": "giving",
+    "purchased": "bought",
+    "set forth": "[listed, written, explained]",
+    "submitted": "[sent, given]",
+    "submitting": "sending",
+    "terminated": "[ended, stopped]",
+    "utilized": "used",
     "whereby": "[by which, so]",
 }
 # Fine in context, as DAYamlChecker's linter also treats them
@@ -136,31 +161,20 @@ def _load_table() -> Dict[str, str]:
 
 @lru_cache(maxsize=1)
 def _replacement_patterns() -> Tuple[Tuple[str, str, "re.Pattern[str]"], ...]:
-    """Each formal term as a pattern, longest phrases first.
-
-    A single word also matches its common endings: "obtained" is as formal as
-    "obtain".
-    """
-    patterns = []
-    for term, replacement in sorted(
-        _load_table().items(), key=lambda item: len(item[0]), reverse=True
-    ):
-        if not re.fullmatch(r"[a-z]+", term):
-            word = re.escape(term)
-        elif term.endswith("e"):
-            # provide, provides, provided, providing
-            word = re.escape(term[:-1]) + r"(?:e|es|ed|ing)"
-        else:
-            # submit, submits, submitted, submitting
-            word = re.escape(term) + re.escape(term[-1]) + r"?(?:s|es|ed|ing)?"
-        patterns.append(
-            (
-                term,
-                replacement,
-                re.compile(rf"(?<![A-Za-z0-9_]){word}(?![A-Za-z0-9_])", re.IGNORECASE),
-            )
+    """Each formal term as a pattern, longest phrases first, matched the way
+    DAYamlChecker's linter matches them."""
+    return tuple(
+        (
+            term,
+            replacement,
+            re.compile(
+                rf"(?<![A-Za-z0-9_]){re.escape(term)}(?![A-Za-z0-9_])", re.IGNORECASE
+            ),
         )
-    return tuple(patterns)
+        for term, replacement in sorted(
+            _load_table().items(), key=lambda item: len(item[0]), reverse=True
+        )
+    )
 
 
 def plain_language_flags(text: str) -> List[Tuple[str, str]]:

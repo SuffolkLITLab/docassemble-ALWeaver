@@ -65,7 +65,15 @@ class TestPlainLanguageFlags(unittest.TestCase):
         )
 
     def test_plain_text_and_contextual_words_are_not_flagged(self):
-        for text in ["Your email address", "Use your home address", "Your request"]:
+        # Ordinary words that only look like inflected table entries stay
+        # unflagged, as in DAYamlChecker's linter
+        for text in [
+            "Your email address",
+            "Use your home address",
+            "Your request",
+            "Required documents",
+            "Are you self-employed?",
+        ]:
             with self.subTest(text=text):
                 self.assertEqual(plain_language_flags(text), [])
 
