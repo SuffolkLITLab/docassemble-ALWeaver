@@ -78,6 +78,7 @@ from typing import (
     TypedDict,
     cast,
 )
+from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse
 from zipfile import BadZipFile
 import ast
@@ -99,6 +100,8 @@ import re
 import shutil
 import io
 import tempfile
+import threading
+import time
 import uuid
 import zipfile
 import ipaddress
@@ -106,7 +109,8 @@ import socket
 from dataclasses import dataclass
 import pycountry
 import yaml
-from urllib.request import Request, urlopen
+from urllib.error import HTTPError
+from urllib.request import urlopen
 
 mako.runtime.UNDEFINED = DAEmpty()
 
@@ -723,6 +727,48 @@ def _prompt_dict(key: str, default: Dict[str, str]) -> Dict[str, str]:
     return value if isinstance(value, dict) else default
 
 
+# Help pages are fetched with urllib's own user agent, gently: one request at
+# a time to a site, at least a second apart, and a site that answers "too many
+# requests" gets the wait it asks for, once, rather than another request now
+_SECONDS_BETWEEN_REQUESTS = 1.0
+_LONGEST_RETRY_WAIT = 10.0
+_DEFAULT_RETRY_WAIT = 2.0
+_next_request_at: Dict[str, float] = {}
+_next_request_lock = threading.Lock()
+
+
+def _wait_for_turn(host: str) -> None:
+    """Space requests to one site at least `_SECONDS_BETWEEN_REQUESTS` apart."""
+    with _next_request_lock:
+        now = time.monotonic()
+        start = max(now, _next_request_at.get(host, now))
+        _next_request_at[host] = start + _SECONDS_BETWEEN_REQUESTS
+    if start > now:
+        time.sleep(start - now)
+
+
+def _retry_wait(retry_after: Optional[str]) -> Optional[float]:
+    """Seconds a `Retry-After` header asks for, or None if it is too long.
+
+    Args:
+        retry_after (Optional[str]): seconds, or an HTTP date, or None.
+
+    Returns:
+        Optional[float]: how long to wait before the one retry, or None to
+        give up.
+    """
+    wait = _DEFAULT_RETRY_WAIT
+    if retry_after:
+        try:
+            wait = float(retry_after)
+        except ValueError:
+            try:
+                wait = parsedate_to_datetime(retry_after).timestamp() - time.time()
+            except (TypeError, ValueError):
+                wait = _DEFAULT_RETRY_WAIT
+    return max(wait, 0.0) if wait <= _LONGEST_RETRY_WAIT else None
+
+
 def _extract_help_page_text(url: str, max_chars: int = 12000) -> str:
     if not url or not is_url(url):
         return ""
@@ -772,30 +818,43 @@ def _extract_help_page_text(url: str, max_chars: int = 12000) -> str:
         log(f"Blocked unsafe help_page_url host={host!r}")
         return ""
 
-    try:
-        req = Request(
-            url,
-            headers={"User-Agent": "ALWeaver/1.0 (+docassemble)"},
-        )
-        # URL safety is validated above before fetching.
-        with urlopen(req, timeout=10) as response:  # nosec B310
-            content_type = str(response.headers.get("Content-Type", "") or "").lower()
-            if content_type and (
-                "text/html" not in content_type
-                and "application/xhtml+xml" not in content_type
-            ):
-                log(
-                    f"Skipped help_page_url={url!r} because content-type is {content_type!r}"
-                )
+    html_text = ""
+    for attempt in range(2):
+        _wait_for_turn(host)
+        try:
+            # URL safety is validated above before fetching.
+            with urlopen(url, timeout=10) as response:  # nosec B310
+                content_type = str(
+                    response.headers.get("Content-Type", "") or ""
+                ).lower()
+                if content_type and (
+                    "text/html" not in content_type
+                    and "application/xhtml+xml" not in content_type
+                ):
+                    log(
+                        f"Skipped help_page_url={url!r} because content-type is {content_type!r}"
+                    )
+                    return ""
+                max_bytes = 2_000_000
+                raw = response.read(max_bytes + 1)
+                if len(raw) > max_bytes:
+                    raw = raw[:max_bytes]
+                html_text = raw.decode("utf-8", errors="replace")
+            break
+        except HTTPError as exc:
+            wait = (
+                _retry_wait(exc.headers.get("Retry-After") if exc.headers else None)
+                if exc.code in (429, 503) and attempt == 0
+                else None
+            )
+            if wait is None:
+                log(f"Unable to fetch help_page_url={url!r}: {exc!r}")
                 return ""
-            max_bytes = 2_000_000
-            raw = response.read(max_bytes + 1)
-            if len(raw) > max_bytes:
-                raw = raw[:max_bytes]
-            html_text = raw.decode("utf-8", errors="replace")
-    except Exception as exc:
-        log(f"Unable to fetch help_page_url={url!r}: {exc!r}")
-        return ""
+            log(f"help_page_url={url!r} asked us to slow down; retrying in {wait:.0f}s")
+            time.sleep(wait)
+        except Exception as exc:
+            log(f"Unable to fetch help_page_url={url!r}: {exc!r}")
+            return ""
     try:
         from bs4 import BeautifulSoup
 

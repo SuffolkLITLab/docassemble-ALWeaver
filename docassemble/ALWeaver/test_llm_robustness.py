@@ -140,6 +140,7 @@ class TestLLMRobustness(unittest.TestCase):
 
     def test_extract_help_page_text_skips_non_html_content_type(self):
         fake_response = _FakeResponse(b"%PDF-1.7 fake", "application/pdf")
+        ig._next_request_at.clear()
         with patch.object(
             ig.socket,
             "getaddrinfo",
@@ -148,6 +149,78 @@ class TestLLMRobustness(unittest.TestCase):
             with patch.object(ig, "urlopen", return_value=fake_response):
                 text = ig._extract_help_page_text("https://example.com/help.pdf")
         self.assertEqual(text, "")
+
+    def _fetch(self, responses):
+        """Fetch a help page while `urlopen` answers with `responses` in turn."""
+        calls, sleeps = [], []
+
+        def fake_urlopen(request, timeout=None):
+            calls.append(request)
+            answer = responses.pop(0)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+
+        ig._next_request_at.clear()
+        with (
+            patch.object(
+                ig.socket,
+                "getaddrinfo",
+                return_value=[(None, None, None, None, ("93.184.216.34", 0))],
+            ),
+            patch.object(ig, "urlopen", side_effect=fake_urlopen),
+            patch.object(ig.time, "sleep", side_effect=sleeps.append),
+        ):
+            text = ig._extract_help_page_text("https://example.com/help")
+        return text, calls, sleeps
+
+    @staticmethod
+    def _too_many_requests(retry_after):
+        from email.message import Message
+        from urllib.error import HTTPError
+
+        headers = Message()
+        if retry_after is not None:
+            headers["Retry-After"] = retry_after
+        return HTTPError("https://example.com/help", 429, "Too Many", headers, None)
+
+    def test_help_pages_are_fetched_with_the_default_user_agent(self):
+        page = _FakeResponse(b"<p>Help</p>", "text/html")
+        text, calls, _ = self._fetch([page])
+        self.assertEqual(text, "Help")
+        # A plain URL: urllib sends its own User-Agent, not a custom one
+        self.assertEqual(calls, ["https://example.com/help"])
+
+    def test_a_rate_limited_fetch_waits_as_asked_then_retries_once(self):
+        page = _FakeResponse(b"<p>Help</p>", "text/html")
+        text, calls, sleeps = self._fetch([self._too_many_requests("3"), page])
+        self.assertEqual(text, "Help")
+        self.assertEqual(len(calls), 2)
+        self.assertIn(3.0, sleeps)
+
+    def test_a_long_retry_after_gives_up_instead_of_waiting(self):
+        text, calls, sleeps = self._fetch([self._too_many_requests("3600")])
+        self.assertEqual(text, "")
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn(3600.0, sleeps)
+
+    def test_a_second_refusal_is_not_retried(self):
+        refusals = [self._too_many_requests(None), self._too_many_requests(None)]
+        text, calls, _ = self._fetch(refusals)
+        self.assertEqual(text, "")
+        self.assertEqual(len(calls), 2)
+
+    def test_requests_to_one_site_are_spaced_out(self):
+        ig._next_request_at.clear()
+        sleeps = []
+        with (
+            patch.object(ig.time, "monotonic", return_value=100.0),
+            patch.object(ig.time, "sleep", side_effect=sleeps.append),
+        ):
+            ig._wait_for_turn("example.com")
+            ig._wait_for_turn("example.com")
+            ig._wait_for_turn("other.example")
+        self.assertEqual(sleeps, [ig._SECONDS_BETWEEN_REQUESTS])
 
     def test_llm_generate_draft_payload_keeps_empty_results_on_failures(self):
         interview = self._build_interview_with_custom_field()
