@@ -1804,7 +1804,8 @@ class TestMoneyAfterAPrintedDollarSign(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             pdf_path = _build_pdf_with_fields(
-                os.path.join(tmpdir, "rent_form.pdf"), ["rent_amount", "fee_amount"]
+                os.path.join(tmpdir, "rent_form.pdf"),
+                ["rent_amount", "fee_amount", "vehicle_pv"],
             )
             # Print "$" just left of the first box only, as many forms do
             pdf = pikepdf.Pdf.open(pdf_path, allow_overwriting_input=True)
@@ -1818,7 +1819,10 @@ class TestMoneyAfterAPrintedDollarSign(unittest.TestCase):
                     )
                 )
             )
-            page.Contents = pdf.make_stream(b"BT /F1 10 Tf 40 733 Td ($) Tj ET")
+            # Third box (y=686): a "$" says it's money though its name doesn't
+            page.Contents = pdf.make_stream(
+                b"BT /F1 10 Tf 40 733 Td ($) Tj ET BT /F1 10 Tf 40 689 Td ($) Tj ET"
+            )
             pdf.save(pdf_path)
 
             result = generate_interview_from_path(
@@ -1838,6 +1842,9 @@ class TestMoneyAfterAPrintedDollarSign(unittest.TestCase):
             attachment,
         )
         self.assertIn('"fee_amount": ${ currency(fee_amount) }', attachment)
+        self.assertIn(
+            '"vehicle_pv": ${ thousands(vehicle_pv, show_decimals=True) }', attachment
+        )
 
 
 class TestMappedFieldsKeepTheirExpression(unittest.TestCase):

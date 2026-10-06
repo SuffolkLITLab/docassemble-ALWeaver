@@ -1993,10 +1993,12 @@ class DAFieldList(DAList):
         Those are filled with `thousands()`, since `currency()` would print a
         second "$". See :func:`.pdf_layout.fields_after_a_dollar_sign`.
         """
+        # Any one-line box can have a "$" printed before it; one that does
+        # holds money even if its name, like `vehicle_pv_1`, doesn't say so
         money = {
             field.raw_field_names[0]: field
             for field in self.elements
-            if field.field_type_guess == "currency"
+            if field.field_type_guess in ("currency", "text")
             and getattr(field, "pdf_location", None)
             and getattr(field, "source_document_type", "") == "pdf"
         }
@@ -2015,6 +2017,7 @@ class DAFieldList(DAList):
             return
         for name in marked:
             money[name].pdf_prints_dollar_sign = True
+            money[name].field_type_guess = "currency"
 
     def _merge_into_choice(
         self,
