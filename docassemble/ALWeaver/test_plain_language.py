@@ -1,3 +1,4 @@
+# do not pre-load
 import unittest
 
 from .plain_language import flags_by_text, is_filler_subquestion, plain_language_flags
