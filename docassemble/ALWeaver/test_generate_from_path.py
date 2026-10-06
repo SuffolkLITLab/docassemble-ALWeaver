@@ -2315,3 +2315,27 @@ class TestIncludedDocxTemplates(unittest.TestCase):
             any("includes snap-summary.docx" in note for note in result.warnings),
             result.warnings,
         )
+
+
+class TestDocxUploadedFiles(unittest.TestCase):
+    def test_looping_over_uploads_asks_for_the_files(self):
+        """`exhibits[0].filename` as text failed on a live server."""
+        import docx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docx_path = os.path.join(tmpdir, "motion.docx")
+            document = docx.Document()
+            document.add_paragraph(
+                "{%p for exhibit in exhibits %}{{ exhibit.filename }}{%p endfor %}"
+            )
+            document.add_paragraph("{{ reason_for_extension }}")
+            document.save(docx_path)
+            result = generate_interview_from_path(
+                docx_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+        self.assertIn(": exhibits\n    datatype: file\n", yaml_text)
+        self.assertNotIn("exhibits[0].filename", yaml_text)

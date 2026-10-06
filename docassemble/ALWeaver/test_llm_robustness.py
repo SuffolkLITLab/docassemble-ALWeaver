@@ -337,3 +337,24 @@ class TestTemplateBoundChoicesStayPut(unittest.TestCase):
         self.assertEqual(field.label, "Type of proceeding")
         self.assertEqual(field.choices, before)
         self.assertEqual(field.field_type, "multiple choice checkboxes")
+
+
+class TestEveryStageUsesTheConfiguredModel(unittest.TestCase):
+    def test_rewrites_and_navigation_follow_weaver_llm_model(self):
+        """These stages used a hard-coded gpt-5-mini whatever was configured."""
+        seen = []
+
+        class Recorder:
+            def chat_completion(self, **kwargs):
+                seen.append(kwargs.get("model"))
+                return {}
+
+        config = {"assembly line": {"weaver llm model": "gpt-6-luna"}}
+        with patch.object(
+            ig, "_load_llms_module", return_value=Recorder()
+        ), patch.object(
+            ig, "get_config", lambda key, default=None: config.get(key, default)
+        ):
+            ig._llm_rewrite_for_plain_language(["Please submit forthwith."])
+            ig._llm_refine_section_catalog(["Screen one"], [{"id": "a", "label": "A"}])
+        self.assertEqual(seen, ["gpt-6-luna", "gpt-6-luna"])

@@ -2361,6 +2361,24 @@ class DAFieldList(DAList):
                 or not STRING_KEYED_VARIABLE.match(field)
             ]
             all_fields += sorted(checkbox_roots - set(all_fields))
+            # `{% for exhibit in exhibits %}{{ exhibit.filename }}` loops over
+            # uploads; asking for `exhibits[0].filename` as text broke the
+            # interview, so ask for the files themselves
+            uploads = {
+                match.group(1)
+                for field in all_fields
+                for match in [DOCX_UPLOADED_FILE_ATTRIBUTE.match(field)]
+                if match
+            }
+            all_fields = [
+                field
+                for field in all_fields
+                if not DOCX_UPLOADED_FILE_ATTRIBUTE.match(field)
+                or field.split("[", 1)[0] not in uploads
+            ]
+            all_fields += sorted(uploads - set(all_fields))
+            for upload in uploads:
+                type_hints[upload] = "file"
         else:
             all_fields = list(get_fields(document))
 
@@ -3617,11 +3635,7 @@ class DAInterview(DAObject):
         self.questions.gathered = True
 
     def _llm_default_model(self) -> str:
-        return (
-            get_config("assembly line", {}).get("weaver llm model")
-            or get_config("open ai", {}).get("model")
-            or "gpt-4o-mini"
-        )
+        return _configured_llm_model()
 
     def _llm_structure_model(self) -> str:
         """The model for structure proposals, which needs more than labelling.
@@ -5719,6 +5733,10 @@ def get_docx_function_type_hints(text: str) -> Dict[str, str]:
     return hints
 
 
+# An item of an uploaded file list: `exhibits[0].filename`
+DOCX_UPLOADED_FILE_ATTRIBUTE = re.compile(
+    r"^([A-Za-z_]\w*)\[0\]\.(?:filename|url_for|path|extension|mimetype|pngs?|size_in_bytes)$"
+)
 # `{{p include_docx_template('summary.docx') }}` pulls another template in
 DOCX_INCLUDED_TEMPLATE = re.compile(r"include_docx_template\(\s*['\"]([^'\"]+)['\"]")
 # Word's curly quotes, as the straight ones Jinja reads them as
@@ -7582,7 +7600,7 @@ def _llm_refine_section_catalog(
             system_message=prompt,
             user_message=user_message,
             json_mode=True,
-            model="gpt-5-mini",
+            model=_configured_llm_model(),
         )
         if not isinstance(rewritten, dict):
             return None
@@ -7641,7 +7659,7 @@ def _llm_refine_section_ids(
             system_message=prompt,
             user_message=user_message,
             json_mode=True,
-            model="gpt-5-mini",
+            model=_configured_llm_model(),
         )
         if not isinstance(rewritten, dict):
             return None
@@ -7931,6 +7949,15 @@ def _lint_with_aldashboard_interview_linter(
         return None
 
 
+def _configured_llm_model() -> str:
+    """The model every AI drafting stage uses, unless a stage has its own setting."""
+    return (
+        get_config("assembly line", {}).get("weaver llm model")
+        or get_config("open ai", {}).get("model")
+        or "gpt-4o-mini"
+    )
+
+
 def _llm_rewrite_for_plain_language(texts: Sequence[str]) -> Dict[str, str]:
     """Rewrite several passages in plain language with one model call.
 
@@ -7962,7 +7989,7 @@ def _llm_rewrite_for_plain_language(texts: Sequence[str]) -> Dict[str, str]:
             ),
             user_message=json.dumps(list(texts)),
             json_mode=True,
-            model="gpt-5-mini",
+            model=_configured_llm_model(),
         )
     except Exception as exc:
         log(f"Plain-language rewrite failed: {exc!r}")
