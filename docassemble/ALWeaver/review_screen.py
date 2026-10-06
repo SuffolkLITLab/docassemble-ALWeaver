@@ -106,12 +106,13 @@ def _primitive_expression(field: Any) -> str:
     variable = str(getattr(field, "final_display_var", "") or "")
     field_type = getattr(field, "field_type", None)
     if field_type in ("yesno", "yesnomaybe", "yesnoradio", "yesnowide", "noyes"):
-        return f"word(yesno({variable})) if defined('{variable}') else ''"
+        return f"word(yesno({variable})) if defined({variable!r}) else ''"
     if field_type == "currency":
-        return f"currency({variable}) if defined('{variable}') else ''"
+        return f"currency({variable}) if defined({variable!r}) else ''"
     if field_type == "area":
-        return f"single_paragraph({variable}) if defined('{variable}') else ''"
-    return f"showifdef('{variable}')"
+        return f"single_paragraph({variable}) if defined({variable!r}) else ''"
+    # repr() so a dictionary key, `x['Zip']`, can't end the string early
+    return f"showifdef({variable!r})"
 
 
 def _object_rows(collection: Any) -> List[ReviewRow]:
@@ -134,7 +135,7 @@ def _object_rows(collection: Any) -> List[ReviewRow]:
                 label=_humanize(attribute),
                 expression=(
                     f"{var_name}.{display_att} "
-                    f"if defined('{var_name}.{settable_att}') else ''"
+                    f"if defined({var_name + '.' + settable_att!r}) else ''"
                 ),
             )
         )

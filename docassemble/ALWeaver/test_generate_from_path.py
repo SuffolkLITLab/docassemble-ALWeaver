@@ -2173,3 +2173,51 @@ class TestCourtDetailsOutsideMassachusetts(unittest.TestCase):
         self.assertIn('  - "County": trial_court.address.county\n', yaml_text)
         self.assertNotIn('"Department": trial_court.department', yaml_text)
         TestGenerateInterviewFromPath._run_dayamlchecker_text(self, yaml_text)
+
+
+class TestReviewScreenWithDictionaryKeys(unittest.TestCase):
+    def test_review_lines_quote_keys_safely(self):
+        """`showifdef('x['Zip']')` broke the whole interview on a live server."""
+        import ast
+        import docx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docx_path = os.path.join(tmpdir, "inspection_letter.docx")
+            document = docx.Document()
+            document.add_paragraph('{{ inspector_information["Zip"] }}')
+            document.save(docx_path)
+            result = generate_interview_from_path(
+                docx_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        review = yaml_text.split("\nreview:", 1)[1].split("\n---", 1)[0]
+        expressions = re.findall(r"\$\{ (.+?) \}$", review, re.M)
+        self.assertIn("showifdef(\"inspector_information['Zip']\")", expressions)
+        for expression in expressions:
+            ast.parse(expression, mode="eval")
+
+
+class TestNamelessPdfFields(unittest.TestCase):
+    def test_a_field_with_no_name_is_left_out_with_a_note(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "nameless.pdf"),
+                [("", "/Sig"), ("rep_payee_signature", "/Sig"), "case_name"],
+            )
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+        self.assertNotRegex(yaml_text, r"(?m)^signature: *$")
+        self.assertNotIn('- "": ', yaml_text)
+        self.assertIn(
+            '"rep_payee_signature": ${ rep_payee[0].signature_if_final(i) }', yaml_text
+        )
+        self.assertTrue(any("no usable name" in w for w in result.warnings))

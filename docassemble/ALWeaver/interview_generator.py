@@ -2355,6 +2355,17 @@ class DAFieldList(DAList):
             pike_obj.close()
             for pdf_field_tuple, pike_info in zip_longest(all_fields, pike_fields):
                 pdf_field_name = pdf_field_tuple[0]
+                if not remove_multiple_appearance_indicator(varname(pdf_field_name)):
+                    # A field with no usable name can't be filled from an
+                    # attachment, and became `signature:` with no variable
+                    if not hasattr(self, "generation_notes"):
+                        self.generation_notes = []
+                    self.generation_notes.append(
+                        f"{document.filename} has a field with no usable name "
+                        f"({pdf_field_name!r}); it was left out. Rename it in the "
+                        "PDF to fill it in."
+                    )
+                    continue
                 if pdf_field_name in pike_fields:
                     pike_info = pike_fields[pdf_field_name]
                     # PDF fields have bit flags that set specific options. The 17th bit (or hex
