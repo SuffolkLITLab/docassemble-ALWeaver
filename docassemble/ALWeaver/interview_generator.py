@@ -2636,11 +2636,36 @@ class DAFieldList(DAList):
             for person, max_idx in max_indices.items()
         }
 
+    def _is_single_docx_person(self, name: str) -> bool:
+        """True if a DOCX template only ever refers to `name` as one person.
+
+        `{{ requestor.name.full() }}` is a single person, not a list: declaring
+        `requestor` as an `ALPeopleList` made `requestor.address` impossible to
+        look up and the interview failed (found running a draft on a server).
+        A person a PDF names, or a template indexes, stays a list.
+        """
+        uses = [
+            field
+            for field in self.elements
+            if field.variable == name
+            or field.variable.startswith(name + ".")
+            or field.variable.startswith(name + "[")
+            or field.variable.startswith(name + "_")
+        ]
+        return bool(uses) and all(
+            getattr(field, "source_document_type", "") == "docx"
+            and field.variable.startswith(name + ".")
+            for field in uses
+        )
+
     def mark_people_as_builtins(self, people_list: Iterable[str]) -> None:
         """Scan the list of fields and see if any of them should be renamed
         or marked as built-ins given the list of new, custom prefixes."""
+        people_list = list(people_list)
         self.custom_people_plurals = {
-            var_name: var_name for var_name in list(people_list)
+            var_name: var_name
+            for var_name in people_list
+            if not self._is_single_docx_person(var_name)
         }
         for field in self:
             if field.source_document_type == "pdf":

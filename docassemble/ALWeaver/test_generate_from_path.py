@@ -2221,3 +2221,32 @@ class TestNamelessPdfFields(unittest.TestCase):
             '"rep_payee_signature": ${ rep_payee[0].signature_if_final(i) }', yaml_text
         )
         self.assertTrue(any("no usable name" in w for w in result.warnings))
+
+
+class TestSingleDocxPerson(unittest.TestCase):
+    def test_a_person_the_template_never_indexes_is_one_individual(self):
+        """`requestor: ALPeopleList` made `requestor.address` unfindable."""
+        import docx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docx_path = os.path.join(tmpdir, "evaluation_request.docx")
+            document = docx.Document()
+            for line in [
+                "{{ requestor.name.full() }}",
+                "{{ requestor.address.block() }}",
+                "{{ requestor.phone_number }}",
+            ]:
+                document.add_paragraph(line)
+            document.save(docx_path)
+            result = generate_interview_from_path(
+                docx_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        self.assertIn("  - requestor: ALIndividual\n", yaml_text)
+        self.assertNotIn("requestor: ALPeopleList", yaml_text)
+        self.assertNotIn("requestor[i]", yaml_text)
+        TestGenerateInterviewFromPath._run_dayamlchecker_text(self, yaml_text)
