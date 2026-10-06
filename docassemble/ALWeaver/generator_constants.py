@@ -188,6 +188,8 @@ generator_constants.PEOPLE_SUFFIXES_MAP = {
     "_fax_number": ".fax_number",
     "_mobile": ".mobile_number",
     "_mobile_number": ".mobile_number",
+    # AssemblyLine asks pronouns as checkboxes; list_pronouns() prints the chosen ones
+    "_pronouns": ".list_pronouns()",
     "_phones": ".phone_numbers()",
     "_address_block": ".address.block()",
     # TODO: deprecate street and street2 from existing forms and documentation
@@ -286,6 +288,8 @@ generator_constants.DOCX_ONLY_SUFFIXES = [
     r"\.familiar_or\(\)",
     r"\.phone_numbers\(\)",
     r"\.formatted_age\(\)",
+    r"\.pronouns",
+    r"\.list_pronouns\(\)",
 ]
 
 generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX = {
@@ -304,6 +308,7 @@ generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX = {
     r"\.mailing_address.on_one_line\(\)$": ".mailing_address.address",
     r"\.name.middle_initial\(\)$": ".name.first",
     r"\.phone_numbers\(\)$": ".phone_number",
+    r"\.list_pronouns\(\)$": ".pronouns",
     r"\.preferred_name$": ".preferred_name.first",
     r"\.year_make_model\(\)$": ".year",
 }
@@ -314,6 +319,7 @@ generator_constants.FULL_DISPLAY = {
     r"\.name$": ".name_full()",
     r"\.address$": ".address.block()",
     r"\.mailing_address$": ".mailing_address.block()",
+    r"\.pronouns$": ".list_pronouns()",
 }
 
 # Possible values for 'Allowed Courts', when looking up courts to submit to

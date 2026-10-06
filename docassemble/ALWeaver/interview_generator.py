@@ -14,6 +14,11 @@ from .field_grouping import (
 from .name_datatypes import datatype_from_name
 from .pdf_layout import fields_after_a_dollar_sign
 from .titles import title_from_filename
+from .plain_language import (
+    PLAIN_LANGUAGE_GUIDANCE,
+    flags_by_text,
+    is_filler_subquestion,
+)
 from .repeated_rows import MONEY_ATTRIBUTES, find_row_families, row_family_yaml
 from .llm_structure import (
     STRUCTURE_PROMPT,
@@ -808,6 +813,32 @@ def _extract_help_page_text(url: str, max_chars: int = 12000) -> str:
         return ""
 
 
+# Labels for an answer that takes more than a line: checked against 135
+# text-or-area fields with these words in authored interviews, 65% were areas
+NARRATIVE_LABEL = re.compile(
+    r"\b(explain|explanation|describe|description|arguments?|facts|reasons?"
+    r"|what happened|details|conclusion|relief|issues|circumstances|summary"
+    r"|statement|history|background|narrative)\b",
+    re.IGNORECASE,
+)
+
+
+def _needs_room_to_answer(field_obj: Any, label: str) -> bool:
+    """True if a field the model typed as one line of text needs a text area.
+
+    A DOCX field whose name or label is narrative ("appeal_arguments", "Legal
+    arguments") does. A PDF box's own size says how much fits, so a PDF field
+    only keeps an area the box already called for.
+    """
+    already_area = (
+        getattr(field_obj, "field_type", "") == "area"
+        or getattr(field_obj, "field_type_guess", "") == "area"
+    )
+    if getattr(field_obj, "source_document_type", "") == "pdf":
+        return already_area
+    return already_area or bool(NARRATIVE_LABEL.search(label or ""))
+
+
 def _normalize_field_type(value: str) -> Optional[str]:
     if not value:
         return None
@@ -1421,6 +1452,9 @@ class DAField(DAObject):
         """
 
         GATHER_CALL = ".gather()"
+        # AssemblyLine asks whether there are exhibits, then for each upload
+        if getattr(self, "exhibit_document", None):
+            return self.exhibit_document + ".exhibits" + GATHER_CALL
         # A box in a numbered row is filled by gathering the whole list
         if getattr(self, "row_list", None):
             return self.row_list + GATHER_CALL
@@ -2280,6 +2314,10 @@ class DAFieldList(DAList):
             collection
             for collection in self.find_parent_collections()
             if not _is_signature_only_collection(collection)
+            # Exhibits print as a list object; AssemblyLine's upload screens
+            # are where they get changed
+            and collection.var_name.split(".", 1)[0]
+            not in getattr(self, "exhibit_documents", [])
         ]
         if not screen_order:
             return collections
@@ -2379,6 +2417,21 @@ class DAFieldList(DAList):
             all_fields += sorted(uploads - set(all_fields))
             for upload in uploads:
                 type_hints[upload] = "file"
+            # Declared as an ALIndividual and asked as a yes/no question, an
+            # exhibit document crashed the interview (`.exhibits` undefined)
+            exhibit_documents = {
+                match.group(1)
+                for field in all_fields
+                for match in [DOCX_EXHIBIT_ATTRIBUTE.match(field)]
+                if match
+            }
+            all_fields = [
+                field for field in all_fields if not DOCX_EXHIBIT_ATTRIBUTE.match(field)
+            ] + sorted(name + ".exhibits" for name in exhibit_documents)
+            if exhibit_documents:
+                self.exhibit_documents = sorted(
+                    set(getattr(self, "exhibit_documents", [])) | exhibit_documents
+                )
         else:
             all_fields = list(get_fields(document))
 
@@ -2480,6 +2533,10 @@ class DAFieldList(DAList):
                 new_field.source_document_type = "docx"
                 if matching_reserved_names({field}):
                     new_field.group = DAFieldGroup.RESERVED
+                elif DOCX_EXHIBIT_ATTRIBUTE.match(field):
+                    # AssemblyLine's exhibit questions ask for the uploads
+                    new_field.group = DAFieldGroup.BUILT_IN
+                    new_field.exhibit_document = field.split(".", 1)[0]
                 elif is_reserved_docx_label(field):
                     new_field.group = DAFieldGroup.BUILT_IN
                 elif field.endswith(".signature"):
@@ -3216,7 +3273,14 @@ class DAInterview(DAObject):
         person_candidates |= referenced_lists
         person_candidates -= _AL_MANAGED_OBJECTS
 
-        singletons = referenced_singletons - _AL_MANAGED_OBJECTS - person_candidates
+        exhibit_documents = set(getattr(self.all_fields, "exhibit_documents", []))
+        person_candidates -= exhibit_documents
+        singletons = (
+            referenced_singletons
+            - _AL_MANAGED_OBJECTS
+            - person_candidates
+            - exhibit_documents
+        )
 
         quantities = self.all_fields._guess_people_quantities()
 
@@ -3232,6 +3296,20 @@ class DAInterview(DAObject):
             result.append(_PersonObjectSpec(name=person, params=params))
         for singleton in sorted(singletons):
             result.append(_PersonObjectSpec(name=singleton, type="ALIndividual"))
+        for document in sorted(exhibit_documents):
+            result.append(
+                _PersonObjectSpec(
+                    name=document,
+                    type="ALExhibitDocument",
+                    params={
+                        "title": exhibit_document_title(document),
+                        "filename": document,
+                        "include_table_of_contents": True,
+                        "include_exhibit_cover_pages": True,
+                        "add_page_numbers": True,
+                    },
+                )
+            )
         for family, _datatypes in getattr(self.all_fields, "row_families", []):
             row_params: Dict[str, Any] = {"complete_attribute": "complete"}
             if family.object_type == "DAList":
@@ -3438,13 +3516,16 @@ class DAInterview(DAObject):
         )
 
     def attachment_varnames(self) -> str:
+        """The bundle elements: each template, then any exhibits the user uploads."""
+        exhibits = list(getattr(self.all_fields, "exhibit_documents", []))
         if len(self.uploaded_templates) == 1:
-            return f"{self.interview_label }_attachment"
+            return comma_list([f"{self.interview_label }_attachment"] + exhibits)
         names = document_names(
             [document.filename for document in self.uploaded_templates]
         )
         return comma_list(
             [names[document.filename].variable for document in self.uploaded_templates]
+            + exhibits
         )
 
     def _initialize_basic_attributes(
@@ -3835,6 +3916,24 @@ Predicted role: {{ROLE}}
                 model=self._llm_default_model(),
             )
             if isinstance(drafted, dict):
+                # The user reads these passages too, so they get the same
+                # plain-language check as labels and screens
+                plain_keys = [
+                    key
+                    for key, value in drafted.items()
+                    if isinstance(value, str)
+                    and key
+                    not in {
+                        "landing_page_url",
+                        "next_steps_help_url",
+                        "next_steps_help_organization",
+                        "next_steps_document_title",
+                        "next_steps_document_concept",
+                    }
+                ]
+                plainer = self._plainer_wording([drafted[key] for key in plain_keys])
+                for key in plain_keys:
+                    drafted[key] = plainer.get(drafted[key], drafted[key])
                 drafted_title = _safe_short_label(str(drafted.get("title", "")), 100)
                 intro_prompt = _safe_short_label(
                     str(drafted.get("intro_prompt", "")), 60
@@ -4122,6 +4221,16 @@ Return JSON object with shape:
                 return {} if not apply else 0
 
             updates = _field_updates_from_llm_response(response, custom_fields)
+            labels = [
+                str(update.get("label"))
+                for update in updates.values()
+                if update.get("label")
+            ]
+            plainer = self._plainer_wording(labels)
+            for update in updates.values():
+                label = str(update.get("label") or "")
+                if label in plainer:
+                    update["label"] = plainer[label]
             if not apply:
                 return updates
 
@@ -4405,15 +4514,33 @@ Rules:
                     used.add(variable)
                     field_defs.append(_grouped_field_definition(by_variable[variable]))
                 if field_defs:
+                    subquestion = str(raw_screen.get("subquestion") or "")
                     screen_list.append(
                         {
                             "question": str(
                                 raw_screen.get("question") or "More information"
                             ),
-                            "subquestion": str(raw_screen.get("subquestion") or ""),
+                            # "Type your contact information below" adds reading,
+                            # not help
+                            "subquestion": (
+                                ""
+                                if is_filler_subquestion(subquestion)
+                                else subquestion
+                            ),
                             "fields": field_defs,
                         }
                     )
+            screen_texts = [
+                str(screen.get(key) or "")
+                for screen in screen_list
+                for key in ("question", "subquestion")
+            ]
+            plainer = self._plainer_wording([text for text in screen_texts if text])
+            for screen in screen_list:
+                for key in ("question", "subquestion"):
+                    text = str(screen.get(key) or "")
+                    if text in plainer:
+                        screen[key] = plainer[text]
 
             for field in custom_fields:
                 if field.variable in used:
@@ -4456,6 +4583,65 @@ Rules:
             log(f"LLM screen grouping failed: {exc!r}")
             return [] if not apply else False
 
+    def _plainer_wording(self, texts: Sequence[str]) -> Dict[str, str]:
+        """Rewrite the AI-written texts that use formal or legalistic words.
+
+        Words come from DAYamlChecker's plain-language table, and are flagged
+        even when the form uses them. Only the flagged texts go back to the
+        model, in one call, and a rewrite is kept only if it really drops some
+        of the flagged words.
+
+        Args:
+            texts (Sequence[str]): labels, screen titles or subquestions.
+
+        Returns:
+            Dict[str, str]: each text that got a plainer rewrite, mapped to it.
+        """
+        flagged = flags_by_text([text for text in texts if text and "${" not in text])
+        if not flagged:
+            return {}
+        llms = _load_llms_module()
+        if not llms:
+            return {}
+        try:
+            response = llms.chat_completion(
+                system_message=(
+                    "Rewrite each text so it does not use the words listed in "
+                    "`avoid`, using the `suggestions` or other everyday words. "
+                    "Keep the meaning and keep it about as short. "
+                    + PLAIN_LANGUAGE_GUIDANCE
+                    + "\nReturn JSON with key `rewrites`: a list of objects "
+                    "with keys `original` (copied exactly) and `rewrite`."
+                ),
+                user_message=json.dumps(
+                    [
+                        {
+                            "text": text,
+                            "avoid": [word for word, _ in flags],
+                            "suggestions": {word: alt for word, alt in flags},
+                        }
+                        for text, flags in flagged.items()
+                    ]
+                ),
+                json_mode=True,
+                model=self._llm_default_model(),
+            )
+        except Exception as exc:
+            log(f"Plain-language wording check failed: {exc!r}")
+            return {}
+        entries = response.get("rewrites") if isinstance(response, dict) else None
+        plainer: Dict[str, str] = {}
+        for entry in entries if isinstance(entries, list) else []:
+            if not isinstance(entry, dict):
+                continue
+            original = str(entry.get("original", "") or "")
+            rewrite = str(entry.get("rewrite", "") or "").strip()
+            if original not in flagged or not rewrite or rewrite == original:
+                continue
+            if len(flags_by_text([rewrite]).get(rewrite, [])) < len(flagged[original]):
+                plainer[original] = rewrite
+        return plainer
+
     def apply_llm_field_updates(
         self, field_updates: Mapping[str, Mapping[str, Any]]
     ) -> int:
@@ -4487,6 +4673,10 @@ Rules:
                 elif not getattr(field_obj, "choices", ""):
                     # Never leave a choice question with nothing to choose
                     datatype = ""
+            if datatype == "text" and _needs_room_to_answer(field_obj, label):
+                # "Legal arguments" squeezed into one line was the model's
+                # call; the name and the label both say it needs a text area
+                datatype = "area"
             if datatype:
                 field_obj.field_type = datatype
             if label or datatype:
@@ -5737,6 +5927,9 @@ def get_docx_function_type_hints(text: str) -> Dict[str, str]:
 DOCX_UPLOADED_FILE_ATTRIBUTE = re.compile(
     r"^([A-Za-z_]\w*)\[0\]\.(?:filename|url_for|path|extension|mimetype|pngs?|size_in_bytes)$"
 )
+# `{% if appendix.exhibits.there_are_any %}`: `appendix` is an AssemblyLine
+# ALExhibitDocument, whose uploads AssemblyLine asks for itself
+DOCX_EXHIBIT_ATTRIBUTE = re.compile(r"^([A-Za-z_]\w*)\.exhibits(?:$|[.\[])")
 # `{{p include_docx_template('summary.docx') }}` pulls another template in
 DOCX_INCLUDED_TEMPLATE = re.compile(r"include_docx_template\(\s*['\"]([^'\"]+)['\"]")
 # Word's curly quotes, as the straight ones Jinja reads them as
@@ -6440,6 +6633,17 @@ def get_reserved_label_parts(prefixes: list, label: str):
     return re.search(r"^(" + "|".join(prefixes) + r")(\d*)(.*)", label)
 
 
+def exhibit_document_title(name: str) -> str:
+    """A title for an exhibit document: `record_appendix_document` -> "Record appendix"."""
+    words = re.sub(r"_(document|doc|attachment)$", "", name).replace("_", " ").strip()
+    if not words:
+        return name.replace("_", " ").capitalize()
+    if words != name.replace("_", " ") and " " not in words:
+        # `impounded_document` -> "Impounded documents", not just "Impounded"
+        words += " documents"
+    return words.capitalize()
+
+
 def using_string(params: dict, elements_as_variable_list: bool = False) -> str:
     """
     Create a text representation of a .using method of a DAObject class.
@@ -7120,7 +7324,8 @@ This directory is used to store templates.
     for file in folders_and_files.get("templates", []):
         try:
             zip_obj.write(
-                file.path(), os.path.join(pkg_path_templates_prefix, file.filename)
+                rewrite_docx_pronouns(file.path()) or file.path(),
+                os.path.join(pkg_path_templates_prefix, file.filename),
             )
         except:
             log("Unable to add file " + repr(file))
@@ -8300,15 +8505,7 @@ _WORD_TEXT_RE = re.compile(r"(<w:t(?:\s[^>]*)?>)(.*?)(</w:t>)", re.DOTALL)
 
 def _rewrite_next_steps_xml(xml_text: str) -> str:
     """Replace template expressions even when Word splits them across runs."""
-    paragraphs = list(_WORD_PARAGRAPH_RE.finditer(xml_text))
-    logical_values: List[str] = []
-    for paragraph in paragraphs:
-        logical_values.append(
-            "".join(
-                html.unescape(match.group(2))
-                for match in _WORD_TEXT_RE.finditer(paragraph.group(0))
-            )
-        )
+    paragraphs, logical_values = _paragraph_texts(xml_text)
 
     transformed: List[str] = []
     for logical in logical_values:
@@ -8334,6 +8531,28 @@ def _rewrite_next_steps_xml(xml_text: str) -> str:
             "if al_next_steps_what_happens_if_i_win %}",
         )
 
+    return _replace_paragraph_texts(xml_text, paragraphs, logical_values, transformed)
+
+
+def _paragraph_texts(xml_text: str) -> Tuple[List[Any], List[str]]:
+    """Each Word paragraph and the text it shows, with its runs joined up."""
+    paragraphs = list(_WORD_PARAGRAPH_RE.finditer(xml_text))
+    return paragraphs, [
+        "".join(
+            html.unescape(match.group(2))
+            for match in _WORD_TEXT_RE.finditer(paragraph.group(0))
+        )
+        for paragraph in paragraphs
+    ]
+
+
+def _replace_paragraph_texts(
+    xml_text: str,
+    paragraphs: Sequence[Any],
+    logical_values: Sequence[str],
+    transformed: Sequence[str],
+) -> str:
+    """Write each changed paragraph's new text back over its runs."""
     pieces: List[str] = []
     cursor = 0
     for paragraph, original, updated in zip(paragraphs, logical_values, transformed):
@@ -8362,6 +8581,65 @@ def _rewrite_next_steps_xml(xml_text: str) -> str:
         cursor = paragraph.end()
     pieces.append(xml_text[cursor:])
     return "".join(pieces)
+
+
+# `users[0].pronouns` inside a Jinja tag, but not `users[0].pronouns['he/him/his']`
+# or `users[0].pronouns.true_values()`
+_PRINTED_PRONOUNS = re.compile(
+    r"(\b[A-Za-z_]\w*(?:\[[^\[\]]*\])?(?:\.[A-Za-z_]\w*)*?)\.pronouns\b(?!\s*[\[.(])"
+)
+_JINJA_TAG = re.compile(r"\{[{%].*?[}%]\}", re.DOTALL)
+
+
+def _list_printed_pronouns(text: str) -> str:
+    """`{{ users[0].pronouns }}` -> `{{ users[0].list_pronouns() }}`."""
+    return _JINJA_TAG.sub(
+        lambda tag: _PRINTED_PRONOUNS.sub(r"\1.list_pronouns()", tag.group(0)), text
+    )
+
+
+def rewrite_docx_pronouns(source_path: str) -> Optional[str]:
+    """A copy of a DOCX that prints pronouns with `list_pronouns()`, or None.
+
+    AssemblyLine asks pronouns as checkboxes, and printing the checkbox answer
+    lists every choice, ticked or not.
+
+    Args:
+        source_path (str): the DOCX template.
+
+    Returns:
+        Optional[str]: the path of the rewritten copy, or None if nothing changed.
+    """
+    if not str(source_path).lower().endswith(".docx"):
+        return None
+    try:
+        with zipfile.ZipFile(source_path, "r") as source_zip:
+            members = [
+                (info, source_zip.read(info.filename)) for info in source_zip.infolist()
+            ]
+    except (OSError, zipfile.BadZipFile):
+        return None
+    changed = False
+    rewritten = []
+    for info, content in members:
+        if info.filename.startswith("word/") and info.filename.endswith(".xml"):
+            xml_text = content.decode("utf-8")
+            paragraphs, texts = _paragraph_texts(xml_text)
+            updated = [_list_printed_pronouns(text) for text in texts]
+            if updated != texts:
+                changed = True
+                content = _replace_paragraph_texts(
+                    xml_text, paragraphs, texts, updated
+                ).encode("utf-8")
+        rewritten.append((info, content))
+    if not changed:
+        return None
+    handle = tempfile.NamedTemporaryFile(suffix=".docx", delete=False)
+    handle.close()
+    with zipfile.ZipFile(handle.name, "w") as target_zip:
+        for info, content in rewritten:
+            target_zip.writestr(info, content)
+    return handle.name
 
 
 def runtime_next_steps_template_for_form_type(form_type: str) -> str:
@@ -8743,6 +9021,7 @@ def generate_interview_from_path(
     suggested_renames: List[Tuple[str, str]] = []
     suggested_renames_by_template: Dict[str, List[Tuple[str, str]]] = {}
     normalized_template_paths: Dict[str, str] = {}
+    template_notes: List[str] = []
     renames_applied = False
     da_files: List[Union[DAFile, DAStaticFile]] = []
     for template_input in template_inputs:
@@ -8765,6 +9044,15 @@ def generate_interview_from_path(
         if template_renames_applied:
             renames_applied = True
             normalized_template_paths[template_name] = template_path
+        pronoun_copy = rewrite_docx_pronouns(template_path)
+        if pronoun_copy:
+            template_path = pronoun_copy
+            normalized_template_paths[template_name] = template_path
+            template_notes.append(
+                f"{template_name} printed pronouns as the raw checkbox answer, "
+                "which lists every choice. The packaged copy uses "
+                "list_pronouns() so it shows only the ones chosen."
+            )
         da_files.append(
             _make_static_file_from_path(template_path, filename=template_name)
         )
@@ -8982,6 +9270,7 @@ def generate_interview_from_path(
 
     generation_warnings = interview.all_fields.cross_template_type_warnings()
     generation_warnings.extend(getattr(interview.all_fields, "generation_notes", []))
+    generation_warnings.extend(template_notes)
     if interview.has_all_unlabeled_pdfs():
         generation_warnings.append(
             "No fillable PDF fields were detected. Weaver created a general "

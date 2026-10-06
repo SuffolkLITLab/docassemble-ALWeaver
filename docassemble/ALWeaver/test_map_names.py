@@ -35,6 +35,7 @@ attachment_scenarios = {
     "user_phone_number": "users[0].phone_number",
     "user_mobile": "users[0].mobile_number",
     "user_mobile_number": "users[0].mobile_number",
+    "user_pronouns": "users[0].list_pronouns()",
     "user_address_block": "users[0].address.block()",
     "user_address_street": "users[0].address.address",
     "user_address_street2": "users[0].address.unit",

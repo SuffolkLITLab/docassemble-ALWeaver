@@ -358,3 +358,106 @@ class TestEveryStageUsesTheConfiguredModel(unittest.TestCase):
             ig._llm_rewrite_for_plain_language(["Please submit forthwith."])
             ig._llm_refine_section_catalog(["Screen one"], [{"id": "a", "label": "A"}])
         self.assertEqual(seen, ["gpt-6-luna", "gpt-6-luna"])
+
+
+class _ScreensWithFiller:
+    def chat_completion(self, **kwargs):
+        return {
+            "screens": [
+                {
+                    "question": "Your contact information",
+                    "subquestion": "Type your contact information below.",
+                    "fields": ["custom_one"],
+                }
+            ]
+        }
+
+
+class _Rewrites:
+    def __init__(self, rewrites):
+        self.rewrites = rewrites
+        self.calls = []
+
+    def chat_completion(self, **kwargs):
+        self.calls.append(kwargs)
+        return {
+            "rewrites": [
+                {"original": original, "rewrite": rewrite}
+                for original, rewrite in self.rewrites.items()
+            ]
+        }
+
+
+class TestDraftTextQuality(unittest.TestCase):
+    """What the user reads: no filler, no legalese, room for long answers."""
+
+    def setUp(self):
+        docassemble.base.functions.this_thread.current_question = type("", (), {})()
+        docassemble.base.functions.this_thread.current_question.package = "ALWeaver"
+
+    def _interview(self, variable="custom_one", source="docx", guess="text"):
+        interview = DAInterview()
+        field = interview.all_fields.appendObject()
+        field.group = DAFieldGroup.CUSTOM
+        field.variable = variable
+        field.label = "Custom one"
+        field.field_type = guess
+        field.field_type_guess = guess
+        field.final_display_var = variable
+        field.source_document_type = source
+        field.has_label = True
+        interview._llm_context_text = MethodType(
+            lambda self, **kwargs: "context", interview
+        )
+        interview._llm_default_model = MethodType(lambda self: "gpt-6-luna", interview)
+        return interview, field
+
+    def test_filler_subquestions_are_dropped(self):
+        interview, _ = self._interview()
+        interview.questions = DAQuestionList()
+        with patch.object(ig, "_load_llms_module", return_value=_ScreensWithFiller()):
+            interview.llm_group_fields(apply=True)
+        self.assertEqual(interview.questions[0].subquestion_text, "")
+
+    def test_a_narrative_label_gets_a_text_area(self):
+        interview, field = self._interview("appeal_arguments")
+        interview.apply_llm_field_updates(
+            {"appeal_arguments": {"label": "Legal arguments", "datatype": "text"}}
+        )
+        self.assertEqual(field.field_type, "area")
+
+    def test_the_model_cannot_shrink_a_text_area(self):
+        interview, field = self._interview("appeal_conclusion", guess="area")
+        interview.apply_llm_field_updates(
+            {"appeal_conclusion": {"label": "Result you want", "datatype": "text"}}
+        )
+        self.assertEqual(field.field_type, "area")
+
+    def test_a_pdf_box_size_still_decides(self):
+        interview, field = self._interview("reason", source="pdf")
+        interview.apply_llm_field_updates(
+            {"reason": {"label": "Reason for the request", "datatype": "text"}}
+        )
+        self.assertEqual(field.field_type, "text")
+
+    def test_formal_words_are_rewritten(self):
+        interview, _ = self._interview()
+        fake = _Rewrites({"Date order obtained": "Date you got the order"})
+        with patch.object(ig, "_load_llms_module", return_value=fake):
+            plainer = interview._plainer_wording(["Date order obtained", "Your email"])
+        self.assertEqual(plainer, {"Date order obtained": "Date you got the order"})
+        # Only the flagged text went to the model
+        self.assertNotIn("Your email", fake.calls[0]["user_message"])
+
+    def test_a_rewrite_that_keeps_the_word_is_rejected(self):
+        interview, _ = self._interview()
+        fake = _Rewrites({"Date order obtained": "Date the order was obtained"})
+        with patch.object(ig, "_load_llms_module", return_value=fake):
+            self.assertEqual(interview._plainer_wording(["Date order obtained"]), {})
+
+    def test_nothing_flagged_means_no_call(self):
+        interview, _ = self._interview()
+        fake = _Rewrites({})
+        with patch.object(ig, "_load_llms_module", return_value=fake):
+            self.assertEqual(interview._plainer_wording(["Your email"]), {})
+        self.assertEqual(fake.calls, [])

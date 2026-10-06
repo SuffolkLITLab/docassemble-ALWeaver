@@ -2339,3 +2339,87 @@ class TestDocxUploadedFiles(unittest.TestCase):
             yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
         self.assertIn(": exhibits\n    datatype: file\n", yaml_text)
         self.assertNotIn("exhibits[0].filename", yaml_text)
+
+
+class TestDocxExhibitDocuments(unittest.TestCase):
+    def test_an_exhibit_document_is_declared_and_gathered(self):
+        """`appendix.exhibits.there_are_any` crashed when `appendix` was an ALIndividual."""
+        import docx
+        from dayamlchecker.yaml_structure import find_errors_from_string
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docx_path = os.path.join(tmpdir, "appellee_brief.docx")
+            document = docx.Document()
+            document.add_paragraph(
+                "{%p if record_appendix_document.exhibits.there_are_any %}"
+                "Record appendix attached{%p endif %}"
+            )
+            document.add_paragraph("{{ appeal_arguments }}")
+            document.save(docx_path)
+            result = generate_interview_from_path(
+                docx_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+        self.assertIn(
+            "record_appendix_document: ALExhibitDocument.using(title='Record appendix'",
+            yaml_text,
+        )
+        self.assertNotIn("record_appendix_document: ALIndividual", yaml_text)
+        self.assertIn("  record_appendix_document.exhibits.gather()\n", yaml_text)
+        # AssemblyLine's own exhibit questions ask, not a custom yes/no
+        self.assertNotIn(": record_appendix_document.exhibits.there_are_any", yaml_text)
+        self.assertNotIn("record_appendix_document.name.first", yaml_text)
+        self.assertRegex(yaml_text, r"al_user_bundle: .*record_appendix_document\]")
+        self.assertEqual(find_errors_from_string(yaml_text, input_file="x.yml"), [])
+
+
+class TestDocxPronouns(unittest.TestCase):
+    def test_printed_pronouns_use_assemblyline(self):
+        """Printing the checkbox answer listed every pronoun choice."""
+        import docx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docx_path = os.path.join(tmpdir, "brief.docx")
+            document = docx.Document()
+            document.add_paragraph("{{ users[0] }}")
+            paragraph = document.add_paragraph("Your pronouns: {{ users[0]")
+            # Word often splits an expression across runs
+            paragraph.add_run(".pronouns }}")
+            document.add_paragraph(
+                "{% if users[0].pronouns['he/him/his'] %}x{% endif %}"
+            )
+            document.save(docx_path)
+            result = generate_interview_from_path(
+                docx_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+            copy = result.normalized_template_paths["brief.docx"]
+            with zipfile.ZipFile(copy) as packaged:
+                xml = packaged.read("word/document.xml").decode("utf-8")
+        self.assertIn("users[i].pronoun_fields(", yaml_text)
+        self.assertNotIn('"Users[0].pronouns"', yaml_text)
+        self.assertIn("list_pronouns()", xml)
+        # A lookup of one choice still reads the checkbox answer
+        self.assertIn("pronouns[&apos;he/him/his&apos;]", xml.replace("'", "&apos;"))
+        self.assertTrue(any("list_pronouns()" in note for note in result.warnings))
+
+    def test_rewrite_leaves_other_uses_alone(self):
+        rewrite = interview_generator_module._list_printed_pronouns
+        self.assertEqual(
+            rewrite("{{ users[0].pronouns }} and {{ other_parties[1].pronouns }}"),
+            "{{ users[0].list_pronouns() }} and {{ other_parties[1].list_pronouns() }}",
+        )
+        for unchanged in [
+            "{{ users[0].pronouns['he/him/his'] }}",
+            "{{ users[0].pronouns.true_values() }}",
+            "{{ users[0].list_pronouns() }}",
+            "Pronouns are words like he or she",
+        ]:
+            with self.subTest(text=unchanged):
+                self.assertEqual(rewrite(unchanged), unchanged)

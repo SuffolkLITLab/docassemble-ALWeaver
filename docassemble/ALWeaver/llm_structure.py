@@ -39,7 +39,10 @@ Return a JSON object with these keys, each a list (empty if nothing applies):
   is the standard label it should have, built like user_birthdate,
   user_name_full, user_address_city, user_phone, user_email,
   user2_name_first, other_party_name_full, child1_birthdate,
-  trial_court_division, docket_number or signature_date.
+  user_pronouns, trial_court_division, docket_number or signature_date.
+  When the form asks for someone's pronouns, remap that field to
+  user_pronouns (or other_party_pronouns, and so on): AssemblyLine has its
+  own pronouns question, so never leave pronouns as a text field.
   Shape: {"field": "...", "assemblyline_label": "...", "evidence": "..."}
   Example: {"field": "date_of_birth", "assemblyline_label": "user_birthdate", "evidence": "Date of Birth"}
 - "choice_groups": separate yes/no boxes that are really answers to one
