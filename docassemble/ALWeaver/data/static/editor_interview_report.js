@@ -324,7 +324,10 @@
     return !buttons.some(function (button) {
       if (!button || typeof button !== 'object') return false;
       return Object.keys(button).some(function (label) {
-        return button[label] === 'continue' || button[label] === 'resume' || label === 'code';
+        // A mapping value is an embedded block whose effect is unknown here.
+        var value = button[label];
+        return value === 'continue' || value === 'resume' || label === 'code' ||
+          (!!value && typeof value === 'object');
       });
     });
   }
