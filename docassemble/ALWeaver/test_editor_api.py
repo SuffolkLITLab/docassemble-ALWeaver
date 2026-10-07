@@ -6516,3 +6516,30 @@ class TestTemplateFieldReadWithoutInterview(unittest.TestCase):
                     ),
                     [],
                 )
+
+
+class TestInterviewReportScan(unittest.TestCase):
+    def test_scan_requires_authentication(self):
+        with patch.object(api_editor, "_editor_auth_check", return_value=False):
+            with api_editor.app.test_client() as client:
+                response = client.post("/al/editor/api/reports/scan", json={})
+        self.assertEqual(response.status_code, 401)
+
+    def test_scan_reads_only_the_authenticated_project(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                return_value="question: Hello\nyesno: ready\n",
+            ) as read,
+        ):
+            with api_editor.app.test_client() as client:
+                response = client.post(
+                    "/al/editor/api/reports/scan",
+                    json={"project": "default", "filename": "main.yml"},
+                )
+        self.assertEqual(response.status_code, 200)
+        read.assert_called_with(7, "default", "main.yml")
+        self.assertEqual(response.json["data"]["variables"][0]["name"], "ready")

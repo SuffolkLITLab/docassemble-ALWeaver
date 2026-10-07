@@ -51,6 +51,16 @@ class _TemplateCollector(HTMLParser):
 
 
 class TestEditorFrontend(unittest.TestCase):
+    def test_variable_report_has_persistent_rail_and_navigation(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        source = (self.package_dir / "data/static/editor.js").read_text()
+        controls = (self.package_dir / "data/static/editor_reports.js").read_text()
+        self.assertIn('id="variable-report-rail"', template)
+        self.assertEqual(template.count('data-action="open-variable-report"'), 2)
+        self.assertIn("'open the report location'", source)
+        self.assertIn("/api/reports/scan", controls)
+        self.assertIn("block.line_start", controls)
+
     def test_template_interview_selector_reuses_guarded_file_navigation(self):
         source = (self.package_dir / "data/static/editor.js").read_text()
         outline = source.split("function renderSectionOutline()", 1)[1].split(

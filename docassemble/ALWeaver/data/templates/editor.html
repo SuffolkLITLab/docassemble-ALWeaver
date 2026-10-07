@@ -44,6 +44,7 @@
             <ul class="editor-section-submenu-list d-none" id="editor-interview-submenu">
               <li><button type="button" class="dropdown-item" data-action="open-interview-order"><i class="fa-solid fa-list-ol fa-fw me-2" aria-hidden="true"></i>Interview Order</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-interview-flow-report"><i class="fa-solid fa-file-lines fa-fw me-2" aria-hidden="true"></i>Flow report</button></li>
+              <li><button type="button" class="dropdown-item" data-action="open-variable-report">Variables and screen reachability</button></li>
               <li><button type="button" class="dropdown-item" data-action="run-style-check"><i class="fa-solid fa-ruler fa-fw me-2" aria-hidden="true"></i>Style check</button></li>
               <li><button type="button" class="dropdown-item" data-action="run-style-check-ai"><i class="fa-solid fa-wand-magic-sparkles fa-fw me-2" aria-hidden="true"></i>Style check + AI suggestions</button></li>
               <li><hr class="dropdown-divider"></li>
@@ -90,6 +91,7 @@
             <ul class="dropdown-menu" data-bs-theme="light" aria-labelledby="interview-menu">
               <li><button type="button" class="dropdown-item" data-action="open-interview-order"><i class="fa-solid fa-list-ol fa-fw me-2" aria-hidden="true"></i>Interview Order</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-interview-flow-report"><i class="fa-solid fa-file-lines fa-fw me-2" aria-hidden="true"></i>Flow report</button></li>
+              <li><button type="button" class="dropdown-item" data-action="open-variable-report">Variables and screen reachability</button></li>
               <li><button type="button" class="dropdown-item" data-action="run-style-check"><i class="fa-solid fa-ruler fa-fw me-2" aria-hidden="true"></i>Style check</button></li>
               <li><button type="button" class="dropdown-item" data-action="run-style-check-ai"><i class="fa-solid fa-wand-magic-sparkles fa-fw me-2" aria-hidden="true"></i>Style check + AI suggestions</button></li>
               <li><hr class="dropdown-divider"></li>
@@ -227,6 +229,15 @@
         <button type="button" class="btn btn-primary js-save-file-btn" data-action="save-file" title="Save your changes (Ctrl+S)" disabled><i class="fa-solid fa-floppy-disk me-1" aria-hidden="true"></i>Save<span class="editor-save-badge js-save-badge d-none"></span></button>
       </div>
     </main>
+
+    <aside id="variable-report-rail" class="d-none border-start p-3" aria-label="Variables and screen reachability" style="width:360px;max-width:90vw;flex-shrink:0;overflow:auto">
+      <div class="d-flex justify-content-between"><h2 class="h6">Variables and screens</h2><button type="button" class="btn-close" id="variable-report-close" aria-label="Close variable report"></button></div>
+      <p class="small">Updates after saving. Findings are static hints, not proof that a screen cannot run.</p>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="variable-report-refresh">Refresh</button>
+      <label class="form-label mt-2" for="variable-report-filter">Filter variables and screens</label>
+      <input class="form-control" id="variable-report-filter" type="search">
+      <div id="variable-report-results" aria-live="polite"></div>
+    </aside>
 
     <!-- ASSISTANT DRAWER (opt-in; hidden unless the agent editor is enabled) -->
     <aside class="editor-assistant d-none" id="editor-assistant" aria-label="Editing assistant">
@@ -1306,6 +1317,7 @@
 <script src="/al/editor/static/editor_validation_source.js"></script>
 <script src="/al/editor/static/editor_screen_preview.js"></script>
 <script src="/al/editor/static/editor_interview_report.js"></script>
+<script src="/al/editor/static/editor_reports.js"></script>
 <script src="/al/editor/static/faker_en_us.js"></script>
 <script src="/al/editor/static/editor_fake_filler.js"></script>
 <script src="/al/editor/static/editor_runtime_inspector.js"></script>

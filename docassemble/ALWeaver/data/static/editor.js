@@ -13277,6 +13277,30 @@
    * size, with the branching logic between them and a flowchart of the same
    * walk on top, and is laid out to print.
    */
+  function reportBridge() {
+    return {
+      getState: function () {
+        return state;
+      },
+      apiPost: apiPost,
+      openBlock: function (block) {
+        if (block.sourceFile.indexOf(':') !== -1) return;
+        deferNavigationForUnsavedChanges(
+          'open the report location',
+          function () {
+            state.filename = block.sourceFile;
+            state.selectedBlockId = block.id;
+            state.currentView = 'interview';
+            state.canvasMode = 'question';
+            state.jumpTarget = 'all';
+            syncJumpSelect();
+            loadFile();
+          },
+        );
+      },
+    };
+  }
+
   function openInterviewFlowReport() {
     if (typeof ALWeaverInterviewReport === 'undefined') {
       window.alert(
@@ -21806,6 +21830,10 @@
       )
         return;
       enterOrderBuilder(requestedMenuOrderBlock, 'interview-menu');
+      return;
+    }
+    if (uiAction === 'open-variable-report') {
+      window.ALWeaverReports.openVariables(reportBridge());
       return;
     }
     if (uiAction === 'open-interview-flow-report') {
