@@ -466,3 +466,25 @@ console.log('editor_interview_report.js: all assertions passed');
     assert.ok(html.includes('Here are other ways to get help.'));
   }
 }
+
+// A stopping event closes only its own branch, including inside loops.
+{
+  const exit = {data: {event: 'stop', question: 'Stop here', buttons: [{Exit: 'exit'}]}};
+  const map = report.buildBlockMap([exit, ...blocks]);
+  const flow = report.buildFlowModel([
+    {kind: 'condition', condition: 'ineligible', children: [{kind: 'screen', invoke: 'stop'}]},
+    {kind: 'screen', invoke: 'has_children'},
+  ], map);
+  const stop = flow.nodes.find(n => n.label === 'Stop here');
+  assert.ok(stop.stops);
+  assert.ok(!flow.edges.some(e => e.from === stop.id));
+  assert.ok(flow.edges.some(e => e.label === 'no'));
+  assert.ok(report.isTerminalScreen({data: {event: 'end', question: 'Done'}}));
+  for (const extra of [{fields: [{Name: 'name'}]}, {buttons: [{Continue: 'continue'}]},
+    {'continue button field': 'done'}, {buttons: [{code: 'dynamic_buttons'}]}, {review: []}]) {
+    assert.ok(!report.isTerminalScreen({data: {event: 'end', question: 'Done', ...extra}}));
+  }
+  const loop = report.buildFlowModel([{kind: 'loop', target: 'item', iterable: 'items',
+    children: [{kind: 'screen', invoke: 'stop'}]}], map);
+  assert.ok(!loop.edges.some(e => e.from === loop.nodes.find(n => n.stops).id));
+}

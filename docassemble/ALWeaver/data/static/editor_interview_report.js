@@ -309,6 +309,25 @@
       typeof data.table === 'string';
   }
 
+  // An event without an answer or an explicit continuation cannot satisfy
+  // the order's next statement. Action buttons may leave/restart the interview.
+  function isTerminalScreen(block) {
+    var data = (block && block.data) || {};
+    if (!data.event || !isScreenBlock(block)) return false;
+    if (['fields', 'field', 'continue button field', 'yesno', 'noyes',
+         'yesnomaybe', 'noyesmaybe', 'signature', 'review'].some(function (key) {
+      return Object.prototype.hasOwnProperty.call(data, key);
+    })) return false;
+    var buttons = data.buttons || data.choices || [];
+    if (!Array.isArray(buttons)) return false; // Dynamic destinations are unknown.
+    return !buttons.some(function (button) {
+      if (!button || typeof button !== 'object') return false;
+      return Object.keys(button).some(function (label) {
+        return button[label] === 'continue' || button[label] === 'resume' || label === 'code';
+      });
+    });
+  }
+
   /* An order block often names a variable that a `code:` block assembles --
    * `trial_court` is built by code out of the answers to another screen. The
    * screen is what a reader needs, so the code is followed to whatever it
@@ -1023,7 +1042,9 @@
         switch (kind) {
           case STEP_SCREEN:
             var info = screenTitle(step, blockMap);
-            node = addNode(info.title, info.variable, 'rect', info.block ? 'screen' : 'missing');
+            node = addNode(info.title, info.variable, isTerminalScreen(info.block) ? 'stadium' : 'rect',
+              isTerminalScreen(info.block) ? 'terminal' : (info.block ? 'screen' : 'missing'));
+            node.stops = isTerminalScreen(info.block);
             break;
           case STEP_GATHER:
             var gather = describeGather(step, { blockMap: blockMap, objects: objects || {} });
@@ -1056,7 +1077,9 @@
 
         connect(open, node.id);
 
-        if (kind === STEP_LOOP) {
+        if (node.stops) {
+          open = [];
+        } else if (kind === STEP_LOOP) {
           var nestedLoop = { header: node.id, exits: [] };
           var bodyTails = walk(step.children || [], [{ from: node.id, label: 'next item' }], nestedLoop);
           connect(bodyTails, node.id);
@@ -1561,6 +1584,7 @@
     buildMermaidSource: buildMermaidSource,
     buildFlowModel: buildFlowModel,
     buildBlockMap: buildBlockMap,
+    isTerminalScreen: isTerminalScreen,
     findBlock: findBlock,
     screenTitle: screenTitle,
     assemblyLineStandIn: assemblyLineStandIn,
