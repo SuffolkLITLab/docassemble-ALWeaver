@@ -8,6 +8,7 @@ from .interview_generator import (
     get_docx_function_type_hints,
     is_reserved_docx_label,
     get_pdf_variable_name_matches,
+    straighten_quotes,
 )
 from .validate_template_files import matching_reserved_names
 from docassemble.base.util import DAStaticFile
@@ -178,9 +179,11 @@ class test_docxs(unittest.TestCase):
         """A missing key is asked for by its repr(), whatever quotes Word used."""
         self.assertEqual(
             get_docx_variables(
-                "{{ income[‘Disability Benefits’] }}"
-                "{%p if print_options[‘Inputs'] %}{% endif %}"
-                '{{ notes["Mother\'s name"] }}'
+                straighten_quotes(
+                    "{{ income[‘Disability Benefits’] }}"
+                    "{%p if print_options[‘Inputs'] %}{% endif %}"
+                    '{{ notes["Mother\'s name"] }}'
+                )
             ),
             {
                 "income['Disability Benefits']",
@@ -250,7 +253,10 @@ class test_docxs(unittest.TestCase):
     def test_curly_quoted_arguments_are_not_variables(self):
         """Word autocorrects quotes, and the text inside them is not a variable."""
         self.assertEqual(
-            get_docx_variables("{{ format_date(some_date, “MMddyy”) }}"), {"some_date"}
+            get_docx_variables(
+                straighten_quotes("{{ format_date(some_date, “MMddyy”) }}")
+            ),
+            {"some_date"},
         )
 
     def test_reserved_docx_labels(self):

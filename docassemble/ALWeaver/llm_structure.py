@@ -21,11 +21,10 @@ Every proposal must quote text that is really in the form. Whatever is applied
 is reported back so the author can see it, with that quote.
 """
 
-import json
 import re
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
-__all__ = ["STRUCTURE_PROMPT", "build_structure_request", "validated_proposals"]
+__all__ = ["STRUCTURE_PROMPT", "validated_proposals"]
 
 STRUCTURE_PROMPT = """
 You are helping turn a court form into a guided interview. You get the form's
@@ -61,22 +60,17 @@ rather than guess.
 """.strip()
 
 
-def build_structure_request(fields: Sequence[Mapping[str, Any]]) -> str:
-    """The field list the model sees, one JSON object per field."""
-    return json.dumps(list(fields), indent=0)
-
-
 def _normalized(text: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", str(text).lower())).strip()
 
 
-def _supported(evidence: Any, context: str, min_words: int = 1) -> bool:
+def _supported(evidence: Any, normalized_context: str, min_words: int = 1) -> bool:
     """True if the quote is really in the form (ignoring case and punctuation)."""
     quote = _normalized(evidence or "")
     return (
         len(quote) >= 3
         and len(quote.split()) >= min_words
-        and quote in _normalized(context)
+        and quote in normalized_context
     )
 
 
@@ -112,6 +106,7 @@ def validated_proposals(
     }
     if not isinstance(response, dict):
         return accepted
+    context = _normalized(context)
     used: set = set()
 
     for remap in response.get("remaps") or []:
@@ -202,21 +197,15 @@ def validated_proposals(
             continue
         choice = condition.get("choice")
         if control.get("type") == "yesno" and not choice:
-            accepted["conditions"].append(
-                {
-                    "field": field,
-                    "when": when,
-                    "choice": None,
-                    "evidence": condition["evidence"],
-                }
-            )
-        elif choice is not None and str(choice) in control.get("choices", []):
-            accepted["conditions"].append(
-                {
-                    "field": field,
-                    "when": when,
-                    "choice": str(choice),
-                    "evidence": condition["evidence"],
-                }
-            )
+            choice = None
+        elif choice is None or str(choice) not in control.get("choices", []):
+            continue
+        accepted["conditions"].append(
+            {
+                "field": field,
+                "when": when,
+                "choice": None if choice is None else str(choice),
+                "evidence": condition["evidence"],
+            }
+        )
     return accepted

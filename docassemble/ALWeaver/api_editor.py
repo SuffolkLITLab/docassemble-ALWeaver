@@ -1706,11 +1706,9 @@ def _local_template_field_names(path: str) -> List[str]:
 
         names = [str(field[0]) for field in (read_fields(path) or [])]
     else:
-        from docx2python import docx2python
-        from .interview_generator import get_docx_variables
+        from .interview_generator import docx_template_text, get_docx_variables
 
-        with docx2python(path) as document:
-            names = [str(name) for name in get_docx_variables(document.text)]
+        names = [str(name) for name in get_docx_variables(docx_template_text(path))]
     return list(dict.fromkeys(names))
 
 

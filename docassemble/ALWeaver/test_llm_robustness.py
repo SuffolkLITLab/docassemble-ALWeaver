@@ -318,7 +318,9 @@ class TestLLMChoiceSuggestions(unittest.TestCase):
                 ]
             }
         )
-        self.assertEqual(interview.questions[0].field_list[0].field_type, "text")
+        field = interview.questions[0].field_list[0]
+        field.ensure_choices()  # what writing the interview out does
+        self.assertEqual(field.field_type, "text")
 
 
 class TestClassificationKey(unittest.TestCase):
@@ -529,6 +531,57 @@ class TestDraftTextQuality(unittest.TestCase):
     def test_a_rewrite_that_keeps_the_word_is_rejected(self):
         fake = _rewrites({"Date order obtained": "Date the order was obtained"})
         self.assertEqual(self._plainer(fake, ["Date order obtained"]), {})
+
+    def test_drafting_stages_share_one_plain_language_call(self):
+        interview, field = self._interview()
+        interview.questions = DAQuestionList()
+
+        class Staged(_CannedLlms):
+            def chat_completion(self, **kwargs):
+                self.calls.append(kwargs)
+                system = str(kwargs.get("system_message", ""))
+                if "Group fields" in system:
+                    return {
+                        "screens": [
+                            {
+                                "question": "Information obtained",
+                                "fields": ["custom_one"],
+                            }
+                        ]
+                    }
+                if "`rewrites`" in system:
+                    return {
+                        "rewrites": [
+                            {
+                                "original": "Date order obtained",
+                                "rewrite": "Date you got it",
+                            },
+                            {
+                                "original": "Information obtained",
+                                "rewrite": "What you got",
+                            },
+                        ]
+                    }
+                return {"custom_one": {"label": "Date order obtained"}}
+
+        fake = Staged(None)
+        with (
+            patch.object(ig, "_load_llms_module", return_value=fake),
+            patch.object(ig, "_configured_llm_model", return_value="gpt-6-luna"),
+        ):
+            with interview._plain_wording_in_one_call():
+                interview.llm_refine_field_labels(apply=True)
+                interview.llm_group_fields(apply=True)
+
+        rewrite_calls = [
+            call for call in fake.calls if "`rewrites`" in call["system_message"]
+        ]
+        self.assertEqual(len(rewrite_calls), 1)
+        self.assertEqual(field.label, "Date you got it")
+        screen = interview.questions[0]
+        self.assertEqual(screen.question_text, "What you got")
+        # The screen's copy of the label follows the rewrite
+        self.assertEqual(screen.field_list[0].label, "Date you got it")
 
     def test_nothing_flagged_means_no_call(self):
         fake = _rewrites({})

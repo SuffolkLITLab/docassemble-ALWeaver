@@ -13,28 +13,10 @@
     default: ${ repr(field.default) }
   % endif
   % if hasattr(field, "field_type"):
-    % if field.field_type in ["yesno", "yesnomaybe","file","yesnoradio","noyes","noyesradio", "integer","currency","email","range","number","date"]:
-    datatype: ${ field.field_type }
-    % elif field.field_type == "multiple choice radio":
-    input type: radio
-    % elif field.field_type == "multiple choice checkboxes":
-    datatype: checkboxes
-    % elif field.field_type == "multiple choice combobox":
-    datatype: combobox
-    % elif field.field_type == "multiple choice dropdown":
-    input type: dropdown
-    % elif field.field_type == "multiselect":
-    datatype: multiselect
-    % elif field.field_type == "area":
-    input type: area
-    % if field.need_maxlength():
-    maxlength: ${ field.maxlength }
-    % endif
-    % endif
-    % if field.field_type in ["integer", "currency"]:
-    min: 0
-    % endif
-    % if field.field_type in ["email", "text"]:
+    % for line in FIELD_TYPE_YAML.get(field.field_type, []):
+    ${ line }
+    % endfor
+    % if field.field_type in ["area", "email", "text"]:
     % if field.need_maxlength():
     maxlength: ${ field.maxlength }
     % endif
@@ -148,10 +130,8 @@ confirm: True\
       - "${ raw_name }": <%text>${</%text> ${ row_attachment_expression(field, item_lists) } }
     % elif hasattr(field, "field_type") and field.field_type=="date" and field.final_display_var == field.variable:
       - "${ raw_name }": <%text>${</%text> ${ field.variable }.format() }
-    % elif hasattr(field, "field_type") and field.field_type=="currency" and getattr(field, "pdf_prints_dollar_sign", False) and field.final_display_var == field.variable:
-      - "${ raw_name }": <%text>${</%text> thousands(${ field.variable }, show_decimals=True) }
     % elif hasattr(field, "field_type") and field.field_type=="currency" and field.final_display_var == field.variable:
-      - "${ raw_name }": <%text>${</%text> currency(${ field.variable }) }
+      - "${ raw_name }": <%text>${</%text> ${ field.money_expression() } }
     % elif hasattr(field, "field_type") and field.field_type=="number" and field.final_display_var == field.variable:
       - "${ raw_name }": <%text>${</%text> "{:,.2f}".format(${ field.variable }) }
     % elif field.field_type_guess == "signature":

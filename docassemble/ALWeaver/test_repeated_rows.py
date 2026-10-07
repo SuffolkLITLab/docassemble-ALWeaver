@@ -58,7 +58,7 @@ class TestFindRowFamilies(unittest.TestCase):
         """`judge0` with `judge0_role`, from the Civil Docketing Statement."""
         variables = ["judge0", "judge0_role", "judge1", "judge1_role", "judge2"]
         judges = families_by_name(variables)["judges"]
-        self.assertTrue(judges.is_people)
+        self.assertEqual(judges.object_type, "ALPeopleList")
         self.assertEqual(judges.variables["judge0"], "judges[0]")
         self.assertEqual(judges.variables["judge1_role"], "judges[1].role")
         self.assertEqual(judges.capacity, 3)

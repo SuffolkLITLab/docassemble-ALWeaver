@@ -160,20 +160,20 @@ def _load_table() -> Dict[str, str]:
 
 
 @lru_cache(maxsize=1)
-def _replacement_patterns() -> Tuple[Tuple[str, "re.Pattern[str]"], ...]:
-    """Each formal term's suggestion and pattern, longest terms first, matched
-    the way DAYamlChecker's linter matches them."""
-    return tuple(
-        (
-            replacement,
-            re.compile(
-                rf"(?<![A-Za-z0-9_]){re.escape(term)}(?![A-Za-z0-9_])", re.IGNORECASE
-            ),
-        )
-        for term, replacement in sorted(
-            _load_table().items(), key=lambda item: len(item[0]), reverse=True
-        )
+def _replacement_pattern() -> Tuple[Dict[str, str], "re.Pattern[str]"]:
+    """The table, longest terms first, and one pattern that finds any of its
+    terms the way DAYamlChecker's linter matches them. Longer terms come first
+    so "prior to" is found rather than "prior"."""
+    loaded = _load_table()
+    terms = sorted(loaded, key=len, reverse=True)
+    table = {term: loaded[term] for term in terms}
+    pattern = re.compile(
+        r"(?<![A-Za-z0-9_])(?:"
+        + "|".join(re.escape(term) for term in terms)
+        + r")(?![A-Za-z0-9_])",
+        re.IGNORECASE,
     )
+    return table, pattern
 
 
 def plain_language_flags(text: str) -> List[Tuple[str, str]]:
@@ -183,22 +183,18 @@ def plain_language_flags(text: str) -> List[Tuple[str, str]]:
         text (str): text a model wrote.
 
     Returns:
-        List[Tuple[str, str]]: `(word as written, suggested replacements)`.
+        List[Tuple[str, str]]: `(word as written, suggested replacements)`,
+        longest first, once for each word.
     """
     if not text:
         return []
-    found: List[Tuple[str, str]] = []
-    taken: List[Tuple[int, int]] = []
-    for replacement, pattern in _replacement_patterns():
-        match = pattern.search(text)
-        if not match:
-            continue
-        span = match.span()
-        if any(not (span[1] <= start or span[0] >= end) for start, end in taken):
-            continue
-        taken.append(span)
-        found.append((match.group(0), replacement))
-    return found
+    table, pattern = _replacement_pattern()
+    found: Dict[str, str] = {}
+    for match in pattern.finditer(text):
+        found.setdefault(match.group(0).lower(), match.group(0))
+    if not found:
+        return []
+    return [(found[term], table[term]) for term in table if term in found]
 
 
 def flags_by_text(texts: Sequence[str]) -> Dict[str, List[Tuple[str, str]]]:

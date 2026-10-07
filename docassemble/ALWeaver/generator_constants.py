@@ -22,6 +22,7 @@ class GeneratorConstantObject(object):
     FULL_DISPLAY: Dict[str, str]
     COURT_CHOICES: List[str]
     AL_MANAGED_OBJECTS: Set[str]
+    FIELD_TYPE_YAML: Dict[str, List[str]]
 
 
 generator_constants = GeneratorConstantObject()
@@ -347,4 +348,26 @@ generator_constants.AL_MANAGED_OBJECTS = {
     "plaintiffs",
     "respondents",
     "trial_court",
+}
+
+# The lines a field's Weaver type adds to its entry under `fields:`
+generator_constants.FIELD_TYPE_YAML = {
+    "yesno": ["datatype: yesno"],
+    "yesnomaybe": ["datatype: yesnomaybe"],
+    "file": ["datatype: file"],
+    "yesnoradio": ["datatype: yesnoradio"],
+    "noyes": ["datatype: noyes"],
+    "noyesradio": ["datatype: noyesradio"],
+    "integer": ["datatype: integer", "min: 0"],
+    "currency": ["datatype: currency", "min: 0"],
+    "email": ["datatype: email"],
+    "range": ["datatype: range"],
+    "number": ["datatype: number"],
+    "date": ["datatype: date"],
+    "multiple choice radio": ["input type: radio"],
+    "multiple choice checkboxes": ["datatype: checkboxes"],
+    "multiple choice combobox": ["datatype: combobox"],
+    "multiple choice dropdown": ["input type: dropdown"],
+    "multiselect": ["datatype: multiselect"],
+    "area": ["input type: area"],
 }

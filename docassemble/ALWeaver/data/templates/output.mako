@@ -2,15 +2,9 @@
     Initial metadata and includes
 </%doc>
 <%
-  selected_includes = list(get_yml_deps_from_choices(interview.dependency_choices()))
-  state_for_theme = str(getattr(interview, "state", "") or "").strip().upper()
-  massaccess_include = "docassemble.MassAccess:massaccess.yml"
-  if state_for_theme == "MA" and massaccess_include not in selected_includes:
-      selected_includes.append(massaccess_include)
+  selected_includes = interview.yaml_includes()
   row_families = list(getattr(interview.all_fields, "row_families", []))
-  # Vehicles and assets use the questions ALToolbox writes for its own classes
-  if any(family.uses_al_income for family, _datatypes in row_families):
-      selected_includes.append("docassemble.ALToolbox:al_income.yml")
+  court_attributes = interview.unasked_court_attributes()
 
   categories_selected = sorted(set(interview.categories.true_values()))
   other_categories_selected = []
@@ -56,9 +50,7 @@
       - {"Other"}
   )
 
-  has_addendum = interview.all_fields.has_addendum_fields() or bool(
-      getattr(interview.all_fields, "row_families", [])
-  )
+  has_addendum = interview.all_fields.has_addendum_fields() or bool(row_families)
   aldocument_kwargs = "enabled=True, has_addendum=%s" % has_addendum
   if has_addendum:
       aldocument_kwargs += ", default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE"
@@ -406,13 +398,13 @@ ${ baseline_question_yaml(baseline_question) }\
 % for family, datatypes in row_families:
 ${ row_family_yaml(family, datatypes) }\
 % endfor
-% if interview.unasked_court_attributes():
+% if court_attributes:
 ---
 id: court details
 question: |
   Tell us more about the court
 fields:
-  % for label, variable in interview.unasked_court_attributes():
+  % for label, variable in court_attributes:
   - "${ label }": ${ variable }
   % endfor
 % endif
@@ -683,7 +675,7 @@ code: |
   ## Rows past the ones the form has room for go to the addendum, as a table
   ${ attachment_variable_name }.overflow_fields["${ family.list_name }"].overflow_trigger = ${ family.capacity }
   ${ attachment_variable_name }.overflow_fields["${ family.list_name }"].label = "${ family.list_name.replace("_", " ").capitalize() } (continued)"
-  ${ attachment_variable_name }.overflow_fields["${ family.list_name }"].headers = ${ repr([{attribute.split("(")[0]: attribute.split("(")[0].replace("_", " ").capitalize()} for attribute in dict.fromkeys(family.attributes.values()) if attribute and not attribute.endswith(")")] or [{"name": "Name"}]) }
+  ${ attachment_variable_name }.overflow_fields["${ family.list_name }"].headers = ${ repr(family.overflow_headers()) }
   % endfor
   ${ attachment_variable_name }.overflow_fields.gathered = True
   % endfor

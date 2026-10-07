@@ -20,6 +20,9 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
+from .generator_constants import generator_constants
+from .question_library import render_baseline_question
+
 __all__ = ["RowFamily", "find_row_families"]
 
 
@@ -41,10 +44,6 @@ class RowFamily:
     """Each field variable, mapped to the expression it now reads."""
 
     @property
-    def is_people(self) -> bool:
-        return self.object_type == "ALPeopleList"
-
-    @property
     def uses_al_income(self) -> bool:
         return self.object_type in AL_INCOME_LIST_TYPES
 
@@ -64,6 +63,14 @@ class RowFamily:
             if settable not in asked:
                 asked.append(settable)
         return asked
+
+    def overflow_headers(self) -> List[Dict[str, str]]:
+        """The columns of the addendum table for rows the form has no room for."""
+        return [
+            {attribute: _label(attribute)}
+            for attribute in dict.fromkeys(self.attributes.values())
+            if attribute and not attribute.endswith(")")
+        ] or [{"name": "Name"}]
 
 
 # Rows of these are modelled by ALToolbox's al_income classes
@@ -191,16 +198,13 @@ def find_row_families(
     by_base: Dict[str, List[Tuple[str, int]]] = {}
     by_joined_stem: Dict[str, Dict[Optional[str], List[Tuple[str, int]]]] = {}
     for variable in variables:
-        middle = _MIDDLE_INDEX.match(variable)
         joined = _JOINED_INDEX.match(variable)
         trailing = _TRAILING_INDEX.match(variable)
-        if middle:
-            stem, index, attribute = middle.group(1), middle.group(2), middle.group(3)
-            by_joined_stem.setdefault(stem, {}).setdefault(attribute, []).append(
-                (variable, int(index))
-            )
-        elif joined and (joined.group(3) or not trailing):
-            stem, index, attribute = joined.group(1), joined.group(2), joined.group(3)
+        if not (joined and (joined.group(3) or not trailing)):
+            joined = None
+        stemmed = _MIDDLE_INDEX.match(variable) or joined
+        if stemmed:
+            stem, index, attribute = stemmed.group(1, 2, 3)
             by_joined_stem.setdefault(stem, {}).setdefault(attribute, []).append(
                 (variable, int(index))
             )
@@ -264,16 +268,6 @@ def find_row_families(
 
 # Item attributes that hold money in AssemblyLine's al_income classes
 MONEY_ATTRIBUTES = frozenset({"market_value", "balance", "value"})
-# Weaver field types, as a question's datatype line
-_DATATYPE_LINES = {
-    "area": "input type: area",
-    "currency": "datatype: currency",
-    "date": "datatype: date",
-    "integer": "datatype: integer",
-    "number": "datatype: number",
-    "email": "datatype: email",
-    "yesno": "datatype: yesnoradio",
-}
 
 
 def _label(attribute: str) -> str:
@@ -286,9 +280,12 @@ def _field_lines(
     lines = []
     for attribute in attributes:
         lines.append(f'  - "{_label(attribute)}": {list_name}[i].{attribute}')
-        datatype_line = _DATATYPE_LINES.get(datatypes.get(attribute, "text"))
-        if datatype_line:
-            lines.append(f"    {datatype_line}")
+        lines += [
+            f"    {line}"
+            for line in generator_constants.FIELD_TYPE_YAML.get(
+                datatypes.get(attribute, "text"), []
+            )
+        ]
     return lines
 
 
@@ -313,19 +310,7 @@ def row_family_yaml(family: RowFamily, datatypes: Dict[str, str]) -> str:
     extra = family.question_attributes()
     blocks: List[str] = []
     if family.object_type == "DAList":
-        blocks.append(
-            "\n".join(
-                [
-                    "---",
-                    f"id: any {name}",
-                    "question: |",
-                    f"  Are there any {name.replace('_', ' ')}?",
-                    "fields:",
-                    f"  - no label: {name}.there_are_any",
-                    "    datatype: yesnoradio",
-                ]
-            )
-        )
+        blocks.append("---\n" + render_baseline_question(name, "there_are_any"))
         blocks.append(
             "\n".join(
                 [
@@ -338,19 +323,7 @@ def row_family_yaml(family: RowFamily, datatypes: Dict[str, str]) -> str:
                 + _field_lines(name, extra, datatypes)
             )
         )
-        blocks.append(
-            "\n".join(
-                [
-                    "---",
-                    f"id: another {name}",
-                    "question: |",
-                    f"  Is there another {singular}?",
-                    "fields:",
-                    f"  - no label: {name}.there_is_another",
-                    "    datatype: yesnoradio",
-                ]
-            )
-        )
+        blocks.append("---\n" + render_baseline_question(name, "there_is_another"))
         first = f"{name}[i].{extra[0]}" if extra else f"{name}[i]"
     else:
         if extra:

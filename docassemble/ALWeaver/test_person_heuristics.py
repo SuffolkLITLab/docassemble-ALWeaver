@@ -446,6 +446,25 @@ class TestAutomaticMarking(unittest.TestCase):
             "patient[1].name.first",
         )
 
+    def test_a_person_counted_from_zero_is_respelled_from_one(self):
+        fields = self._pdf(
+            ["patient0_name_first", "patient0_phone_number", "patient1_name_first"]
+        )
+        by_variable = self._by_variable(fields)
+        self.assertEqual(
+            by_variable["patient1_name_first"].final_display_var,
+            "patient[0].name.first",
+        )
+        self.assertEqual(
+            by_variable["patient2_name_first"].final_display_var,
+            "patient[1].name.first",
+        )
+        self.assertEqual(
+            by_variable["patient1_name_first"].raw_field_names,
+            ["patient0_name_first"],
+        )
+        self.assertTrue(any("patient0" in note for note in fields.generation_notes))
+
     def test_a_recognised_person_stops_needing_its_own_questions(self):
         """BUILT_IN means AssemblyLine's question library handles it."""
         fields = self._pdf(["patient1_name_first", "patient1_phone_number", "a_note"])

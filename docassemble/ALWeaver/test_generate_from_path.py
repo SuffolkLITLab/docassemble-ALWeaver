@@ -14,6 +14,7 @@ from pypdf import PdfWriter
 from . import interview_generator as interview_generator_module
 from .interview_generator import (
     _LocalDAFileAdapter,
+    _LocalFile,
     generate_interview_from_path,
     generate_interview_artifacts,
     _rewrite_next_steps_xml,
@@ -83,6 +84,25 @@ class TestGenerateInterviewFromPath(unittest.TestCase):
             self._run_dayamlchecker(result.yaml_path)
             self.assertTrue(result.package_zip_path)
             self.assertTrue(os.path.exists(result.package_zip_path))
+
+    def test_a_choice_field_without_choices_is_written_as_text(self):
+        pdf_path = (
+            Path(__file__).parent / "test/test_petition_to_enforce_sanitary_code.pdf"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = generate_interview_from_path(
+                str(pdf_path),
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+                field_definitions=[
+                    {"field": "fee_choice", "label": "Fee", "datatype": "radio"}
+                ],
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+            self._run_dayamlchecker(result.yaml_path)
+        entry = yaml_text.split('"Fee": fee_choice', 1)[1].split("\n  - ", 1)[0]
+        self.assertNotIn("radio", entry.split("---", 1)[0])
 
     def test_github_user_is_written_only_when_set_and_is_escaped(self):
         """A blank github_user must not override AssemblyLine's own default,
@@ -449,7 +469,7 @@ question: |
                 self.interview_label = "my_interview"
                 self.package_title = "MyInterview"
                 self.include_next_steps = True
-                self.uploaded_templates = ["uploaded-template"]
+                self.uploaded_templates = [uploaded_template]
                 self.author = ""
 
             def package_info(self):
@@ -458,6 +478,7 @@ question: |
             def draft_screen_order(self):
                 return []
 
+        uploaded_template = _LocalFile("/nowhere/uploaded-template.pdf")
         interview = MinimalInterview()
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -497,7 +518,7 @@ question: |
             folders_and_files = package_patch.call_args.args[3]
             self.assertEqual(
                 folders_and_files["templates"],
-                ["generated-next-steps", "uploaded-template"],
+                ["generated-next-steps", uploaded_template],
             )
 
     def test_progress_markers_climb_across_the_whole_interview(self):
@@ -1883,8 +1904,7 @@ class TestTitlePrecedence(unittest.TestCase):
 
         def fake_prefill(interview, apply=True):
             if drafted_title:
-                interview.title_drafted_by_llm = True
-                interview.title = drafted_title
+                interview.llm_draft_title = drafted_title
             return True
 
         def no_op(interview, *args, **kwargs):
@@ -2106,6 +2126,49 @@ class TestAIStructureProposals(unittest.TestCase):
         self.assertIn("only one of proceeding_is may be chosen", notes)
         self.assertNotIn("change it to radio buttons", notes)
 
+    def test_the_structure_question_goes_out_before_metadata_drafting(self):
+        """The slower structure model runs while the metadata is drafted."""
+        from .interview_generator import DAInterview
+
+        order = []
+        ask = DAInterview.ask_for_structure
+
+        def recording_ask(interview):
+            order.append("structure")
+            return ask(interview)
+
+        def recording_prefill(interview, apply=True):
+            order.append("metadata")
+            return False
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "form.pdf"), ["date_of_birth"]
+            )
+            with (
+                patch.object(
+                    interview_generator_module,
+                    "_load_llms_module",
+                    return_value=_StructureOnlyLlms(),
+                ),
+                patch.object(
+                    DAInterview,
+                    "_llm_context_text",
+                    lambda self, **kwargs: "Date of Birth",
+                ),
+                patch.object(DAInterview, "ask_for_structure", recording_ask),
+                patch.object(DAInterview, "llm_prefill_metadata", recording_prefill),
+            ):
+                result = generate_interview_from_path(
+                    pdf_path,
+                    output_dir=tmpdir,
+                    create_package_zip=False,
+                    include_next_steps=False,
+                    use_llm_assist=True,
+                )
+        self.assertEqual(order, ["structure", "metadata"])
+        self.assertIn("date_of_birth is now", "\n".join(result.warnings))
+
 
 class TestStateDependencies(unittest.TestCase):
     def test_a_massachusetts_draft_includes_al_massachusetts(self):
@@ -2150,6 +2213,9 @@ class TestStateDependencies(unittest.TestCase):
             "  - docassemble.ALMassachusetts:al_massachusetts.yml\n", yaml_text
         )
         self.assertIn("docassemble.ALMassachusetts", package_files)
+        # Massachusetts's default organization comes with its package dependency
+        self.assertIn("  - docassemble.MassAccess:massaccess.yml\n", yaml_text)
+        self.assertIn("docassemble.MassAccess", package_files)
         self.assertIn('"court_division": ${ trial_court.division }', yaml_text)
 
     def test_other_states_do_not_get_every_jurisdiction(self):
