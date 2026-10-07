@@ -4831,6 +4831,108 @@ def _report_reader(uid: int, project: str) -> Any:
     return read
 
 
+@app.route(f"{EDITOR_BASE_PATH}/api/reports/entrypoints", methods=["POST"])
+def editor_api_report_entrypoints() -> Response:
+    """Suggest entrypoints while letting authors select any project interview."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        body = request.get_json(silent=True) or {}
+        project = _normalize_project(body.get("project"))
+        uid = _current_user_id()
+        files = _project_yaml_filenames(uid, project)
+        included: set[str] = set()
+        runnable: set[str] = set()
+        for name in files:
+            model = parse_interview_yaml(playground_read_yaml(uid, project, name))
+            for block in model["blocks"]:
+                data = block.get("data") or {}
+                targets = data.get("include", [])
+                if isinstance(targets, str):
+                    targets = [targets]
+                if isinstance(targets, list):
+                    included.update(t for t in targets if isinstance(t, str))
+                if data.get("mandatory"):
+                    runnable.add(name)
+        result = [
+            {"filename": name, "suggested": name in runnable or name not in included}
+            for name in files
+        ]
+        return jsonify(
+            {"success": True, "request_id": request_id, "data": {"files": result}}
+        )
+    except (ValueError, OSError) as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/reports/archive", methods=["POST"])
+def editor_api_report_archive() -> Response:
+    """Package browser-rendered reports into a portable ZIP with an index."""
+    import base64
+    import html
+    import zipfile
+    from io import BytesIO
+
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        body = request.get_json(silent=True) or {}
+        reports = body.get("reports")
+        if not isinstance(reports, list) or not 1 <= len(reports) <= 100:
+            raise ValueError("Select between 1 and 100 interviews.")
+        output = BytesIO()
+        links = []
+        seen: set[str] = set()
+        total = 0
+        with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+            for report in reports:
+                filename = _normalize_filename(report.get("filename")) + ".html"
+                content = report.get("html")
+                if not isinstance(content, str) or filename in seen:
+                    raise ValueError("Invalid or duplicate report.")
+                seen.add(filename)
+                total += len(content.encode("utf-8"))
+                if total > 50 * 1024 * 1024:
+                    raise ValueError("Reports exceed the 50 MB archive limit.")
+                archive.writestr(filename, content)
+                links.append(
+                    f'<li><a href="{html.escape(filename, quote=True)}">{html.escape(filename)}</a></li>'
+                )
+            archive.writestr(
+                "index.html",
+                '<!doctype html><html lang="en"><meta charset="utf-8">'
+                "<title>Interview flow reports</title><h1>Interview flow reports</h1>"
+                "<p>Open a report to read, print, or save it as PDF. Styling and diagrams require network access.</p><ul>"
+                + "".join(links)
+                + "</ul></html>",
+            )
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {"content": base64.b64encode(output.getvalue()).decode()},
+            }
+        )
+    except (ValueError, OSError) as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/reports/scan", methods=["POST"])
 def editor_api_report_scan() -> Response:
     """Scan an entrypoint and includes without executing interview code."""

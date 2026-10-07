@@ -51,6 +51,16 @@ class _TemplateCollector(HTMLParser):
 
 
 class TestEditorFrontend(unittest.TestCase):
+    def test_repository_reports_offer_entrypoint_selection(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        controls = (self.package_dir / "data/static/editor_reports.js").read_text()
+        self.assertEqual(template.count('data-action="open-repository-reports"'), 2)
+        self.assertIn("/api/reports/entrypoints", controls)
+        self.assertIn("/api/reports/archive", controls)
+        self.assertIn(
+            "expandNamedOrders(scan.order_steps, scan.named_order_steps)", controls
+        )
+
     def test_variable_report_has_persistent_rail_and_navigation(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
         source = (self.package_dir / "data/static/editor.js").read_text()

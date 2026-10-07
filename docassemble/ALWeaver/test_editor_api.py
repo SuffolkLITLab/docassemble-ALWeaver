@@ -6543,3 +6543,70 @@ class TestInterviewReportScan(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         read.assert_called_with(7, "default", "main.yml")
         self.assertEqual(response.json["data"]["variables"][0]["name"], "ready")
+
+
+class TestRepositoryReports(unittest.TestCase):
+    def test_entrypoints_distinguish_shared_files(self):
+        from .editor_utils import parse_interview_yaml
+
+        files = {
+            "one.yml": "include: shared.yml\n---\nmandatory: true\ncode: done\n",
+            "two.yml": "include: shared.yml\n---\nmandatory: true\ncode: done\n",
+            "shared.yml": "question: Shared\nyesno: done\n",
+        }
+        with (
+            patch.object(
+                api_editor, "parse_interview_yaml", wraps=parse_interview_yaml
+            ),
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor, "_project_yaml_filenames", return_value=list(files)
+            ),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                side_effect=lambda uid, project, name: files[name],
+            ),
+            api_editor.app.test_client() as client,
+        ):
+            response = client.post(
+                "/al/editor/api/reports/entrypoints", json={"project": "default"}
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [f["filename"] for f in response.json["data"]["files"] if f["suggested"]],
+            ["one.yml", "two.yml"],
+        )
+
+    def test_archive_has_index_and_preserves_each_report(self):
+        import base64
+        import zipfile
+
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            api_editor.app.test_client() as client,
+        ):
+            response = client.post(
+                "/al/editor/api/reports/archive",
+                json={
+                    "reports": [
+                        {"filename": "one.yml", "html": "<h1>One</h1>"},
+                        {"filename": "two.yml", "html": "<h1>Two</h1>"},
+                    ]
+                },
+            )
+            bad = client.post(
+                "/al/editor/api/reports/archive",
+                json={"reports": [{"filename": "../escape.yml", "html": "bad"}]},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(bad.status_code, 400)
+        with zipfile.ZipFile(
+            BytesIO(base64.b64decode(response.json["data"]["content"]))
+        ) as archive:
+            self.assertEqual(
+                set(archive.namelist()), {"one.yml.html", "two.yml.html", "index.html"}
+            )
+            self.assertEqual(archive.read("two.yml.html"), b"<h1>Two</h1>")
+            self.assertIn(b"one.yml.html", archive.read("index.html"))

@@ -13283,6 +13283,16 @@
         return state;
       },
       apiPost: apiPost,
+      prepareSaved: promptAndSaveUnsavedChanges,
+      previewOptions: function () {
+        var resolved = _screenPreviewContext();
+        return {
+          assets: resolved.assets,
+          extraCss: resolved.extraCss,
+          widgetStyle: BOOT.previewWidgetStyle,
+          origin: window.location.origin,
+        };
+      },
       openBlock: function (block) {
         if (block.sourceFile.indexOf(':') !== -1) return;
         deferNavigationForUnsavedChanges(
@@ -21830,6 +21840,10 @@
       )
         return;
       enterOrderBuilder(requestedMenuOrderBlock, 'interview-menu');
+      return;
+    }
+    if (uiAction === 'open-repository-reports') {
+      window.ALWeaverReports.openRepository(reportBridge());
       return;
     }
     if (uiAction === 'open-variable-report') {
