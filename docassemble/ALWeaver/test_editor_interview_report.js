@@ -481,7 +481,7 @@ console.log('editor_interview_report.js: all assertions passed');
   assert.ok(flow.edges.some(e => e.label === 'no'));
   assert.ok(report.isTerminalScreen({data: {event: 'end', question: 'Done'}}));
   for (const extra of [{fields: [{Name: 'name'}]}, {buttons: [{Continue: 'continue'}]},
-    {'continue button field': 'done'}, {buttons: [{code: 'dynamic_buttons'}]}, {review: []}]) {
+    {'continue button field': 'done'}, {buttons: [{code: 'dynamic_buttons'}]}, {buttons: [{Go: {code: 'went = True'}}]}, {review: []}]) {
     assert.ok(!report.isTerminalScreen({data: {event: 'end', question: 'Done', ...extra}}));
   }
   const loop = report.buildFlowModel([{kind: 'loop', target: 'item', iterable: 'items',
@@ -496,4 +496,12 @@ console.log('editor_interview_report.js: all assertions passed');
   assert.strictEqual(report.screenTitle(step, report.buildBlockMap([download])).block, download);
   const html = report.buildReport([step], [download], {});
   assert.ok(html.includes('Download forms'));
+}
+
+// Scanned definitions from code never stand in for the question that asks the same name.
+{
+  const code = {id: 'c', data: {code: 'needs_fee_waiver = False'}, defines: ['needs_fee_waiver']};
+  const question = {id: 'q', data: {question: 'Do you need a fee waiver?', yesno: 'needs_fee_waiver'},
+    defines: ['needs_fee_waiver']};
+  assert.strictEqual(report.findBlock('needs_fee_waiver', report.buildBlockMap([code, question])), question);
 }

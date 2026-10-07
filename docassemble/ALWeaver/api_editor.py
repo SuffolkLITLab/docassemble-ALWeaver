@@ -5040,6 +5040,8 @@ def editor_api_report_archive() -> Response:
         total = 0
         with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
             for report in reports:
+                if not isinstance(report, dict):
+                    raise ValueError("Invalid or duplicate report.")
                 filename = _normalize_filename(report.get("filename")) + ".html"
                 content = report.get("html")
                 if not isinstance(content, str) or filename in seen:
