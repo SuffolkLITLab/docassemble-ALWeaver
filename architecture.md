@@ -525,3 +525,40 @@ Faker service is required. Generated people and addresses are cached by decoded
 object path for one debug session. Blank states are sampled nationwide; existing
 address parts are preserved and ZIPs use the selected state's format. Phone
 numbers use Faker's US area/exchange-code datasets rather than arbitrary digits.
+
+## Interview reports and SME wording workbooks
+
+`interview_scan.py` reads an entrypoint and its includes without executing Python
+or Mako. Its source locations, definitions, references, named order blocks, and
+incomplete-scan warnings feed the persistent variable rail and repository flow
+reports. Reachability and unused-variable findings are static hints: imported
+Python, template files, dynamic names, and runtime conditions can add uses.
+`editor_reports.js` exposes these tools through the Interview menu. Repository
+reports use the existing preview/flow renderer and download as a ZIP with an
+index and one HTML report per selected entrypoint.
+
+`text_workbook.py` inventories explicitly supported display text rather than
+walking every YAML string. A wording workbook has instructions, one tab per
+screen or text block, locked reference cells, yellow editable cells, and hidden
+source provenance. The browser captures illustrative PNGs with the existing
+screen renderer and the pinned, locally served html2canvas bundle; it does not
+run interview scripts. Installed package text and shared YAML aliases are not
+editable. Template wording has no independent screen preview. Mako, HTML, and
+display directives retain the Dashboard translation tool's green/blue code
+highlighting convention.
+
+Import first presents a change review. It checks the workbook schema, complete
+row identities, original wording, source revisions, formulas, protected syntax,
+and YAML key collisions before computing replacements. Intact expressions may
+move within the same control region; control lines cannot move or change.
+Edits patch scalar source ranges, preserving surrounding comments and formatting.
+A scalar choice is expanded into an explicit label/value pair when its label
+changes, so its stored answer stays the same. Apply revalidates the workbook and
+review digest, then uses the editor's existing locked, rollback-capable batch
+writer. No full-document YAML serialization occurs.
+
+Run `npm run build:report-capture` after changing the pinned html2canvas version.
+`npm run check` verifies the committed bundle and license against the installed
+package. Focused tests are `test_interview_scan.py`, `test_text_workbook.py`, the
+report API tests in `test_editor_api.py`, and the existing JavaScript preview and
+flow report tests.

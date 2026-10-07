@@ -142,6 +142,35 @@ def _names(code: str) -> tuple[Set[str], Set[str]]:
     return reads, writes
 
 
+def _mako_reads(text: str) -> Set[str]:
+    """Read expression and control-line dependencies with Mako's own parser."""
+    from mako.lexer import Lexer
+
+    if "${" not in text and not re.search(r"^\s*%", text, re.M):
+        return set()
+    try:
+        tree = Lexer(text).parse()
+    except Exception:
+        return set()
+    reads: Set[str] = set()
+    seen: Set[int] = set()
+    pending = list(tree.get_children())
+    while pending:
+        node = pending.pop()
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        expression = getattr(node, "text", "")
+        if type(node).__name__ == "Expression":
+            reads.update(_names(expression.strip())[0])
+        elif type(node).__name__ == "ControlLine" and not node.isend:
+            if node.keyword == "elif":
+                expression = "if" + expression[4:]
+            reads.update(_names(expression + "\n    pass")[0])
+        pending.extend(node.get_children())
+    return reads
+
+
 def _key(name: str) -> str:
     return re.sub(r"\[[^\]]*\]", "[]", name.strip())
 
@@ -241,8 +270,7 @@ def scan_interview(
                     "rows",
                 }:
                     reads.update(_names(value)[0])
-                for expression in re.findall(r"\$\{(.*?)\}", value, flags=re.S):
-                    reads.update(_names(expression.strip())[0])
+                reads.update(_mako_reads(value))
 
         visit(data)
         bid = block["scan_id"]

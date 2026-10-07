@@ -60,3 +60,23 @@ fields:
     result = scan_interview(read, "main.yml")
     assert result["warnings"]
     assert not result["blocks"][-1]["possibly_unreachable"]
+
+
+def test_mako_control_lines_and_nested_expressions_are_references():
+    source = """mandatory: true
+question: Done
+subquestion: |
+  % if eligible:
+  Hello ${ {'name': users[0].name.first}['name'] }
+  % endif
+---
+question: Eligible?
+yesno: eligible
+---
+question: Name
+fields:
+  - First: users[i].name.first
+"""
+    result = scan_interview(lambda name: source, "main.yml")
+    assert all(not b["possibly_unreachable"] for b in result["blocks"])
+    assert all(not v["possibly_unused"] for v in result["variables"])

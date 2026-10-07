@@ -6610,3 +6610,103 @@ class TestRepositoryReports(unittest.TestCase):
             )
             self.assertEqual(archive.read("two.yml.html"), b"<h1>Two</h1>")
             self.assertIn(b"one.yml.html", archive.read("index.html"))
+
+
+class TestWordingWorkbookApi(unittest.TestCase):
+    def setUp(self):
+        from .editor_utils import source_revision
+
+        self.files = {"main.yml": "question: Hello\nyesno: ready\n"}
+        self.patches = ExitStack()
+        self.addCleanup(self.patches.close)
+        self.patches.enter_context(
+            patch.object(api_editor, "_editor_auth_check", return_value=True)
+        )
+        self.patches.enter_context(
+            patch.object(api_editor, "_current_user_id", return_value=7)
+        )
+        self.patches.enter_context(
+            patch.object(api_editor, "source_revision", wraps=source_revision)
+        )
+        self.patches.enter_context(
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                side_effect=lambda uid, project, name: self.files[name],
+            )
+        )
+        self.write = self.patches.enter_context(
+            patch.object(
+                api_editor,
+                "playground_write_yaml",
+                side_effect=lambda uid, project, name, text: self.files.update(
+                    {name: text}
+                ),
+            )
+        )
+        self.client = api_editor.app.test_client()
+        self.payload = {"project": "default", "filename": "main.yml"}
+
+    def test_export_requires_current_previews(self):
+        import base64
+        from PIL import Image
+
+        prepared = self.client.post(
+            "/al/editor/api/reports/wording/prepare", json=self.payload
+        )
+        self.assertEqual(prepared.status_code, 200)
+        self.assertEqual(prepared.json["data"]["screens"][0]["id"], "main.yml#0")
+        revisions = prepared.json["data"]["revisions"]
+        missing = self.client.post(
+            "/al/editor/api/reports/wording/export",
+            json=self.payload | {"revisions": revisions, "previews": {}},
+        )
+        self.assertEqual(missing.status_code, 400)
+        png = BytesIO()
+        Image.new("RGB", (100, 100), "white").save(png, format="PNG")
+        body = self.payload | {
+            "revisions": revisions,
+            "previews": {"main.yml#0": base64.b64encode(png.getvalue()).decode()},
+        }
+        good = self.client.post("/al/editor/api/reports/wording/export", json=body)
+        self.assertEqual(good.status_code, 200)
+        self.files["main.yml"] += "# changed\n"
+        stale = self.client.post("/al/editor/api/reports/wording/export", json=body)
+        self.assertEqual(stale.status_code, 400)
+        self.write.assert_not_called()
+
+    def test_import_reviews_before_applying_and_checks_source_again(self):
+        import base64
+        from .text_workbook import export_workbook
+        from .test_text_workbook import edit_workbook
+
+        content = edit_workbook(export_workbook(self.files, {}), {"Hello": "Welcome"})
+        body = self.payload | {"content": base64.b64encode(content).decode()}
+        review = self.client.post("/al/editor/api/reports/wording/import", json=body)
+        self.assertEqual(review.status_code, 200)
+        self.assertEqual(review.json["data"]["changes"][0]["edited"], "Welcome")
+        self.write.assert_not_called()
+        no_review = self.client.post(
+            "/al/editor/api/reports/wording/import", json=body | {"apply": True}
+        )
+        self.assertEqual(no_review.status_code, 400)
+        self.write.assert_not_called()
+        applied = self.client.post(
+            "/al/editor/api/reports/wording/import",
+            json=body
+            | {"apply": True, "review_digest": review.json["data"]["review_digest"]},
+        )
+        self.assertEqual(applied.status_code, 200)
+        self.assertEqual(self.files["main.yml"], "question: Welcome\nyesno: ready\n")
+        stale = self.client.post("/al/editor/api/reports/wording/import", json=body)
+        self.assertEqual(stale.status_code, 400)
+        self.assertEqual(self.write.call_count, 1)
+
+    def test_all_workbook_operations_require_authentication(self):
+        with patch.object(api_editor, "_editor_auth_check", return_value=False):
+            for operation in ("prepare", "export", "import"):
+                result = self.client.post(
+                    "/al/editor/api/reports/wording/" + operation, json=self.payload
+                )
+                self.assertEqual(result.status_code, 401)
+        self.write.assert_not_called()

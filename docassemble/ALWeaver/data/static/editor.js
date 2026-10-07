@@ -12852,7 +12852,7 @@
   /* What the interview itself says about how its screens should look:
    * stylesheets, label layout and button labels. Anything the file does not
    * declare falls back to the AssemblyLine house style this editor builds for. */
-  function _screenPreviewContext() {
+  function _screenPreviewContext(sourceBlocks) {
     var assets = {};
     var extraCss = [];
     var includesAssemblyLine = false;
@@ -12860,7 +12860,7 @@
     var backLabel = null;
     var continueLabel = null;
 
-    (state.blocks || []).forEach(function (blk) {
+    (sourceBlocks || state.blocks || []).forEach(function (blk) {
       var d = blk && blk.data;
       if (!d || typeof d !== 'object') return;
       if (d.include) {
@@ -13284,14 +13284,22 @@
       },
       apiPost: apiPost,
       prepareSaved: promptAndSaveUnsavedChanges,
-      previewOptions: function () {
-        var resolved = _screenPreviewContext();
+      previewOptions: function (blocks) {
+        var resolved = _screenPreviewContext(blocks);
         return {
           assets: resolved.assets,
           extraCss: resolved.extraCss,
           widgetStyle: BOOT.previewWidgetStyle,
+          labelLayout: resolved.declaredLayout,
+          continueButtonLabel: resolved.continueLabel,
+          backButtonLabel: resolved.backLabel,
           origin: window.location.origin,
         };
+      },
+      reload: function (project, filename) {
+        if (state.project === project && state.filename === filename)
+          return loadFile();
+        return Promise.resolve();
       },
       openBlock: function (block) {
         if (block.sourceFile.indexOf(':') !== -1) return;
@@ -21840,6 +21848,14 @@
       )
         return;
       enterOrderBuilder(requestedMenuOrderBlock, 'interview-menu');
+      return;
+    }
+    if (uiAction === 'export-wording-workbook') {
+      window.ALWeaverReports.exportWording(reportBridge());
+      return;
+    }
+    if (uiAction === 'import-wording-workbook') {
+      window.ALWeaverReports.importWording(reportBridge());
       return;
     }
     if (uiAction === 'open-repository-reports') {

@@ -4831,6 +4831,154 @@ def _report_reader(uid: int, project: str) -> Any:
     return read
 
 
+def _wording_report_sources(uid: int, project: str, filename: str) -> tuple[Any, Any]:
+    from .interview_scan import scan_interview
+
+    cache: Dict[str, str] = {}
+    reader = _report_reader(uid, project)
+
+    def read(name: str) -> str:
+        if name not in cache:
+            cache[name] = reader(name)
+        return cache[name]
+
+    read(filename)
+    scan = scan_interview(read, filename)
+    return {name: text for name, text in cache.items() if ":" not in name}, scan
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/reports/wording/<operation>", methods=["POST"])
+def editor_api_wording_report(operation: str) -> Response:
+    """Prepare previews, export a workbook, or review/apply validated wording edits."""
+    import base64
+    from .text_workbook import export_workbook, import_workbook, text_inventory
+
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        if operation not in {"prepare", "export", "import"}:
+            raise ValueError("Unknown wording report operation.")
+        body = request.get_json(silent=True) or {}
+        if not isinstance(body, dict):
+            raise ValueError("A report request must be an object.")
+        project = _normalize_project(body.get("project"))
+        filename = _normalize_filename(body.get("filename"))
+        uid = _current_user_id()
+        sources, scan = _wording_report_sources(uid, project, filename)
+        revisions = {name: source_revision(text) for name, text in sources.items()}
+        if operation == "prepare":
+            screens = []
+            for name, source in sources.items():
+                documents = list(yaml.safe_load_all(source))
+                indices = sorted(
+                    {item["document"] for item in text_inventory(name, source)}
+                )
+                for index in indices:
+                    data = documents[index]
+                    if isinstance(data, dict) and (
+                        "question" in data or "review" in data or "table" in data
+                    ):
+                        screens.append({"id": f"{name}#{index}", "data": data})
+            if len(screens) > 250:
+                raise ValueError(
+                    "Choose an interview with no more than 250 screens for one workbook."
+                )
+            result = {
+                "screens": screens,
+                "blocks": scan["blocks"],
+                "revisions": revisions,
+                "warnings": scan["warnings"],
+            }
+        elif operation == "export":
+            if body.get("revisions") != revisions:
+                raise ValueError(
+                    "The interview changed while previews were being made. Export again."
+                )
+            previews = body.get("previews")
+            if not isinstance(previews, dict):
+                raise ValueError("Screen previews are required.")
+            for name, source in sources.items():
+                documents = list(yaml.safe_load_all(source))
+                for index in {
+                    item["document"] for item in text_inventory(name, source)
+                }:
+                    data = documents[index]
+                    if (
+                        any(key in data for key in ("question", "review", "table"))
+                        and f"{name}#{index}" not in previews
+                    ):
+                        raise ValueError("A screen preview is missing. Export again.")
+            content = export_workbook(sources, previews)
+            result = {"content": base64.b64encode(content).decode()}
+        else:
+            encoded = body.get("content")
+            if not isinstance(encoded, str) or len(encoded) > 40 * 1024 * 1024:
+                raise ValueError("Upload an XLSX workbook smaller than 30 MB.")
+            content = base64.b64decode(encoded, validate=True)
+            proposed = import_workbook(content, sources)
+            digest = hashlib.sha256(
+                json.dumps(proposed["changes"], sort_keys=True).encode()
+            ).hexdigest()
+            applied = body.get("apply") is True
+            if applied:
+                if body.get("review_digest") != digest:
+                    raise ValueError(
+                        "Review these workbook changes before applying them."
+                    )
+                changes = [
+                    {
+                        "section": "interview",
+                        "filename": name,
+                        "original": sources[name],
+                        "updated": text,
+                    }
+                    for name, text in proposed["updated"].items()
+                ]
+                _commit_project_replacements(uid, project, changes)
+            result = {
+                "changes": proposed["changes"],
+                "review_digest": digest,
+                "applied": applied,
+            }
+        return jsonify({"success": True, "request_id": request_id, "data": result})
+    except StaleProjectSearchError:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "conflict",
+                    "message": "Source changed. Review the workbook again before applying.",
+                },
+            },
+            409,
+        )
+    except ProjectReplacementWriteError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "write_error",
+                    "message": "Could not save workbook changes. Check the affected files before retrying.",
+                    "recovery": getattr(exc, "recovery", []),
+                },
+            },
+            500,
+        )
+    except Exception as exc:
+        log(f"ALWeaver wording report {operation}: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/reports/entrypoints", methods=["POST"])
 def editor_api_report_entrypoints() -> Response:
     """Suggest entrypoints while letting authors select any project interview."""

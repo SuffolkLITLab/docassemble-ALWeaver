@@ -220,7 +220,7 @@
 
     (blocks || []).forEach(function (block) {
       record(block.variable, block);
-      (block.defines || []).forEach(function (name) { record(name, block); });
+      (isScreenBlock(block) ? block.defines || [] : []).forEach(function (name) { record(name, block); });
       var events = (block.data || {}).event;
       (Array.isArray(events) ? events : [events]).forEach(function (event) {
         if (typeof event === 'string') record(event, block);
@@ -313,20 +313,7 @@
   // An event without an answer or an explicit continuation cannot satisfy
   // the order's next statement. Action buttons may leave/restart the interview.
   function isTerminalScreen(block) {
-    var data = (block && block.data) || {};
-    if (!data.event || !isScreenBlock(block)) return false;
-    if (['fields', 'field', 'continue button field', 'yesno', 'noyes',
-         'yesnomaybe', 'noyesmaybe', 'signature', 'review'].some(function (key) {
-      return Object.prototype.hasOwnProperty.call(data, key);
-    })) return false;
-    var buttons = data.buttons || data.choices || [];
-    if (!Array.isArray(buttons)) return false; // Dynamic destinations are unknown.
-    return !buttons.some(function (button) {
-      if (!button || typeof button !== 'object') return false;
-      return Object.keys(button).some(function (label) {
-        return button[label] === 'continue' || button[label] === 'resume' || label === 'code';
-      });
-    });
+    return !!(Preview && Preview.isTerminalScreen && Preview.isTerminalScreen((block || {}).data));
   }
 
   /* An order block often names a variable that a `code:` block assembles --

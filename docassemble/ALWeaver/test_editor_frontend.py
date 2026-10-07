@@ -51,6 +51,17 @@ class _TemplateCollector(HTMLParser):
 
 
 class TestEditorFrontend(unittest.TestCase):
+    def test_wording_workbook_export_import_and_preview_capture(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        controls = (self.package_dir / "data/static/editor_reports.js").read_text()
+        for action in ("export-wording-workbook", "import-wording-workbook"):
+            self.assertEqual(template.count(f'data-action="{action}"'), 2)
+        self.assertIn("Apply reviewed changes", controls)
+        self.assertIn("review_digest: proposal.review_digest", controls)
+        self.assertIn("frame.setAttribute('sandbox', 'allow-same-origin')", controls)
+        self.assertNotIn("allow-scripts", controls)
+        self.assertIn("revisions: prepared.revisions", controls)
+
     def test_repository_reports_offer_entrypoint_selection(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
         controls = (self.package_dir / "data/static/editor_reports.js").read_text()
