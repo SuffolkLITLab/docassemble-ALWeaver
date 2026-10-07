@@ -220,6 +220,10 @@
 
     (blocks || []).forEach(function (block) {
       record(block.variable, block);
+      var events = (block.data || {}).event;
+      (Array.isArray(events) ? events : [events]).forEach(function (event) {
+        if (typeof event === 'string') record(event, block);
+      });
       var sets = (block.data || {}).sets;
       if (Array.isArray(sets)) {
         sets.forEach(function (s) { if (typeof s === 'string') record(s, block); });

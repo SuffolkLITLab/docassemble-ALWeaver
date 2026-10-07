@@ -452,3 +452,17 @@ console.log('editor_interview_report.js: all assertions passed');
   const expanded = report.expandNamedOrders([{ kind: 'loop', target: 'item', iterable: 'items', children: [{ kind: 'screen', invoke: 'child_order' }] }], { child_order: [{ kind: 'screen', invoke: 'item.name' }] });
   assert.strictEqual(expanded[0].children[0].invoke, 'item.name');
 }
+
+// Events can have several names and need not expose a field variable.
+{
+  const event = {id: 'exit', data: {event: ['ineligible', 'finished'],
+    question: 'You are not eligible', subquestion: 'Here are other ways to get help.'}};
+  const map = report.buildBlockMap([event]);
+  for (const name of ['ineligible', 'finished']) {
+    assert.strictEqual(report.findBlock(name, map), event);
+    const steps = [{kind: 'screen', invoke: name}];
+    assert.strictEqual(report.buildFlowModel(steps, map).nodes[1].label, 'You are not eligible');
+    const html = report.buildReport(steps, [event], {});
+    assert.ok(html.includes('Here are other ways to get help.'));
+  }
+}
