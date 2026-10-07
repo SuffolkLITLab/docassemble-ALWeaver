@@ -6713,24 +6713,27 @@ class TestWordingWorkbookApi(unittest.TestCase):
         from .test_text_workbook import edit_workbook
 
         content = edit_workbook(export_workbook(self.files, {}), {"Hello": "Welcome"})
-        body = self.payload | {"content": base64.b64encode(content).decode()}
-        review = self.client.post("/al/editor/api/reports/wording/import", json=body)
+
+        def post(**fields):
+            # A fresh file object per request: the test client consumes it.
+            data = self.payload | fields | {"workbook": (BytesIO(content), "w.xlsx")}
+            return self.client.post(
+                "/al/editor/api/reports/wording/import",
+                data=data,
+                content_type="multipart/form-data",
+            )
+
+        review = post()
         self.assertEqual(review.status_code, 200)
         self.assertEqual(review.json["data"]["changes"][0]["edited"], "Welcome")
         self.write.assert_not_called()
-        no_review = self.client.post(
-            "/al/editor/api/reports/wording/import", json=body | {"apply": True}
-        )
+        no_review = post(apply="true")
         self.assertEqual(no_review.status_code, 400)
         self.write.assert_not_called()
-        applied = self.client.post(
-            "/al/editor/api/reports/wording/import",
-            json=body
-            | {"apply": True, "review_digest": review.json["data"]["review_digest"]},
-        )
+        applied = post(apply="true", review_digest=review.json["data"]["review_digest"])
         self.assertEqual(applied.status_code, 200)
         self.assertEqual(self.files["main.yml"], "question: Welcome\nyesno: ready\n")
-        stale = self.client.post("/al/editor/api/reports/wording/import", json=body)
+        stale = post()
         self.assertEqual(stale.status_code, 400)
         self.assertEqual(self.write.call_count, 1)
 

@@ -40,7 +40,11 @@
     var entries = kind === 'variable' ? report.variables : kind === 'screen' ? report.blocks.filter(function (b) { return b.data && b.data.question; }).map(function (b) { return {name: b.report_title || b.title, definitions: [b.scan_id], references: b.possibly_unreachable ? [] : ['flow'], possibly_unused: b.possibly_unreachable}; }) : (report.symbols || []).filter(function (s) { return s.kind === kind; });
     var matches = entries.map(function (entry) {
       var definitions = entry.definitions.map(function (id) { return blocks[id]; }).filter(Boolean);
-      var references = entry.references || report.blocks.filter(function (b) { return (b.references || []).includes(entry.name); }).map(function (b) { return b.scan_id; });
+      // A method is called on an instance, never through its class name.
+      var method = entry.kind === 'method' ? '.' + entry.name.split('.').pop() : null;
+      var references = entry.references || report.blocks.filter(function (b) {
+        return (b.references || []).some(function (name) { return method ? name.endsWith(method) : name === entry.name; });
+      }).map(function (b) { return b.scan_id; });
       var errors = definitions.flatMap(function (b) { return bridge.findings ? bridge.findings(b) : []; });
       return {entry: entry, definitions: definitions, references: references, errors: errors, unused: !references.length, unreachable: definitions.some(function (b) { return b.possibly_unreachable; })};
     }).filter(function (item) {
@@ -248,6 +252,38 @@
       return canvas.toDataURL('image/png');
     } finally { frame.remove(); }
   }
+  function previewBytes(previews) {
+    return Object.keys(previews).reduce(function (total, id) { return total + previews[id].length; }, 0);
+  }
+  async function scalePng(dataUrl, factor) {
+    var image = new Image();
+    image.src = dataUrl;
+    await image.decode();
+    var canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.width * factor));
+    canvas.height = Math.max(1, Math.round(image.height * factor));
+    var context = canvas.getContext('2d');
+    context.imageSmoothingQuality = 'high';
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/png');
+  }
+  // Shrink every preview by the same factor until all of them fit the budget.
+  async function fitPreviews(previews, budget, active) {
+    var size = previewBytes(previews);
+    if (size <= budget) return previews;
+    var factor = Math.sqrt(budget / size) * 0.95;
+    while (factor >= 0.3) {
+      var scaled = {};
+      for (var id of Object.keys(previews)) {
+        if (!active()) return null;
+        scaled[id] = await scalePng(previews[id], factor);
+      }
+      size = previewBytes(scaled);
+      if (size <= budget) return scaled;
+      factor *= Math.sqrt(budget / size) * 0.95;
+    }
+    throw new Error('These screen previews are too large for one workbook on this server. Open a smaller interview, or ask an administrator to raise "maximum content length".');
+  }
   async function exportWording(options) {
     if (!await options.prepareSaved('export the wording workbook')) return;
     var state = options.getState();
@@ -275,6 +311,11 @@
         previews[screen.id] = await captureScreen(screen.data, previewOptions);
       }
       if (!dialog.isConnected) return;
+      // The previews travel in one request, and the workbook holding them is
+      // uploaded again on import, so both must fit the server's size limit.
+      var budget = Math.floor((prepared.max_request_bytes || 16 * 1024 * 1024) * 0.85);
+      previews = await fitPreviews(previews, budget, function () { return dialog.isConnected; });
+      if (!previews) return;
       status.textContent = 'Building the workbook…';
       var exported = checked(await options.apiPost('/api/reports/wording/export', Object.assign({}, payload,
         {revisions: prepared.revisions, previews: previews})));
@@ -308,20 +349,19 @@
     review.onclick = async function () {
       var file = input.files[0];
       if (!file) { status.textContent = 'Choose an XLSX workbook.'; return; }
-      if (file.size > 30 * 1024 * 1024) { status.textContent = 'Choose a workbook smaller than 30 MB.'; return; }
+
       review.disabled = true;
       input.disabled = true;
       resultBox.replaceChildren();
       try {
         status.textContent = 'Checking workbook changes…';
-        var encoded = await new Promise(function (resolve, reject) {
-          var reader = new FileReader();
-          reader.onerror = function () { reject(new Error('Could not read the workbook.')); };
-          reader.onload = function () { resolve(reader.result.split(',')[1]); };
-          reader.readAsDataURL(file);
-        });
-        var request = Object.assign({}, payload, {content: encoded});
-        var proposal = checked(await options.apiPost('/api/reports/wording/import', request));
+        var upload = function (fields) {
+          var form = new FormData();
+          Object.keys(fields).forEach(function (key) { form.append(key, fields[key]); });
+          form.append('workbook', file);
+          return options.apiPost('/api/reports/wording/import', form, {json: false});
+        };
+        var proposal = checked(await upload(payload));
         status.textContent = proposal.changes.length + ' wording changes ready for review. No files have been changed.';
         if (!proposal.changes.length) return;
         review.hidden = true;
@@ -343,8 +383,8 @@
         apply.onclick = async function () {
           apply.disabled = true;
           try {
-            checked(await options.apiPost('/api/reports/wording/import', Object.assign({}, request,
-              {apply: true, review_digest: proposal.review_digest})));
+            checked(await upload(Object.assign({}, payload,
+              {apply: 'true', review_digest: proposal.review_digest})));
             status.textContent = proposal.changes.length + ' wording changes saved.';
             await options.reload(payload.project, payload.filename);
           } catch (error) { status.textContent = error.message; review.hidden = false; }
@@ -355,5 +395,6 @@
     };
   }
   root.ALWeaverReports = {openVariables: openVariables, openRepository: openRepository,
-    exportWording: exportWording, importWording: importWording, captureScreen: captureScreen};
+    exportWording: exportWording, importWording: importWording, captureScreen: captureScreen,
+    fitPreviews: fitPreviews};
 })(globalThis);

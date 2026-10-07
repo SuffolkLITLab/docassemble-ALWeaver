@@ -49,6 +49,10 @@ CHOICE_OPTIONS = {
     "color",
     "code",
     "show if",
+    "group",
+    "label",
+    "value",
+    "url",
 }
 SCHEMA = "ALWeaver wording workbook 1"
 MAX_ROWS = 10000
@@ -63,7 +67,10 @@ def protected_parts(text: str) -> List[tuple[str, int]]:
     """
     parts: List[tuple[str, int]] = []
     pattern = re.compile(
-        r"\$\{|<%|</%|^[ \t]*%(?!%)|^[ \t]*##|<[/!]?[A-Za-z][^>]*>|\[(?:[A-Z][A-Z _-]*|:[\w-]+:)\]",
+        r"\$\{|<%|</%|^[ \t]*%(?!%)|^[ \t]*##|<[/!]?[A-Za-z][^>]*>"
+        # Display directives, including those with arguments: [FILE x.png, 50%].
+        r"|\[(?:FILE|QR|YOUTUBE|VIMEO|TARGET|EMOJI|FIELD)\s[^\]\n]*\]"
+        r"|\[(?:[A-Z][A-Z _-]*|:[\w-]+:)\]",
         re.M,
     )
     position = 0
@@ -333,8 +340,13 @@ def text_inventory(filename: str, source: str) -> List[Dict[str, Any]]:
                 if len(result) > before:
                     result[-1]["choice_value"] = item.value
             if isinstance(item, yaml.MappingNode) and id(item) not in repeated:
+                keys = {k.value for k, _ in item.value}
+                # With both "label" and "value", the label is a value, not a key.
+                labelled = {"label", "value"} <= keys
                 for j, (k, v) in enumerate(item.value):
-                    if k.value not in CHOICE_OPTIONS:
+                    if labelled and k.value == "label":
+                        add(v, doc, path + [i, j, "value"], "Answer label", screen)
+                    elif k.value not in CHOICE_OPTIONS and not labelled:
                         add(k, doc, path + [i, j, "key"], "Answer label", screen)
                     elif k.value == "help":
                         add(v, doc, path + [i, j, "value"], "Answer help", screen)
@@ -445,7 +457,7 @@ def text_inventory(filename: str, source: str) -> List[Dict[str, Any]]:
                             choices(fv, doc, field_path + ["value"], screen)
                         elif (
                             k.value == "fields"
-                            and fk.value not in FIELD_OPTIONS
+                            and fk.value not in FIELD_OPTIONS | {"no label"}
                             and not any(
                                 key.value == "field" for key, value in field.value
                             )
@@ -637,6 +649,54 @@ def export_workbook(
     return output.getvalue()
 
 
+def _block_scalar(source: str, item: Dict[str, Any], edited: str) -> str:
+    """Rewrite a block scalar as a literal at its original indentation.
+
+    PyYAML's range for a block scalar runs through the blank lines after it, so
+    those are kept as separators. Text a literal cannot hold safely is written
+    as a quoted scalar on the same line instead.
+    """
+    original_token = source[item["start"] : item["end"]]
+    header, _, body = original_token.partition("\n")
+    lines = body.split("\n")
+    # Trailing whitespace-only lines, minus those a keep chomp makes part of the value.
+    trailing = 0
+    for line in reversed(lines[:-1]):
+        if line.strip():
+            break
+        trailing += 1
+    original = item["original"]
+    if header.split("#", 1)[0].strip().endswith("+") and original.endswith("\n"):
+        trailing -= len(original) - len(original.rstrip("\n")) - 1
+    separators = "\n" * max(trailing, 0)
+    first_line = next((line for line in edited.split("\n") if line.strip()), "")
+    if re.search(
+        r"\d", header.split("#", 1)[0]
+    ) or first_line[  # explicit indentation indicator
+        :1
+    ] in {
+        " ",
+        "\t",
+    }:  # leading spaces would read as indentation
+        return json.dumps(edited, ensure_ascii=False) + "\n" + separators
+    content = next((line for line in lines if line.strip()), None)
+    if content is not None:
+        indent = len(content) - len(content.lstrip(" "))
+    else:
+        # The key's column, past any "- " sequence markers, plus two.
+        line = source[: item["start"]].rsplit("\n", 1)[-1]
+        indent = re.match(r"[ \t]*(?:-[ \t]+)*", line).end() + 2  # type: ignore[union-attr]
+    comment = " " + header[header.index("#") :] if "#" in header else ""
+    # A literal style faithfully preserves edited newlines, including trailing ones.
+    chomp = "+" if edited.endswith("\n\n") else "" if edited.endswith("\n") else "-"
+    if chomp == "+":
+        separators = ""  # Blank lines after a kept block would join its value.
+    text = "".join(
+        (" " * indent + line if line else "") + "\n" for line in edited.splitlines()
+    )
+    return "|" + chomp + comment + "\n" + text + separators
+
+
 def _replacement(source: str, item: Dict[str, Any], edited: str) -> str:
     """Replace one scalar, leaving all surrounding source untouched."""
     if item["style"] == "python":
@@ -650,15 +710,7 @@ def _replacement(source: str, item: Dict[str, Any], edited: str) -> str:
             else json.dumps(edited, ensure_ascii=False)
         )
     if item["style"] in {"|", ">"}:
-        original_token = source[item["start"] : item["end"]]
-        header = original_token.split("\n")[0]
-        comment = " " + header[header.index("#") :] if "#" in header else ""
-        # A literal style faithfully preserves edited newlines, including trailing ones.
-        chomp = "+" if edited.endswith("\n\n") else "" if edited.endswith("\n") else "-"
-        source_line = source[: item["start"]].rsplit("\n", 1)[-1]
-        indent = len(source_line) - len(source_line.lstrip()) + 2
-        body = "".join(" " * indent + line + "\n" for line in edited.splitlines())
-        return "|" + chomp + comment + "\n" + body
+        return _block_scalar(source, item, edited)
     if item["style"] is None and "\n" not in edited:
         try:
             if yaml.safe_load(edited) == edited and not re.search(

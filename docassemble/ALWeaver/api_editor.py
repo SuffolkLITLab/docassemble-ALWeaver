@@ -4873,7 +4873,13 @@ def editor_api_wording_report(operation: str) -> Response:
     try:
         if operation not in {"prepare", "export", "import"}:
             raise ValueError("Unknown wording report operation.")
-        body = request.get_json(silent=True) or {}
+        # A workbook is uploaded as a file: base64 JSON would add a third to a
+        # body that must stay under Docassemble's request size limit.
+        body = (
+            request.form.to_dict()
+            if operation == "import"
+            else request.get_json(silent=True) or {}
+        )
         if not isinstance(body, dict):
             raise ValueError("A report request must be an object.")
         project = _normalize_project(body.get("project"))
@@ -4894,6 +4900,9 @@ def editor_api_wording_report(operation: str) -> Response:
                 "blocks": scan["blocks"],
                 "revisions": revisions,
                 "warnings": scan["warnings"],
+                # Previews must fit in one export request, and the workbook in one upload.
+                "max_request_bytes": app.config.get("MAX_CONTENT_LENGTH")
+                or 16 * 1024 * 1024,
             }
         elif operation == "export":
             if body.get("revisions") != revisions:
@@ -4909,15 +4918,15 @@ def editor_api_wording_report(operation: str) -> Response:
             content = export_workbook(sources, previews, context)
             result = {"content": base64.b64encode(content).decode()}
         else:
-            encoded = body.get("content")
-            if not isinstance(encoded, str) or len(encoded) > 40 * 1024 * 1024:
-                raise ValueError("Upload an XLSX workbook smaller than 30 MB.")
-            content = base64.b64decode(encoded, validate=True)
+            upload = request.files.get("workbook")
+            if upload is None:
+                raise ValueError("Upload the edited XLSX workbook.")
+            content = upload.read()
             proposed = import_workbook(content, sources, context)
             digest = hashlib.sha256(
                 json.dumps(proposed["changes"], sort_keys=True).encode()
             ).hexdigest()
-            applied = body.get("apply") is True
+            applied = body.get("apply") == "true"
             if applied:
                 if body.get("review_digest") != digest:
                     raise ValueError(

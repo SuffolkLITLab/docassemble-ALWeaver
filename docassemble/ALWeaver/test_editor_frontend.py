@@ -84,6 +84,9 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("frame.setAttribute('sandbox', 'allow-same-origin')", controls)
         self.assertNotIn("allow-scripts", controls)
         self.assertIn("revisions: prepared.revisions", controls)
+        # Both requests must fit Docassemble's request size limit.
+        self.assertIn("form.append('workbook', file)", controls)
+        self.assertIn("prepared.max_request_bytes", controls)
 
     def test_repository_reports_offer_entrypoint_selection(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()

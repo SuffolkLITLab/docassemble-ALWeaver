@@ -210,3 +210,68 @@ def test_unicode_action_title_exact_patch_and_computed_title_excluded():
     assert not text_inventory(
         "main.yml", "code: |\n  interview_short_title = make_title()\n"
     )
+
+
+SEQUENCE_SOURCE = """question: |
+  Before
+
+subquestion: Next
+fields:
+  - note: |
+      A note
+
+  - Pick: pick
+    choices:
+      - label: Apple label
+        value: apple
+      - Leave: leave
+        url: https://example.com
+  - no label: hidden_answer
+"""
+
+
+def test_block_text_under_sequence_item_keeps_indent_and_blank_lines():
+    raw = export_workbook({"main.yml": SEQUENCE_SOURCE}, {})
+    changed = edit_workbook(
+        raw, {"A note\n": "A new note\non two lines\n", "Before\n": "After\n"}
+    )
+    updated = import_workbook(changed, {"main.yml": SEQUENCE_SOURCE})["updated"]
+    source = updated["main.yml"]
+    assert source == SEQUENCE_SOURCE.replace("Before", "After").replace(
+        "      A note\n", "      A new note\n      on two lines\n"
+    )
+    data = yaml.safe_load(source)
+    assert data["fields"][0]["note"] == "A new note\non two lines\n"
+
+
+def test_block_text_with_leading_spaces_becomes_quoted():
+    raw = export_workbook({"main.yml": SEQUENCE_SOURCE}, {})
+    changed = edit_workbook(raw, {"A note\n": "  indented"})
+    source = import_workbook(changed, {"main.yml": SEQUENCE_SOURCE})["updated"][
+        "main.yml"
+    ]
+    assert '- note: "  indented"\n\n  - Pick' in source
+    assert yaml.safe_load(source)["fields"][0]["note"] == "  indented"
+
+
+def test_label_value_choices_offer_the_label_not_option_keys():
+    values = {i["original"] for i in text_inventory("main.yml", SEQUENCE_SOURCE)}
+    assert {"Apple label", "Leave"} <= values
+    assert not values & {"label", "value", "url", "no label"}
+    raw = export_workbook({"main.yml": SEQUENCE_SOURCE}, {})
+    changed = edit_workbook(raw, {"Apple label": "Green apple"})
+    source = import_workbook(changed, {"main.yml": SEQUENCE_SOURCE})["updated"][
+        "main.yml"
+    ]
+    assert yaml.safe_load(source)["fields"][1]["choices"][0] == {
+        "label": "Green apple",
+        "value": "apple",
+    }
+
+
+def test_directives_with_arguments_are_protected():
+    assert ("[FILE docassemble.demo:a.png, 50%]", 2) in protected_parts(
+        "See [FILE docassemble.demo:a.png, 50%] here"
+    )
+    with pytest.raises(ValueError):
+        validate_wording("[TARGET help] text", "[TARGET other] text")
