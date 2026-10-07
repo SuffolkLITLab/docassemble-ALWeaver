@@ -242,3 +242,12 @@ def test_a_qualified_import_of_util_still_spells_out_its_names():
     )
     catalog = interview_function_catalog(interview, {util.__name__: util})
     assert "docassemble.base.util.bulky_helper" in catalog
+
+
+def test_module_star_names_follow_reexports_without_importing():
+    from .editor_function_catalog import module_star_names
+
+    assert "Iterable" in module_star_names("collections.abc")
+    assert "comma_and_list" in module_star_names("docassemble.base.util")
+    assert "sqrt" in module_star_names("math")  # compiled standard library
+    assert module_star_names("docassemble.not_installed_here") is None

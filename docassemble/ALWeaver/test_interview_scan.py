@@ -242,3 +242,97 @@ fields:
     # Iterating jobs may ask any element attribute.
     assert not variables["jobs[].pay"]["possibly_unused"]
     assert variables["nobody"]["possibly_unused"]
+
+
+def _undefined(result):
+    return {v["name"] for v in result["variables"] if v.get("undefined")}
+
+
+def test_undefined_names_match_the_playground():
+    files = {
+        "main.yml": """include:
+  - shared.yml
+---
+mandatory: True
+code: |
+  some_missing_var
+""",
+        "shared.yml": "question: Hi\nfield: hi\n",
+    }
+    result = scan_interview(files.__getitem__, "main.yml")
+    assert _undefined(result) == {"some_missing_var"}
+    entry = next(v for v in result["variables"] if v["name"] == "some_missing_var")
+    assert entry["references"] == ["main.yml#1"] and entry["definitions"] == []
+
+
+def test_predefined_local_and_docassemble_patterns_are_not_undefined():
+    source = """modules:
+  - collections.abc
+---
+objects:
+  users: DAList
+---
+mandatory: True
+code: |
+  for item in users:
+    item.complete
+  total = sum(len(str(x)) for x in [1, 2])
+  helper = lambda value: value
+  when = today()
+  isinstance(users, Iterable)
+  flagged
+  pressed
+  defined("maybe_never_set")
+---
+question: Pick
+fields:
+  - Choice: choice
+validation code: |
+  flagged = choice == "a"
+---
+Question: Go?
+Buttons:
+  - Go:
+      code: |
+        pressed = True
+---
+question: Summary
+subquestion: |
+  <% count = len(users) %>
+  % for person in users:
+  ${ person } of ${ count } on ${ loop.index }
+  % endfor
+  ${ i } ${ comma_and_list(users) }
+continue button field: summary_seen
+---
+# question: Old
+# subquestion: ${ deleted_variable }
+# field: old_screen
+"""
+    result = scan_interview(lambda name: source, "main.yml")
+    assert _undefined(result) == set()
+
+
+def test_unreadable_include_or_module_skips_the_undefined_check():
+    files = {
+        "main.yml": "include:\n  - gone.yml\n---\nmandatory: True\ncode: |\n  anything\n"
+    }
+
+    def read(name):
+        if name not in files:
+            raise FileNotFoundError(name)
+        return files[name]
+
+    result = scan_interview(read, "main.yml")
+    assert _undefined(result) == set()
+    assert any("not checked" in w and "gone.yml" in w for w in result["warnings"])
+    modules = "modules:\n  - docassemble.not_installed_here\n---\nmandatory: True\ncode: |\n  anything\n"
+    result = scan_interview(lambda name: modules, "main.yml")
+    assert _undefined(result) == set()
+
+
+def test_tabs_are_read_the_way_docassemble_reads_them():
+    source = "mandatory: True\ncode: |\n  if ready:\n  \tdone = True\n  done\n---\nquestion: Ready?\nyesno: ready\n"
+    result = scan_interview(lambda name: source, "main.yml")
+    assert not result["warnings"]
+    assert _undefined(result) == set()
