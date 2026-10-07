@@ -488,3 +488,12 @@ console.log('editor_interview_report.js: all assertions passed');
     children: [{kind: 'screen', invoke: 'stop'}]}], map);
   assert.ok(!loop.edges.some(e => e.from === loop.nodes.find(n => n.stops).id));
 }
+
+// A legacy download may be a standalone mandatory question with no variable.
+{
+  const download = {id: 'download', scan_id: 'wrapper.yml#2', type: 'question', title: 'Download forms', data: {mandatory: true, question: 'Download forms'}};
+  const step = {kind: 'screen', source_block: download.scan_id, invoke: '', summary: download.title};
+  assert.strictEqual(report.screenTitle(step, report.buildBlockMap([download])).block, download);
+  const html = report.buildReport([step], [download], {});
+  assert.ok(html.includes('Download forms'));
+}

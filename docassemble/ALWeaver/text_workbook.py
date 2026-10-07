@@ -1,5 +1,6 @@
 """SME wording workbooks with source-checked, scalar-only YAML imports."""
 
+import ast
 import base64
 from collections import Counter
 import hashlib
@@ -129,6 +130,140 @@ def validate_wording(original: str, edited: str) -> None:
     Lexer(edited).parse()
 
 
+def workbook_context(scan: Dict[str, Any], sources: Dict[str, str]) -> Dict[str, Any]:
+    """Map the main-order walk to workbook tabs, including inherited screens."""
+    nodes = {
+        name: list(yaml.compose_all(source, Loader=yaml.SafeLoader))
+        for name, source in sources.items()
+    }
+    by_scan_id = {block["scan_id"]: block for block in scan["blocks"]}
+    screen_ids = []
+    inherited = []
+    title_screen = None
+    for scan_id in scan.get("screen_order", []):
+        block = by_scan_id[scan_id]
+        name = block["sourceFile"]
+        for doc, node in enumerate(nodes.get(name, [])):
+            if (
+                node is None
+                or not block["line_start"]
+                <= node.start_mark.line + 1
+                <= block["line_end"]
+            ):
+                continue
+            screen_id = f"{name}#{doc}"
+            if screen_id not in screen_ids:
+                screen_ids.append(screen_id)
+            if ":" in name:
+                inherited.append(screen_id)
+            data = block.get("data") or {}
+            if title_screen is None and any(
+                "interview_short_title" in str(data.get(k, ""))
+                for k in ("question", "subquestion")
+            ):
+                title_screen = screen_id
+            break
+    return {
+        "screen_ids": screen_ids,
+        "inherited": inherited,
+        "title_screen": title_screen,
+    }
+
+
+def _workbook_inventory(
+    sources: Dict[str, str], context: Any = None
+) -> List[Dict[str, Any]]:
+    context = context or {}
+    inherited = set(context.get("inherited", []))
+    result = []
+    for filename, source in sources.items():
+        for item in text_inventory(filename, source):
+            screen_id = f"{filename}#{item['document']}"
+            if ":" in filename and screen_id not in inherited:
+                continue
+            item["readonly"] = ":" in filename
+            item["screen_id"] = screen_id
+            if item["label"] == "Action title" and context.get("title_screen"):
+                item["screen_id"] = context["title_screen"]
+            result.append(item)
+    return result
+
+
+def workbook_screens(
+    sources: Dict[str, str], context: Any = None
+) -> List[Dict[str, Any]]:
+    """Use the same tab inventory for required PNGs and workbook generation."""
+    documents = {
+        name: list(yaml.safe_load_all(source)) for name, source in sources.items()
+    }
+    grouped = {item["screen_id"] for item in _workbook_inventory(sources, context)}
+    order = list((context or {}).get("screen_ids", []))
+    result = []
+    for screen_id in sorted(
+        grouped, key=lambda key: (order.index(key) if key in order else len(order), key)
+    ):
+        filename, doc = screen_id.rsplit("#", 1)
+        data = documents[filename][int(doc)]
+        if isinstance(data, dict) and any(
+            key in data for key in ("question", "review", "table")
+        ):
+            result.append({"id": screen_id, "data": data})
+    return result
+
+
+def _action_title(node: Any, source: str) -> Any:
+    """Locate only an unconditional string literal, using UTF-8 AST offsets."""
+    if not isinstance(node, yaml.ScalarNode) or node.style != "|":
+        return None
+    try:
+        tree = ast.parse(node.value)
+    except SyntaxError:
+        return None
+    matches = []
+    for statement in tree.body:
+        value: Any
+        if isinstance(statement, ast.Assign) and len(statement.targets) == 1:
+            target, value = statement.targets[0], statement.value
+        elif isinstance(statement, ast.AnnAssign):
+            target, value = statement.target, statement.value
+        else:
+            continue
+        if isinstance(target, ast.Name) and target.id == "interview_short_title":
+            if not isinstance(value, ast.Constant) or not isinstance(value.value, str):
+                return None
+            matches.append(value)
+    if len(matches) != 1:
+        return None
+    value = matches[0]
+    if value.end_lineno is None or value.end_col_offset is None:
+        return None
+    raw_lines = source[node.start_mark.index : node.end_mark.index].splitlines(
+        keepends=True
+    )
+    code_lines = node.value.splitlines(keepends=True)
+
+    def offset(line: int, column: int) -> int:
+        raw = raw_lines[line]
+        decoded = code_lines[line - 1]
+        if raw.rstrip("\r\n").endswith(decoded.rstrip("\r\n")):
+            indent = len(raw.rstrip("\r\n")) - len(decoded.rstrip("\r\n"))
+        else:
+            raise ValueError("Could not locate the action title safely.")
+        char_column = len(decoded.encode("utf-8")[:column].decode("utf-8"))
+        return (
+            node.start_mark.index
+            + sum(len(text) for text in raw_lines[:line])
+            + indent
+            + char_column
+        )
+
+    return (
+        value.value,
+        offset(value.lineno, value.col_offset),
+        offset(value.end_lineno, value.end_col_offset),
+    )
+
+
 def text_inventory(filename: str, source: str) -> List[Dict[str, Any]]:
     """Return editable scalar locations, including shorthand field/choice labels."""
     result: List[Dict[str, Any]] = []
@@ -208,6 +343,33 @@ def text_inventory(filename: str, source: str) -> List[Dict[str, Any]]:
         if not isinstance(node, yaml.MappingNode) or id(node) in repeated:
             continue
         pairs = {k.value: v for k, v in node.value}
+        if (
+            "code" in pairs
+            and id(pairs["code"]) not in repeated
+            and ":" not in filename
+        ):
+            located = _action_title(pairs["code"], source)
+            if located:
+                original, start, end = located
+                identity = json.dumps(
+                    [filename, revision, doc, ["action_title"]], ensure_ascii=False
+                )
+                result.append(
+                    {
+                        "id": hashlib.sha256(identity.encode()).hexdigest(),
+                        "filename": filename,
+                        "revision": revision,
+                        "document": doc,
+                        "path": ["action_title"],
+                        "label": "Action title",
+                        "screen": "Interview action title",
+                        "original": original,
+                        "start": start,
+                        "end": end,
+                        "style": "python",
+                        "line": source.count("\n", 0, start) + 1,
+                    }
+                )
         if not any(k in pairs for k in ("question", "review", "table", "template")):
             continue
         screen_node = pairs.get("question") or pairs.get("subject")
@@ -222,7 +384,19 @@ def text_inventory(filename: str, source: str) -> List[Dict[str, Any]]:
             if k.value in SCREEN_TEXT or (
                 "template" in pairs and k.value in {"content", "subject"}
             ):
-                add(v, doc, path, k.value.capitalize(), screen)
+                add(
+                    v,
+                    doc,
+                    path,
+                    (
+                        "Action title"
+                        if pairs.get("template")
+                        and pairs["template"].value == "interview_short_title"
+                        and k.value == "content"
+                        else k.value.capitalize()
+                    ),
+                    screen,
+                )
             elif k.value == "columns" and isinstance(v, yaml.SequenceNode):
                 for column_index, column in enumerate(v.value):
                     if isinstance(column, yaml.MappingNode):
@@ -282,7 +456,9 @@ def text_inventory(filename: str, source: str) -> List[Dict[str, Any]]:
     return result
 
 
-def export_workbook(sources: Dict[str, str], previews: Dict[str, str]) -> bytes:
+def export_workbook(
+    sources: Dict[str, str], previews: Dict[str, str], context: Any = None
+) -> bytes:
     """Write instructions, screen tabs with PNGs, and hidden round-trip metadata."""
     import xlsxwriter
     from PIL import Image
@@ -314,7 +490,7 @@ def export_workbook(sources: Dict[str, str], previews: Dict[str, str]) -> bytes:
         "You may move a whole blue expression within the same paragraph/control region: Hello ${ users[0] } → ${ users[0] }, hello. Keep the entire ${ ... } together.",
         "Do not change ${ users[0] } to ${ user[0] }, remove it, or copy it twice. Do not move text or expressions across green % if / % else / % endif lines; that would change when they appear.",
         "Example: % if has_children: and % endif must remain on their own lines, in the same order. Change only the wording between them. The importer checks highlighted code even if your spreadsheet app loses its colors.",
-        "Previews are static illustrations, not a live interview. Expressions and conditional fields may appear differently at runtime. Template text has no independent screen preview. Shared YAML aliases are excluded because changing one can affect multiple locations. Text from installed packages is read-only and is not included for editing.",
+        "Previews are static illustrations, not a live interview. Expressions and conditional fields may appear differently at runtime. Template text has no independent screen preview. Shared YAML aliases are excluded because changing one can affect multiple locations. Inherited screens from the main order are shown read-only. Their wording cannot be changed here. A yellow Action title cell changes only this interview’s title, even when it appears on an inherited intro screen.",
         "Save as XLSX. In the Weaver choose Import wording workbook, inspect the proposed changes, then Apply. If source files changed after export, export a fresh workbook and transfer your edits; nothing is applied when validation fails.",
     ]
     for row, note in enumerate(notes, 2):
@@ -324,15 +500,27 @@ def export_workbook(sources: Dict[str, str], previews: Dict[str, str]) -> bytes:
     manifest.write_string(0, 0, SCHEMA)
     manifest.hide()
     manifest_row = 1
-    groups: Dict[tuple, List[Dict[str, Any]]] = {}
-    for filename, source in sources.items():
-        for item in text_inventory(filename, source):
-            groups.setdefault((filename, item["document"]), []).append(item)
+    groups: Dict[str, List[Dict[str, Any]]] = {}
+    inventory = _workbook_inventory(sources, context)
+    order = (context or {}).get("screen_ids", [])
+    for item in sorted(
+        inventory,
+        key=lambda item: (
+            order.index(item["screen_id"]) if item["screen_id"] in order else len(order)
+        ),
+    ):
+        groups.setdefault(item["screen_id"], []).append(item)
     if not groups:
         raise ValueError("No editable user-facing wording was found.")
     if sum(len(items) for items in groups.values()) > MAX_ROWS:
         raise ValueError("Too many wording rows for one workbook.")
-    for index, ((filename, document), items) in enumerate(groups.items(), 1):
+    for index, (screen_id, items) in enumerate(groups.items(), 1):
+        filename, document_text = screen_id.rsplit("#", 1)
+        document = int(document_text)
+        screen_title = next(
+            (item["screen"] for item in items if item["label"] != "Action title"),
+            items[0]["screen"],
+        )
         sheet = workbook.add_worksheet(f"Screen {index:03d}")
         sheet.freeze_panes(3, 2)
         sheet.hide_gridlines(2)
@@ -344,9 +532,16 @@ def export_workbook(sources: Dict[str, str], previews: Dict[str, str]) -> bytes:
         sheet.set_column("B:C", 55)
         sheet.set_column("D:D", 70)
         sheet.set_column("E:E", 10, None, {"hidden": True})
-        sheet.merge_range("A1:D1", items[0]["screen"], heading)
+        sheet.merge_range("A1:D1", screen_title, heading)
         sheet.merge_range(
-            "A2:D2", f"{filename} · block {document + 1} · static preview", fixed
+            "A2:D2",
+            f"{filename} · block {document + 1} · "
+            + (
+                "Inherited wording is read-only; the yellow action title is editable"
+                if ":" in filename
+                else "static preview"
+            ),
+            fixed,
         )
         sheet.write_row(
             2,
@@ -360,7 +555,7 @@ def export_workbook(sources: Dict[str, str], previews: Dict[str, str]) -> bytes:
             ],
             heading,
         )
-        png = previews.get(f"{filename}#{document}")
+        png = previews.get(screen_id)
         if png:
             raw = base64.b64decode(png.split(",")[-1], validate=True)
             image = Image.open(BytesIO(raw))
@@ -387,7 +582,7 @@ def export_workbook(sources: Dict[str, str], previews: Dict[str, str]) -> bytes:
             sheet.write_string(row, 0, item["label"], fixed)
             sheet.write_string(row, 4, item["id"])
             parts = protected_parts(item["original"])
-            for col, fmt in [(1, fixed), (2, editable)]:
+            for col, fmt in [(1, fixed), (2, fixed if item["readonly"] else editable)]:
                 runs: List[Any] = []
                 for text, kind in parts:
                     if text:
@@ -399,8 +594,12 @@ def export_workbook(sources: Dict[str, str], previews: Dict[str, str]) -> bytes:
                         {
                             "text_wrap": True,
                             "valign": "top",
-                            "locked": col != 2,
-                            "bg_color": "#FFF2CC" if col == 2 else "#FFFFFF",
+                            "locked": col != 2 or item["readonly"],
+                            "bg_color": (
+                                "#FFF2CC"
+                                if col == 2 and not item["readonly"]
+                                else "#FFFFFF"
+                            ),
                             "font_color": ["#000000", "#008000", "#0000FF"][
                                 parts[0][1]
                             ],
@@ -440,6 +639,8 @@ def export_workbook(sources: Dict[str, str], previews: Dict[str, str]) -> bytes:
 
 def _replacement(source: str, item: Dict[str, Any], edited: str) -> str:
     """Replace one scalar, leaving all surrounding source untouched."""
+    if item["style"] == "python":
+        return repr(edited)
     if "choice_value" in item:
         return json.dumps({edited: item["choice_value"]}, ensure_ascii=False)
     if item["style"] == "'":
@@ -490,7 +691,9 @@ def _validate_unique_keys(source: str) -> None:
         visit(document)
 
 
-def import_workbook(content: bytes, sources: Dict[str, str]) -> Dict[str, Any]:
+def import_workbook(
+    content: bytes, sources: Dict[str, str], context: Any = None
+) -> Dict[str, Any]:
     """Preflight every row, then return exact source patches without writing."""
     import openpyxl
 
@@ -501,11 +704,7 @@ def import_workbook(content: bytes, sources: Dict[str, str]) -> Dict[str, Any]:
     try:
         if "_ALWeaver" not in workbook or workbook["_ALWeaver"]["A1"].value != SCHEMA:
             raise ValueError("This is not a Weaver wording workbook.")
-        inventory = {
-            item["id"]: item
-            for name, text in sources.items()
-            for item in text_inventory(name, text)
-        }
+        inventory = {item["id"]: item for item in _workbook_inventory(sources, context)}
         metadata: Dict[str, Dict[str, Any]] = {}
         for row in workbook["_ALWeaver"].iter_rows(min_row=2, max_col=1):
             if row[0].value is None:
@@ -561,6 +760,10 @@ def import_workbook(content: bytes, sources: Dict[str, str]) -> Dict[str, Any]:
                     raise ValueError(f"{sheet.title}: revised wording must be text.")
                 if edited == item["original"]:
                     continue
+                if item["readonly"]:
+                    raise ValueError(
+                        f"{sheet.title}: inherited wording is read-only. Edit the local Action title instead."
+                    )
                 if item["label"] == "Field label" and edited in FIELD_OPTIONS:
                     raise ValueError(
                         "A field label cannot become an interview directive."

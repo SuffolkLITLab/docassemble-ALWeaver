@@ -80,3 +80,102 @@ fields:
     result = scan_interview(lambda name: source, "main.yml")
     assert all(not b["possibly_unreachable"] for b in result["blocks"])
     assert all(not v["possibly_unused"] for v in result["variables"])
+
+
+LEGACY = {
+    "standalone.yml": """include: reusable.yml
+---
+id: main order
+mandatory: true
+code: |
+  basic_questions_intro_screen
+  interview_order_test
+---
+mandatory: true
+question: Download your forms
+subquestion: All done.
+""",
+    "reusable.yml": """include: docassemble.AssemblyLine:baseline.yml
+---
+code: |
+  interview_short_title = 'Ask for help'
+---
+id: interview_order_test
+code: |
+  name
+  interview_order_test = True
+---
+question: Your name
+fields:
+  - Name: name
+""",
+    "docassemble.AssemblyLine:baseline.yml": """question: ${ interview_short_title }
+subquestion: Shared instructions.
+continue button field: al_intro_screen
+---
+code: |
+  al_intro_screen
+  basic_questions_intro_screen = True
+""",
+}
+
+
+def test_legacy_main_order_inherited_intro_and_mandatory_download():
+    from .interview_scan import resolve_report_entrypoint
+
+    assert (
+        resolve_report_entrypoint(
+            LEGACY.__getitem__, "reusable.yml", ["standalone.yml", "reusable.yml"]
+        )
+        == "standalone.yml"
+    )
+    scan = scan_interview(LEGACY.__getitem__, "standalone.yml")
+    blocks = {b["scan_id"]: b for b in scan["blocks"]}
+    ordered = [blocks[key] for key in scan["screen_order"]]
+    assert [b["data"]["question"] for b in ordered] == [
+        "${ interview_short_title }",
+        "Your name",
+        "Download your forms",
+    ]
+    assert ordered[0]["report_title"] == "Ask for help"
+
+
+def test_callable_signatures_are_static_and_keep_parameters():
+    source = '''code: |
+  def help_person(name: str, *, urgent=False):
+      """Prepare a greeting."""
+      return name
+  class Helper:
+      def greet(self, person, **options):
+          return person
+'''
+    symbols = scan_interview(lambda _: source, "main.yml")["symbols"]
+    assert symbols[0]["signature"] == "help_person(name: str, *, urgent=False)"
+    assert symbols[0]["documentation"] == "Prepare a greeting."
+    assert symbols[2]["kind"] == "method"
+    assert symbols[2]["signature"] == "Helper.greet(self, person, **options)"
+
+
+def test_imported_functions_and_methods_are_read_without_execution(
+    tmp_path, monkeypatch
+):
+    (tmp_path / "report_helpers.py").write_text(
+        '''raise RuntimeError("must not execute")
+__all__ = ['greet', 'Helper']
+def greet(person, *, formal=True):
+    """Greet someone."""
+    return person
+class Helper:
+    def prepare(self, count=2):
+        return count
+def hidden():
+    pass
+'''
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    source = "modules:\n  - report_helpers\n"
+    symbols = scan_interview(lambda _: source, "main.yml")["symbols"]
+    assert {s["name"] for s in symbols} == {"greet", "Helper", "Helper.prepare"}
+    method = next(s for s in symbols if s["kind"] == "method")
+    assert method["signature"] == "Helper.prepare(self, count=2)"
+    assert method["origin"] == "report_helpers"

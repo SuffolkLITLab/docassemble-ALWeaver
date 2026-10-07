@@ -5953,3 +5953,18 @@ body {
     max-width: none;
   }
 }
+
+/* A roomy browser by default; the right dock stays usable on narrow screens. */
+.variable-browser { position: fixed; z-index: 1040; inset: 5rem 1rem 2rem; background: var(--bs-body-bg, white); color: var(--bs-body-color, #212529); border: 1px solid var(--bs-border-color, #ddd); border-radius: .5rem; box-shadow: 0 .3rem 1.5rem #0003; padding: 1rem; overflow: auto; }
+.variable-browser[data-dock="side"] { left: auto; width: min(440px, 95vw); }
+.variable-browser[data-dock="bottom"] { top: auto; height: 32vh; }
+.variable-browser[data-dock="tall"] { top: auto; height: 65vh; }
+.variable-browser-filters { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 1rem; }
+.variable-browser-filter { flex: 1 1 150px; font-size: .875rem; }
+.variable-browser-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .75rem 0; border-bottom: 1px solid var(--bs-border-color, #ddd); }
+.variable-browser-row > div { min-width: 0; overflow-wrap: anywhere; }
+.variable-browser-row > button { flex-shrink: 0; }
+.variable-browser [aria-pressed="true"] { background: var(--bs-secondary); color: white; }
+@media (min-width: 1000px) {
+  .variable-browser-pinned { padding-right: 460px; }
+}

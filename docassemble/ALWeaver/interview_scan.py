@@ -139,7 +139,28 @@ def _names(code: str) -> tuple[Set[str], Set[str]]:
                     for arg in node.args
                     if isinstance(arg, ast.Constant) and isinstance(arg.value, str)
                 )
-    return reads, writes
+    # Function parameters and method locals are not interview variables.
+    local_writes: Set[str] = set()
+    declarations: Set[str] = set()
+    for statement in tree.body:
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            declarations.add(statement.name)
+            for child in ast.walk(statement):
+                if isinstance(
+                    child, (ast.Name, ast.Attribute, ast.Subscript)
+                ) and isinstance(child.ctx, ast.Store):
+                    local_writes.add(ast.unparse(child))
+    module_writes: Set[str] = set()
+    for statement in tree.body:
+        if not isinstance(
+            statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+        ):
+            for child in ast.walk(statement):
+                if isinstance(
+                    child, (ast.Name, ast.Attribute, ast.Subscript)
+                ) and isinstance(child.ctx, ast.Store):
+                    module_writes.add(ast.unparse(child))
+    return reads, (writes - local_writes) | module_writes | declarations
 
 
 def _mako_reads(text: str) -> Set[str]:
@@ -175,8 +196,228 @@ def _key(name: str) -> str:
     return re.sub(r"\[[^\]]*\]", "[]", name.strip())
 
 
+def _is_main_order(block: Dict[str, Any]) -> bool:
+    data = block.get("data") or {}
+    return isinstance(data.get("code"), str) and bool(
+        re.match(r"^main[ _]order(?:\b|_)", str(data.get("id", "")), re.I)
+    )
+
+
+def resolve_report_entrypoint(
+    read_file: Callable[[str], str], filename: str, project_files: List[str]
+) -> str:
+    """Find a unique local main-order wrapper for an open reusable interview."""
+    models = {filename: parse_interview_yaml(read_file(filename))["blocks"]}
+    if any(_is_main_order(block) for block in models[filename]):
+        return filename
+    parents: Dict[str, Set[str]] = {}
+    for name in project_files:
+        if name not in models:
+            try:
+                models[name] = parse_interview_yaml(read_file(name))["blocks"]
+            except (OSError, ValueError):
+                continue
+        for block in models[name]:
+            for target in _strings((block.get("data") or {}).get("include")):
+                if ":" not in target:
+                    parents.setdefault(target, set()).add(name)
+    ancestors: Set[str] = set()
+    pending = list(parents.get(filename, set()))
+    while pending:
+        parent = pending.pop()
+        if parent == filename or parent in ancestors:
+            continue
+        ancestors.add(parent)
+        pending.extend(parents.get(parent, set()))
+    candidates = sorted(
+        name for name in ancestors if any(_is_main_order(b) for b in models[name])
+    )
+    if len(candidates) > 1:
+        raise ValueError(
+            "This file has multiple main-order entrypoints: "
+            + ", ".join(candidates)
+            + ". Open the standalone interview you want to report."
+        )
+    return candidates[0] if candidates else filename
+
+
+def expand_report_steps(
+    steps: List[Dict[str, Any]], named: Dict[str, Any]
+) -> List[Dict[str, Any]]:
+    """Expand child orders and legacy completion aliases without evaluating them."""
+
+    def expand(items: List[Dict[str, Any]], active: tuple) -> List[Dict[str, Any]]:
+        output = []
+        for step in items:
+            name = step.get("invoke") if step.get("kind") == "screen" else None
+            if name in named and name not in active and len(active) < 40:
+                output.extend(expand(named[name], active + (name,)))
+            elif step.get("kind") in {"condition", "loop"}:
+                output.append(
+                    dict(
+                        step,
+                        children=expand(step.get("children", []), active),
+                        else_children=expand(step.get("else_children", []), active),
+                    )
+                )
+            else:
+                output.append(step)
+        return output
+
+    return expand(steps, ())
+
+
+def _screen_order(
+    steps: List[Dict[str, Any]], blocks: List[Dict[str, Any]]
+) -> List[str]:
+    definitions: Dict[str, str] = {}
+    for block in blocks:
+        if "question" not in block.get("data", {}):
+            continue
+        for name in block.get("defines", []):
+            definitions.setdefault(_key(name), block["scan_id"])
+    result: List[str] = []
+
+    def visit(items: List[Dict[str, Any]]) -> None:
+        for step in items:
+            target = step.get("source_block") or definitions.get(
+                _key(step.get("invoke", ""))
+            )
+            if target and target not in result:
+                result.append(target)
+            visit(step.get("children", []))
+            visit(step.get("else_children", []))
+
+    visit(steps)
+    return result
+
+
+def _report_literals(blocks: List[Dict[str, Any]]) -> Dict[str, str]:
+    """Only known display constants; never infer values from arbitrary Python."""
+    result: Dict[str, str] = {}
+    seen: Set[str] = set()
+    for block in blocks:
+        data = block.get("data") or {}
+        if (
+            "interview_short_title" not in seen
+            and data.get("template") == "interview_short_title"
+            and isinstance(data.get("content"), str)
+        ):
+            if "${" not in data["content"] and not re.search(
+                r"^\s*%", data["content"], re.M
+            ):
+                result.setdefault("interview_short_title", data["content"].strip())
+            seen.add("interview_short_title")
+        try:
+            tree = ast.parse(data.get("code", ""))
+        except (SyntaxError, TypeError):
+            continue
+        for node in tree.body:
+            value: Any
+            if isinstance(node, ast.Assign) and len(node.targets) == 1:
+                target, value = node.targets[0], node.value
+            elif isinstance(node, ast.AnnAssign):
+                target, value = node.target, node.value
+            else:
+                continue
+            if isinstance(target, ast.Name) and target.id in {
+                "interview_short_title",
+                "AL_ORGANIZATION_TITLE",
+            }:
+                if target.id not in seen:
+                    if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                        result.setdefault(target.id, value.value)
+                    seen.add(target.id)
+    return result
+
+
+def _symbols(blocks: List[Dict[str, Any]], package: str = "") -> List[Dict[str, Any]]:
+    """Describe declarations without importing or executing interview code."""
+    from .editor_function_catalog import _module_source_functions
+
+    result: List[Dict[str, Any]] = []
+    for block in blocks:
+        data = block.get("data") or {}
+        for directive in ("modules", "imports"):
+            for module in _strings(data.get(directive)):
+                if module.startswith("."):
+                    origin = (
+                        block["sourceFile"].split(":", 1)[0]
+                        if ":" in block["sourceFile"]
+                        else package
+                    )
+                    if not origin:
+                        continue
+                    module = origin + module
+                for info in _module_source_functions(
+                    module, directive == "imports", include_methods=True
+                ).values():
+                    result.append(
+                        dict(
+                            name=info["name"],
+                            kind=info.get("kind", "function"),
+                            signature=info["signature"],
+                            documentation=info["doc"],
+                            origin=module,
+                            definitions=[block["scan_id"]],
+                        )
+                    )
+        for kind in ("template", "table", "event"):
+            for name in _strings(data.get(kind)):
+                result.append(
+                    dict(name=name, kind=kind, definitions=[block["scan_id"]])
+                )
+        try:
+            tree = ast.parse(data.get("code", ""))
+        except (SyntaxError, TypeError):
+            continue
+
+        def visit(nodes: List[Any], prefix: str = "", in_class: bool = False) -> None:
+            for node in nodes:
+                if isinstance(
+                    node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+                ):
+                    name = prefix + node.name
+                    kind = (
+                        "class"
+                        if isinstance(node, ast.ClassDef)
+                        else "method" if in_class else "function"
+                    )
+                    result.append(
+                        dict(
+                            name=name,
+                            kind=kind,
+                            definitions=[block["scan_id"]],
+                            signature=name
+                            + (
+                                "(" + ast.unparse(node.args) + ")"
+                                if hasattr(node, "args")
+                                else ""
+                            ),
+                            documentation=ast.get_docstring(node) or "",
+                        )
+                    )
+                    if isinstance(node, ast.ClassDef):
+                        visit(node.body, name + ".", True)
+
+        visit(tree.body)
+    unique: Dict[tuple[str, str], Dict[str, Any]] = {}
+    for symbol in result:
+        key = (symbol["kind"], symbol["name"])
+        if key not in unique:
+            unique[key] = symbol
+        else:
+            for definition in symbol["definitions"]:
+                if definition not in unique[key]["definitions"]:
+                    unique[key]["definitions"].append(definition)
+    return list(unique.values())
+
+
 def scan_interview(
-    read_file: Callable[[str], str], filename: str, max_files: int = 100
+    read_file: Callable[[str], str],
+    filename: str,
+    max_files: int = 100,
+    package: str = "",
 ) -> Dict[str, Any]:
     """Follow includes and retain source identities, definitions and references."""
     files: Dict[str, str] = {}
@@ -307,26 +548,64 @@ def scan_interview(
         )
     for block in blocks:
         block["possibly_unreachable"] = (
-            "question" in (block.get("data") or {})
+            bool(block["defines"] or "question" in (block.get("data") or {}))
             and block["scan_id"] not in reachable
         )
     named_orders: Dict[str, List[Dict[str, Any]]] = {}
-    orders = []
+    local = [b for b in blocks if ":" not in b["sourceFile"]]
+    has_main = any(_is_main_order(b) for b in local)
+    orders: List[Dict[str, Any]] = []
     for block in blocks:
-        code = (block.get("data") or {}).get("code")
-        if not isinstance(code, str):
-            continue
-        steps = parse_order_code(code)
-        match = re.search(r"(?:^|\n)\s*(\w+)\s*=\s*True\s*(?:#.*)?\s*$", code)
-        if match:
-            named_orders.setdefault(match[1], steps)
-        if block["scan_id"] in roots:
-            orders.extend(steps)
+        data = block.get("data") or {}
+        code = data.get("code")
+        if isinstance(code, str):
+            steps = parse_order_code(code)
+            match = re.search(r"(?:^|\n)\s*(\w+)\s*=\s*True\s*(?:#.*)?\s*$", code)
+            if match:
+                named_orders.setdefault(match[1], steps)
+            if ":" not in block["sourceFile"] and (
+                _is_main_order(block) if has_main else data.get("mandatory")
+            ):
+                orders.extend(steps)
+        elif (
+            data.get("mandatory")
+            and "question" in data
+            and ":" not in block["sourceFile"]
+        ):
+            orders.append(
+                {
+                    "kind": "screen",
+                    "source_block": block["scan_id"],
+                    "invoke": block.get("variable") or "",
+                    "summary": block["title"],
+                }
+            )
+    if not orders:
+        for block in local:
+            data = block.get("data") or {}
+            if isinstance(data.get("code"), str) and re.match(
+                r"^interview[ _]order", str(data.get("id", "")), re.I
+            ):
+                orders.extend(parse_order_code(data["code"]))
+    literals = _report_literals(blocks)
+    if blocks:
+        blocks[0]["report_literals"] = literals
+    for block in blocks:
+        question = (block.get("data") or {}).get("question")
+        if isinstance(question, str):
+            title = re.sub(
+                r"\$\{\s*(\w+)\s*\}", lambda m: literals.get(m[1], m[0]), question
+            )
+            if title != question:
+                block["report_title"] = title.strip().split("\n")[0]
+    screen_order = _screen_order(expand_report_steps(orders, named_orders), blocks)
     return {
+        "symbols": _symbols(blocks, package),
         "filename": filename,
         "blocks": blocks,
         "variables": variables,
         "order_steps": orders,
+        "screen_order": screen_order,
         "named_order_steps": named_orders,
         "warnings": warnings,
         "files": list(files),

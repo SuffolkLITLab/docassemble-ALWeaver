@@ -6647,6 +6647,34 @@ class TestWordingWorkbookApi(unittest.TestCase):
         self.client = api_editor.app.test_client()
         self.payload = {"project": "default", "filename": "main.yml"}
 
+    def test_prepare_resolves_wrapper_and_includes_inherited_intro(self):
+        from .test_interview_scan import LEGACY
+
+        self.files = {name: text for name, text in LEGACY.items() if ":" not in name}
+        with (
+            patch.object(
+                api_editor, "_project_yaml_filenames", return_value=list(self.files)
+            ),
+            patch.object(
+                api_editor, "_read_package_yaml", side_effect=LEGACY.__getitem__
+            ),
+        ):
+            result = self.client.post(
+                "/al/editor/api/reports/wording/prepare",
+                json={"project": "default", "filename": "reusable.yml"},
+            )
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(result.json["data"]["filename"], "standalone.yml")
+        self.assertEqual(
+            result.json["data"]["screens"][0]["data"]["question"],
+            "${ interview_short_title }",
+        )
+        self.assertEqual(
+            result.json["data"]["screens"][-1]["data"]["question"],
+            "Download your forms",
+        )
+        self.write.assert_not_called()
+
     def test_export_requires_current_previews(self):
         import base64
         from PIL import Image

@@ -562,3 +562,21 @@ Run `npm run build:report-capture` after changing the pinned html2canvas version
 package. Focused tests are `test_interview_scan.py`, `test_text_workbook.py`, the
 report API tests in `test_editor_api.py`, and the existing JavaScript preview and
 flow report tests.
+
+Reports resolve a reusable interview to its unique local `main order` wrapper;
+ambiguous wrappers require selecting the standalone file. The scanner expands
+named orders and legacy intro aliases and includes standalone mandatory screens.
+Reached package screens appear in the wording workbook as locked context, with
+the local literal `interview_short_title` editable on the intro tab. Python title
+edits replace only the verified string literal using UTF-8 AST coordinates.
+Computed titles remain untouched. Package wording is also enforced read-only by
+the importer, regardless of spreadsheet protection.
+
+The variable browser defaults to a large view and remembers bottom, tall, right,
+or full-window docking. It separates variables, callable declarations, templates,
+tables, events, and screens, with local/include scope and usage/error filters.
+Details show source links, signatures, and docstrings. Imported callables are
+read from available Python source without importing or executing modules;
+dynamic exports and inherited methods may not be discoverable. Validation errors
+from the open file mark affected declarations red. The results remain static
+hints and do not substitute for executing an interview.

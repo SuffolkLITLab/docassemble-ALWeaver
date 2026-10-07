@@ -16,30 +16,74 @@
     button.addEventListener('click', function () { bridge.openBlock(block); });
     return button;
   }
+  var dock = 'full';
+  function setDock(value) {
+    dock = value;
+    var panel = el('variable-report-rail');
+    panel.dataset.dock = value;
+    var layout = el('editor-workspace') || panel.parentElement;
+    layout.classList.toggle('variable-browser-pinned', value === 'side');
+    document.querySelectorAll('[data-variable-dock]').forEach(function (button) {
+      button.setAttribute('aria-pressed', String(button.dataset.variableDock === value));
+    });
+    try { localStorage.setItem('alweaver-variable-dock', value); } catch (_) { /* Storage is optional. */ }
+  }
   function render() {
     var box = el('variable-report-results');
     box.replaceChildren();
     if (!report) return;
     var filter = el('variable-report-filter').value.toLowerCase();
+    var kind = el('variable-report-kind').value;
+    var status = el('variable-report-status').value;
     var blocks = {};
     report.blocks.forEach(function (b) { blocks[b.scan_id] = b; });
-    var notice = document.createElement('p');
-    notice.className = 'small text-muted mt-2';
-    notice.textContent = report.limitation + ' ' + report.warnings.join(' ');
-    box.appendChild(notice);
-    report.variables.forEach(function (v) {
-      if (v.name.toLowerCase().indexOf(filter) === -1) return;
-      var detail = document.createElement('details');
-      var summary = document.createElement('summary');
-      summary.textContent = v.name + (v.possibly_unused ? ' · possibly unused' : '');
-      detail.appendChild(summary);
-      v.definitions.forEach(function (id) { detail.appendChild(location(blocks[id], 'Defined')); });
-      v.references.forEach(function (id) { detail.appendChild(location(blocks[id], 'Used')); });
-      box.appendChild(detail);
+    var entries = kind === 'variable' ? report.variables : kind === 'screen' ? report.blocks.filter(function (b) { return b.data && b.data.question; }).map(function (b) { return {name: b.report_title || b.title, definitions: [b.scan_id], references: b.possibly_unreachable ? [] : ['flow'], possibly_unused: b.possibly_unreachable}; }) : (report.symbols || []).filter(function (s) { return s.kind === kind; });
+    var matches = entries.map(function (entry) {
+      var definitions = entry.definitions.map(function (id) { return blocks[id]; }).filter(Boolean);
+      var references = entry.references || report.blocks.filter(function (b) { return (b.references || []).includes(entry.name); }).map(function (b) { return b.scan_id; });
+      var errors = definitions.flatMap(function (b) { return bridge.findings ? bridge.findings(b) : []; });
+      return {entry: entry, definitions: definitions, references: references, errors: errors, unused: !references.length, unreachable: definitions.some(function (b) { return b.possibly_unreachable; })};
+    }).filter(function (item) {
+      return (item.entry.name + ' ' + item.definitions.map(function (b) { return b.sourceFile; }).join(' ')).toLowerCase().includes(filter) &&
+        (el('variable-report-scope').value === 'all' || item.definitions.some(function (b) { return !b.sourceFile.includes(':'); })) &&
+        (status === 'all' || status === 'used' && !item.unused || status === 'unused' && item.unused || status === 'unreachable' && item.unreachable || status === 'error' && item.errors.length);
     });
-    report.blocks.filter(function (b) {
-      return b.possibly_unreachable && (b.title + b.sourceFile).toLowerCase().indexOf(filter) !== -1;
-    }).forEach(function (b) { box.appendChild(location(b, 'Possibly unreachable: ' + b.title)); });
+    var count = document.createElement('p');
+    count.className = 'small text-muted';
+    count.textContent = matches.length + ' results' + (matches.length > 150 ? ' · Showing the first 150. Narrow your search to see more.' : '') + (report.warnings.length ? ' · ' + report.warnings.join(' ') : '');
+    box.appendChild(count);
+    matches.slice(0, 150).forEach(function (item) {
+      var row = document.createElement('div');
+      row.className = 'variable-browser-row';
+      var info = document.createElement('div');
+      var name = document.createElement('strong');
+      name.textContent = item.entry.name;
+      if (item.errors.length) name.className = 'text-danger';
+      var detail = document.createElement('div');
+      detail.className = 'small text-muted';
+      detail.textContent = (item.entry.origin ? item.entry.origin + ' · imported at ' : '') + item.definitions.map(function (b) { return b.sourceFile + ':' + b.line_start; }).join(', ');
+      var usage = document.createElement('div');
+      usage.className = 'small';
+      usage.textContent = (item.errors.length ? 'Error · ' : '') + (item.unused ? 'Possibly unused' : 'Used') + (item.unreachable ? ' · Possibly unreachable' : '');
+      info.append(name, detail, usage);
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'btn btn-sm btn-outline-secondary';
+      button.textContent = 'Details';
+      button.setAttribute('aria-label', 'Details for ' + item.entry.name);
+      button.onclick = function () {
+        var dialog = reportDialog(item.entry.name);
+        if (item.entry.signature) { var signature = document.createElement('pre'); signature.textContent = item.entry.signature; dialog.appendChild(signature); }
+        if (item.entry.origin) { var origin = document.createElement('p'); origin.textContent = 'Declared in ' + item.entry.origin + '. The source links below show where this module is included.'; dialog.appendChild(origin); }
+        if (item.entry.documentation) { var docs = document.createElement('p'); docs.textContent = item.entry.documentation; dialog.appendChild(docs); }
+        item.errors.forEach(function (error) { var message = document.createElement('p'); message.className = 'text-danger'; message.textContent = error.message || String(error); dialog.appendChild(message); });
+        item.definitions.forEach(function (b) { dialog.appendChild(location(b, 'Declared')); });
+        item.references.forEach(function (id) { if (blocks[id]) dialog.appendChild(location(blocks[id], 'Used')); });
+        dialog.querySelectorAll('button:not(.btn-close)').forEach(function (link) { link.addEventListener('click', function () { dialog.close(); if (dock === 'full') setDock('side'); }); });
+      };
+      row.append(info, button);
+      box.appendChild(row);
+    });
   }
   function refresh() {
     var sequence = ++requestNumber;
@@ -59,16 +103,27 @@
   }
   function openVariables(options) {
     bridge = options;
+    document.body.appendChild(el('variable-report-rail'));
     el('variable-report-rail').classList.remove('d-none');
     el('variable-report-close').onclick = function () {
       el('variable-report-rail').classList.add('d-none');
+      (el('editor-workspace') || document.body).classList.remove('variable-browser-pinned');
       clearInterval(timer);
       requestNumber++;
     };
     el('variable-report-refresh').onclick = refresh;
-    el('variable-report-filter').oninput = render;
+    ['filter', 'kind', 'scope', 'status'].forEach(function (name) { el('variable-report-' + name).oninput = render; });
+    try { dock = localStorage.getItem('alweaver-variable-dock') || 'full'; } catch (_) { dock = 'full'; }
+    if (!['bottom', 'tall', 'side', 'full'].includes(dock)) dock = 'full';
+    setDock(dock);
+    document.querySelectorAll('[data-variable-dock]').forEach(function (button) { button.onclick = function () { setDock(button.dataset.variableDock); }; });
     clearInterval(timer);
-    timer = setInterval(function () { if (lastKey !== key()) refresh(); }, 1500);
+    var diagnosticKey = '';
+    timer = setInterval(function () {
+      if (lastKey !== key()) refresh();
+      var next = JSON.stringify(bridge.getState().validationErrors || []);
+      if (next !== diagnosticKey) { diagnosticKey = next; render(); }
+    }, 1500);
     refresh();
   }
   function checked(response) {
@@ -211,7 +266,7 @@
         dialog.appendChild(warning);
       }
       var previews = {};
-      var previewOptions = Object.assign({}, options.previewOptions(prepared.blocks.filter(function (block) { return block.sourceFile === payload.filename; })), {
+      var previewOptions = Object.assign({}, options.previewOptions(prepared.blocks.filter(function (block) { return block.sourceFile === (prepared.filename || payload.filename); })), {
         interview: root.ALWeaverScreenPreview.buildInterviewContext(prepared.blocks)});
       for (var i = 0; i < prepared.screens.length; i++) {
         if (!dialog.isConnected) return;

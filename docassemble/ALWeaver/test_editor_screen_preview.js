@@ -1037,3 +1037,10 @@ process.on('exit', function (code) {
   assert.ok(result.html.includes('First'));
   assert.ok(result.html.includes('Second'));
 });
+
+{
+  const interview = preview.buildInterviewContext([{report_literals: {interview_short_title: 'Get help'}, data: {}}]);
+  const result = preview.renderQuestion({question: '${ interview_short_title }'}, {interview});
+  assert.ok(result.html.includes('Get help'));
+  assert.ok(!result.html.includes('${ interview_short_title }'));
+}

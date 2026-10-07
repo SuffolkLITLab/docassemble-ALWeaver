@@ -449,6 +449,12 @@
   }
 
   function renderMakoWidget(expression, context) {
+    var literalName = String(expression || '').trim();
+    var literals = (context && context.literalValues) || {};
+    if (Object.prototype.hasOwnProperty.call(literals, literalName)) {
+      return { html: esc(literals[literalName]), block: false, placeholder: null };
+    }
+
     // ``${ users.table }`` is an attribute, not a call, and names a table:
     // block elsewhere in the file.
     var tableName = String(expression || '').trim();
@@ -2236,11 +2242,13 @@
    * document as ``.data``. */
   function buildInterviewContext(blocks) {
     var templates = {};
+    var literalValues = {};
     var documents = {};
     var bundles = {};
     var tables = {};
 
     (Array.isArray(blocks) ? blocks : []).forEach(function (block) {
+      Object.assign(literalValues, (block && block.report_literals) || {});
       var data = block && block.data;
       if (!data || typeof data !== 'object') return;
 
@@ -2277,7 +2285,7 @@
       });
     });
 
-    return { templates: templates, documents: documents, bundles: bundles, tables: tables };
+    return { literalValues: literalValues, templates: templates, documents: documents, bundles: bundles, tables: tables };
   }
 
   /* A table: block defines a variable rather than a screen, so there is no form
@@ -2309,7 +2317,7 @@
   /* Pick the renderer from the shape of the block, the way Docassemble picks a
    * question type from the keys it finds. */
   function isTerminalScreen(data) {
-    if (!data || !data.event || data.question === undefined) return false;
+    if (!data || !(data.event || data.mandatory) || data.question === undefined) return false;
     if (['fields', 'field', 'continue button field', 'yesno', 'noyes',
          'yesnomaybe', 'noyesmaybe', 'signature', 'review'].some(function (key) {
       return Object.prototype.hasOwnProperty.call(data, key);

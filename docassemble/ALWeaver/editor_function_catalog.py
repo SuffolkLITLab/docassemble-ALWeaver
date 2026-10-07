@@ -16,7 +16,7 @@ import sys
 IMPLICIT_UTIL_MODULES = ("docassemble.base.util", "docassemble.base.legal")
 
 
-def _module_source_functions(module_name, qualified):
+def _module_source_functions(module_name, qualified, include_methods=False):
     """Read declared modules not loaded in this worker without importing them."""
     if not all(part.isidentifier() for part in module_name.split(".")):
         return {}
@@ -59,9 +59,32 @@ def _module_source_functions(module_name, qualified):
                 except (ValueError, TypeError):
                     exports = []  # Dynamic exports cannot be inferred safely.
         result = {}
-        for name, info in local_function_catalog(source).items():
+        declarations = local_function_catalog(source)
+        if include_methods:
+            for node in tree.body:
+                if not isinstance(node, ast.ClassDef) or node.name.startswith("_"):
+                    continue
+                declarations[node.name] = {
+                    "name": node.name,
+                    "signature": node.name,
+                    "doc": ast.get_docstring(node) or "",
+                    "kind": "class",
+                }
+                for method in node.body:
+                    if not isinstance(
+                        method, (ast.FunctionDef, ast.AsyncFunctionDef)
+                    ) or method.name.startswith("_"):
+                        continue
+                    name = node.name + "." + method.name
+                    declarations[name] = {
+                        "name": name,
+                        "signature": name + "(" + ast.unparse(method.args) + ")",
+                        "doc": ast.get_docstring(method) or "",
+                        "kind": "method",
+                    }
+        for name, info in declarations.items():
             if not qualified and exports is not None:
-                if name not in exports:
+                if name.split(".", 1)[0] not in exports:
                     continue
             elif name.startswith("_"):
                 continue

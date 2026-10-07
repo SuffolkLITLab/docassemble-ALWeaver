@@ -172,3 +172,41 @@ def test_python_block_delimiter_in_string_is_still_protected():
     assert protected_parts(original)[0] == ("<% x = '%>'; y = 2 %>", 1)
     with pytest.raises(ValueError, match="Highlighted"):
         validate_wording(original, "<% x = '%>'; y = 3 %>Hello ${ x }")
+
+
+def test_legacy_intro_readonly_and_action_title_roundtrip():
+    from .test_interview_scan import LEGACY
+    from .interview_scan import scan_interview
+    from .text_workbook import workbook_context, workbook_screens
+
+    context = workbook_context(
+        scan_interview(LEGACY.__getitem__, "standalone.yml"), LEGACY
+    )
+    screens = workbook_screens(LEGACY, context)
+    assert screens[0]["data"]["question"] == "${ interview_short_title }"
+    assert screens[-1]["data"]["question"] == "Download your forms"
+    raw = export_workbook(LEGACY, {}, context=context)
+    edited = edit_workbook(raw, {"Ask for help": "Get help today"})
+    result = import_workbook(edited, LEGACY, context=context)
+    assert result["updated"] == {
+        "reusable.yml": LEGACY["reusable.yml"].replace(
+            "'Ask for help'", "'Get help today'"
+        )
+    }
+    edited = edit_workbook(raw, {"Shared instructions.": "Changed shared wording"})
+    with pytest.raises(ValueError, match="read.only"):
+        import_workbook(edited, LEGACY, context=context)
+
+
+def test_unicode_action_title_exact_patch_and_computed_title_excluded():
+    source = 'code: | # Keep\n  café = 1; interview_short_title = "Ask for help" # Keep too\n'
+    raw = export_workbook({"main.yml": source}, {})
+    result = import_workbook(
+        edit_workbook(raw, {"Ask for help": "Help me"}), {"main.yml": source}
+    )
+    assert result["updated"]["main.yml"] == source.replace(
+        '"Ask for help"', "'Help me'"
+    )
+    assert not text_inventory(
+        "main.yml", "code: |\n  interview_short_title = make_title()\n"
+    )

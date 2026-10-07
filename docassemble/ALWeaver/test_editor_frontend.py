@@ -51,6 +51,29 @@ class _TemplateCollector(HTMLParser):
 
 
 class TestEditorFrontend(unittest.TestCase):
+    def test_variable_browser_docking_filters_and_menu_icons(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        for dock in ("bottom", "tall", "side", "full"):
+            self.assertIn(f'data-variable-dock="{dock}"', template)
+        for control in ("kind", "scope", "status", "filter"):
+            self.assertIn(f'id="variable-report-{control}"', template)
+        for action in (
+            "export-wording-workbook",
+            "import-wording-workbook",
+            "open-repository-reports",
+            "open-variable-report",
+        ):
+            matches = re.findall(
+                r'data-action="' + action + r'">(.*?)</button>', template
+            )
+            self.assertEqual(len(matches), 2)
+            self.assertTrue(
+                all(
+                    'aria-hidden="true"' in content and '<i class="fa-solid' in content
+                    for content in matches
+                )
+            )
+
     def test_wording_workbook_export_import_and_preview_capture(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
         controls = (self.package_dir / "data/static/editor_reports.js").read_text()

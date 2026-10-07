@@ -4831,6 +4831,14 @@ def _report_reader(uid: int, project: str) -> Any:
     return read
 
 
+def _report_entrypoint(uid: int, project: str, filename: str) -> str:
+    from .interview_scan import resolve_report_entrypoint
+
+    return resolve_report_entrypoint(
+        _report_reader(uid, project), filename, _project_yaml_filenames(uid, project)
+    )
+
+
 def _wording_report_sources(uid: int, project: str, filename: str) -> tuple[Any, Any]:
     from .interview_scan import scan_interview
 
@@ -4842,16 +4850,22 @@ def _wording_report_sources(uid: int, project: str, filename: str) -> tuple[Any,
             cache[name] = reader(name)
         return cache[name]
 
+    filename = _report_entrypoint(uid, project, filename)
     read(filename)
     scan = scan_interview(read, filename)
-    return {name: text for name, text in cache.items() if ":" not in name}, scan
+    return cache, scan
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/reports/wording/<operation>", methods=["POST"])
 def editor_api_wording_report(operation: str) -> Response:
     """Prepare previews, export a workbook, or review/apply validated wording edits."""
     import base64
-    from .text_workbook import export_workbook, import_workbook, text_inventory
+    from .text_workbook import (
+        export_workbook,
+        import_workbook,
+        workbook_context,
+        workbook_screens,
+    )
 
     request_id = str(uuid.uuid4())
     if not _editor_auth_check():
@@ -4867,25 +4881,16 @@ def editor_api_wording_report(operation: str) -> Response:
         uid = _current_user_id()
         sources, scan = _wording_report_sources(uid, project, filename)
         revisions = {name: source_revision(text) for name, text in sources.items()}
+        context = workbook_context(scan, sources)
         if operation == "prepare":
-            screens = []
-            for name, source in sources.items():
-                documents = list(yaml.safe_load_all(source))
-                indices = sorted(
-                    {item["document"] for item in text_inventory(name, source)}
-                )
-                for index in indices:
-                    data = documents[index]
-                    if isinstance(data, dict) and (
-                        "question" in data or "review" in data or "table" in data
-                    ):
-                        screens.append({"id": f"{name}#{index}", "data": data})
+            screens = workbook_screens(sources, context)
             if len(screens) > 250:
                 raise ValueError(
                     "Choose an interview with no more than 250 screens for one workbook."
                 )
             result = {
                 "screens": screens,
+                "filename": scan["filename"],
                 "blocks": scan["blocks"],
                 "revisions": revisions,
                 "warnings": scan["warnings"],
@@ -4898,25 +4903,17 @@ def editor_api_wording_report(operation: str) -> Response:
             previews = body.get("previews")
             if not isinstance(previews, dict):
                 raise ValueError("Screen previews are required.")
-            for name, source in sources.items():
-                documents = list(yaml.safe_load_all(source))
-                for index in {
-                    item["document"] for item in text_inventory(name, source)
-                }:
-                    data = documents[index]
-                    if (
-                        any(key in data for key in ("question", "review", "table"))
-                        and f"{name}#{index}" not in previews
-                    ):
-                        raise ValueError("A screen preview is missing. Export again.")
-            content = export_workbook(sources, previews)
+            for screen in workbook_screens(sources, context):
+                if screen["id"] not in previews:
+                    raise ValueError("A screen preview is missing. Export again.")
+            content = export_workbook(sources, previews, context)
             result = {"content": base64.b64encode(content).decode()}
         else:
             encoded = body.get("content")
             if not isinstance(encoded, str) or len(encoded) > 40 * 1024 * 1024:
                 raise ValueError("Upload an XLSX workbook smaller than 30 MB.")
             content = base64.b64decode(encoded, validate=True)
-            proposed = import_workbook(content, sources)
+            proposed = import_workbook(content, sources, context)
             digest = hashlib.sha256(
                 json.dumps(proposed["changes"], sort_keys=True).encode()
             ).hexdigest()
@@ -5093,11 +5090,20 @@ def editor_api_report_scan() -> Response:
         body = request.get_json(silent=True) or {}
         project = _normalize_project(body.get("project"))
         filename = _normalize_filename(body.get("filename"))
-        read = _report_reader(_current_user_id(), project)
+        uid = _current_user_id()
+        if body.get("whole_interview") is True:
+            filename = _report_entrypoint(uid, project, filename)
+        read = _report_reader(uid, project)
         read(
             filename
         )  # Fail an unavailable entrypoint instead of returning an empty report.
-        result = scan_interview(read, filename)
+        result = scan_interview(
+            read,
+            filename,
+            package="docassemble.playground"
+            + str(uid)
+            + (project if project != "default" else ""),
+        )
         return jsonify({"success": True, "data": result, "request_id": request_id})
     except (ValueError, OSError) as exc:
         return jsonify_with_status(
