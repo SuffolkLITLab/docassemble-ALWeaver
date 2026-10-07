@@ -315,7 +315,9 @@
           var methodArgs = methodArgsEl ? String(methodArgsEl.value || '').trim() : '';
           if (variable) {
             yaml += '  - code: |\n';
-            yaml += '      ' + variable + '.' + type + '(' + methodArgs + ')\n';
+            (variable + '.' + type + '(' + methodArgs + ')').split('\n').forEach(function (line) {
+              yaml += '      ' + line + '\n';
+            });
           }
           continue;
         }

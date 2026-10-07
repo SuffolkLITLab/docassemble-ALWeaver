@@ -501,6 +501,22 @@ function parseYaml(text) {
   assert.strictEqual(result.status, 0, result.stderr);
   return JSON.parse(result.stdout);
 }
+
+// Multiline helper arguments must remain inside the fields code scalar. The
+// old serializer indented only the first line, making save fail YAML parsing.
+for (const method of ['name_fields', 'address_fields', 'gender_fields', 'pronoun_fields', 'language_fields']) {
+  const args = 'country_code="US",\n  show_if={\n    "variable": "ready",\n    "is": True,\n  }';
+  const emitted = serialize(method, [], args);
+  assert.strictEqual(parseYaml(emitted).fields[0].code, 'answer.' + method + '(' + args + ')\n');
+}
+const multilineCode = '[\n  {"One": "one"},\n  {"Two": "two"},\n]';
+assert.strictEqual(parseYaml(serialize('code', [], '', undefined, {
+  'field-label-0': {value: multilineCode},
+})).fields[0].code, multilineCode + '\n');
+assert.strictEqual(parseYaml(serialize('dropdown', [], '', undefined, {
+  'field-code-0': {value: multilineCode},
+  'field-choices-0': {value: ''},
+})).fields[0].code, multilineCode + '\n');
 const literals = ['Yes', 'No', 'on', 'off', 'null', '~', '001', '1e3', '2026-09-26', '.inf', 'two\nlines', '-', '?', 'a\\b'];
 for (const value of literals) {
   assert.strictEqual(parseYaml('value: ' + serializers.escapeYamlStr(value)).value, value);

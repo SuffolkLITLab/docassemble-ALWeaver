@@ -248,6 +248,11 @@ def dayamlchecker_findings(raw_yaml: str, filename: str) -> List[Dict[str, Any]]
         elif lowered.startswith("info:"):
             level = SEVERITY_INFO
             message = message[len("info:") :].strip()
+        # Modern DAYamlChecker findings expose severity separately from the
+        # rendered message. Keep prefix handling for older checker releases.
+        severity = getattr(checker_error, "severity", None)
+        if severity is not None:
+            level = lint_level_from_severity(getattr(severity, "value", severity))
         variable = ""
         quoted = re.search(r'"([^"]+)"', message) or re.search(r"'([^']+)'", message)
         if quoted:
