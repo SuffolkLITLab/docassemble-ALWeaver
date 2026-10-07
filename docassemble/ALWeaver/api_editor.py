@@ -4822,6 +4822,311 @@ def _read_package_yaml(reference: str) -> str:
         return handle.read()
 
 
+def _report_reader(uid: int, project: str) -> Any:
+    def read(name: str) -> str:
+        if ":" in name:
+            return _read_package_yaml(name)
+        return playground_read_yaml(uid, project, _normalize_filename(name))
+
+    return read
+
+
+def _report_entrypoint(uid: int, project: str, filename: str) -> str:
+    from .interview_scan import resolve_report_entrypoint
+
+    return resolve_report_entrypoint(
+        _report_reader(uid, project), filename, _project_yaml_filenames(uid, project)
+    )
+
+
+def _wording_report_sources(uid: int, project: str, filename: str) -> tuple[Any, Any]:
+    from .interview_scan import scan_interview
+
+    cache: Dict[str, str] = {}
+    reader = _report_reader(uid, project)
+
+    def read(name: str) -> str:
+        if name not in cache:
+            cache[name] = reader(name)
+        return cache[name]
+
+    filename = _report_entrypoint(uid, project, filename)
+    read(filename)
+    scan = scan_interview(read, filename)
+    return cache, scan
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/reports/wording/<operation>", methods=["POST"])
+def editor_api_wording_report(operation: str) -> Response:
+    """Prepare previews, export a workbook, or review/apply validated wording edits."""
+    import base64
+    from .text_workbook import (
+        export_workbook,
+        import_workbook,
+        workbook_context,
+        workbook_screens,
+    )
+
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        if operation not in {"prepare", "export", "import"}:
+            raise ValueError("Unknown wording report operation.")
+        # A workbook is uploaded as a file: base64 JSON would add a third to a
+        # body that must stay under Docassemble's request size limit.
+        body = (
+            request.form.to_dict()
+            if operation == "import"
+            else request.get_json(silent=True) or {}
+        )
+        if not isinstance(body, dict):
+            raise ValueError("A report request must be an object.")
+        project = _normalize_project(body.get("project"))
+        filename = _normalize_filename(body.get("filename"))
+        uid = _current_user_id()
+        sources, scan = _wording_report_sources(uid, project, filename)
+        revisions = {name: source_revision(text) for name, text in sources.items()}
+        context = workbook_context(scan, sources)
+        if operation == "prepare":
+            screens = workbook_screens(sources, context)
+            if len(screens) > 250:
+                raise ValueError(
+                    "Choose an interview with no more than 250 screens for one workbook."
+                )
+            result = {
+                "screens": screens,
+                "filename": scan["filename"],
+                "blocks": scan["blocks"],
+                "revisions": revisions,
+                "warnings": scan["warnings"],
+                # Previews must fit in one export request, and the workbook in one upload.
+                "max_request_bytes": app.config.get("MAX_CONTENT_LENGTH")
+                or 16 * 1024 * 1024,
+            }
+        elif operation == "export":
+            if body.get("revisions") != revisions:
+                raise ValueError(
+                    "The interview changed while previews were being made. Export again."
+                )
+            previews = body.get("previews")
+            if not isinstance(previews, dict):
+                raise ValueError("Screen previews are required.")
+            for screen in workbook_screens(sources, context):
+                if screen["id"] not in previews:
+                    raise ValueError("A screen preview is missing. Export again.")
+            content = export_workbook(sources, previews, context)
+            result = {"content": base64.b64encode(content).decode()}
+        else:
+            upload = request.files.get("workbook")
+            if upload is None:
+                raise ValueError("Upload the edited XLSX workbook.")
+            content = upload.read()
+            proposed = import_workbook(content, sources, context)
+            digest = hashlib.sha256(
+                json.dumps(proposed["changes"], sort_keys=True).encode()
+            ).hexdigest()
+            applied = body.get("apply") == "true"
+            if applied:
+                if body.get("review_digest") != digest:
+                    raise ValueError(
+                        "Review these workbook changes before applying them."
+                    )
+                changes = [
+                    {
+                        "section": "interview",
+                        "filename": name,
+                        "original": sources[name],
+                        "updated": text,
+                    }
+                    for name, text in proposed["updated"].items()
+                ]
+                _commit_project_replacements(uid, project, changes)
+            result = {
+                "changes": proposed["changes"],
+                "review_digest": digest,
+                "applied": applied,
+            }
+        return jsonify({"success": True, "request_id": request_id, "data": result})
+    except StaleProjectSearchError:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "conflict",
+                    "message": "Source changed. Review the workbook again before applying.",
+                },
+            },
+            409,
+        )
+    except ProjectReplacementWriteError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "write_error",
+                    "message": "Could not save workbook changes. Check the affected files before retrying.",
+                    "recovery": getattr(exc, "recovery", []),
+                },
+            },
+            500,
+        )
+    except Exception as exc:
+        log(f"ALWeaver wording report {operation}: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/reports/entrypoints", methods=["POST"])
+def editor_api_report_entrypoints() -> Response:
+    """Suggest entrypoints while letting authors select any project interview."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        body = request.get_json(silent=True) or {}
+        project = _normalize_project(body.get("project"))
+        uid = _current_user_id()
+        files = _project_yaml_filenames(uid, project)
+        included: set[str] = set()
+        runnable: set[str] = set()
+        for name in files:
+            model = parse_interview_yaml(playground_read_yaml(uid, project, name))
+            for block in model["blocks"]:
+                data = block.get("data") or {}
+                targets = data.get("include", [])
+                if isinstance(targets, str):
+                    targets = [targets]
+                if isinstance(targets, list):
+                    included.update(t for t in targets if isinstance(t, str))
+                if data.get("mandatory"):
+                    runnable.add(name)
+        result = [
+            {"filename": name, "suggested": name in runnable or name not in included}
+            for name in files
+        ]
+        return jsonify(
+            {"success": True, "request_id": request_id, "data": {"files": result}}
+        )
+    except (ValueError, OSError) as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/reports/archive", methods=["POST"])
+def editor_api_report_archive() -> Response:
+    """Package browser-rendered reports into a portable ZIP with an index."""
+    import base64
+    import html
+    import zipfile
+    from io import BytesIO
+
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        body = request.get_json(silent=True) or {}
+        reports = body.get("reports")
+        if not isinstance(reports, list) or not 1 <= len(reports) <= 100:
+            raise ValueError("Select between 1 and 100 interviews.")
+        output = BytesIO()
+        links = []
+        seen: set[str] = set()
+        total = 0
+        with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+            for report in reports:
+                if not isinstance(report, dict):
+                    raise ValueError("Invalid or duplicate report.")
+                filename = _normalize_filename(report.get("filename")) + ".html"
+                content = report.get("html")
+                if not isinstance(content, str) or filename in seen:
+                    raise ValueError("Invalid or duplicate report.")
+                seen.add(filename)
+                total += len(content.encode("utf-8"))
+                if total > 50 * 1024 * 1024:
+                    raise ValueError("Reports exceed the 50 MB archive limit.")
+                archive.writestr(filename, content)
+                links.append(
+                    f'<li><a href="{html.escape(filename, quote=True)}">{html.escape(filename)}</a></li>'
+                )
+            archive.writestr(
+                "index.html",
+                '<!doctype html><html lang="en"><meta charset="utf-8">'
+                "<title>Interview flow reports</title><h1>Interview flow reports</h1>"
+                "<p>Open a report to read, print, or save it as PDF. Styling and diagrams require network access.</p><ul>"
+                + "".join(links)
+                + "</ul></html>",
+            )
+        return jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {"content": base64.b64encode(output.getvalue()).decode()},
+            }
+        )
+    except (ValueError, OSError) as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/reports/scan", methods=["POST"])
+def editor_api_report_scan() -> Response:
+    """Scan an entrypoint and includes without executing interview code."""
+    from .interview_scan import scan_interview
+
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        body = request.get_json(silent=True) or {}
+        project = _normalize_project(body.get("project"))
+        filename = _normalize_filename(body.get("filename"))
+        uid = _current_user_id()
+        if body.get("whole_interview") is True:
+            filename = _report_entrypoint(uid, project, filename)
+        read = _report_reader(uid, project)
+        read(
+            filename
+        )  # Fail an unavailable entrypoint instead of returning an empty report.
+        result = scan_interview(
+            read,
+            filename,
+            package="docassemble.playground"
+            + str(uid)
+            + (project if project != "default" else ""),
+        )
+        return jsonify({"success": True, "data": result, "request_id": request_id})
+    except (ValueError, OSError) as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/package-file", methods=["GET"])
 def editor_api_get_package_file() -> Response:
     """Parse a YAML file from an installed package into the block model.

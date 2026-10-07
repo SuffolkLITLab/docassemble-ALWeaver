@@ -14,6 +14,10 @@ authors = [
 ]
 dependencies = [
     "PyYAML>=5.1.2",
+    "XlsxWriter>=3.2.0",
+    "openpyxl>=3.1.2",
+    "Pillow>=10.0.0",
+    "Mako>=1.2.4",
     "beautifulsoup4>=4.11.1",
     "docassemble.ALToolbox>=0.4.2",
     "docassemble.AssemblyLine>=2.11.3",
@@ -133,6 +137,10 @@ ignore_missing_imports = true
 module = "docassemble.ALDashboard.alkiln_story"
 ignore_missing_imports = true
 
+
+[[tool.mypy.overrides]]
+module = ["xlsxwriter.*", "openpyxl.*"]
+ignore_missing_imports = true
 
 [dependency-groups]
 dev = [

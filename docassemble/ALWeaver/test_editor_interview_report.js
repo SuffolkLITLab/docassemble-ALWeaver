@@ -452,3 +452,56 @@ console.log('editor_interview_report.js: all assertions passed');
   const expanded = report.expandNamedOrders([{ kind: 'loop', target: 'item', iterable: 'items', children: [{ kind: 'screen', invoke: 'child_order' }] }], { child_order: [{ kind: 'screen', invoke: 'item.name' }] });
   assert.strictEqual(expanded[0].children[0].invoke, 'item.name');
 }
+
+// Events can have several names and need not expose a field variable.
+{
+  const event = {id: 'exit', data: {event: ['ineligible', 'finished'],
+    question: 'You are not eligible', subquestion: 'Here are other ways to get help.'}};
+  const map = report.buildBlockMap([event]);
+  for (const name of ['ineligible', 'finished']) {
+    assert.strictEqual(report.findBlock(name, map), event);
+    const steps = [{kind: 'screen', invoke: name}];
+    assert.strictEqual(report.buildFlowModel(steps, map).nodes[1].label, 'You are not eligible');
+    const html = report.buildReport(steps, [event], {});
+    assert.ok(html.includes('Here are other ways to get help.'));
+  }
+}
+
+// A stopping event closes only its own branch, including inside loops.
+{
+  const exit = {data: {event: 'stop', question: 'Stop here', buttons: [{Exit: 'exit'}]}};
+  const map = report.buildBlockMap([exit, ...blocks]);
+  const flow = report.buildFlowModel([
+    {kind: 'condition', condition: 'ineligible', children: [{kind: 'screen', invoke: 'stop'}]},
+    {kind: 'screen', invoke: 'has_children'},
+  ], map);
+  const stop = flow.nodes.find(n => n.label === 'Stop here');
+  assert.ok(stop.stops);
+  assert.ok(!flow.edges.some(e => e.from === stop.id));
+  assert.ok(flow.edges.some(e => e.label === 'no'));
+  assert.ok(report.isTerminalScreen({data: {event: 'end', question: 'Done'}}));
+  for (const extra of [{fields: [{Name: 'name'}]}, {buttons: [{Continue: 'continue'}]},
+    {'continue button field': 'done'}, {buttons: [{code: 'dynamic_buttons'}]}, {buttons: [{Go: {code: 'went = True'}}]}, {review: []}]) {
+    assert.ok(!report.isTerminalScreen({data: {event: 'end', question: 'Done', ...extra}}));
+  }
+  const loop = report.buildFlowModel([{kind: 'loop', target: 'item', iterable: 'items',
+    children: [{kind: 'screen', invoke: 'stop'}]}], map);
+  assert.ok(!loop.edges.some(e => e.from === loop.nodes.find(n => n.stops).id));
+}
+
+// A legacy download may be a standalone mandatory question with no variable.
+{
+  const download = {id: 'download', scan_id: 'wrapper.yml#2', type: 'question', title: 'Download forms', data: {mandatory: true, question: 'Download forms'}};
+  const step = {kind: 'screen', source_block: download.scan_id, invoke: '', summary: download.title};
+  assert.strictEqual(report.screenTitle(step, report.buildBlockMap([download])).block, download);
+  const html = report.buildReport([step], [download], {});
+  assert.ok(html.includes('Download forms'));
+}
+
+// Scanned definitions from code never stand in for the question that asks the same name.
+{
+  const code = {id: 'c', data: {code: 'needs_fee_waiver = False'}, defines: ['needs_fee_waiver']};
+  const question = {id: 'q', data: {question: 'Do you need a fee waiver?', yesno: 'needs_fee_waiver'},
+    defines: ['needs_fee_waiver']};
+  assert.strictEqual(report.findBlock('needs_fee_waiver', report.buildBlockMap([code, question])), question);
+}

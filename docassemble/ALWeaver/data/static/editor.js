@@ -12852,7 +12852,7 @@
   /* What the interview itself says about how its screens should look:
    * stylesheets, label layout and button labels. Anything the file does not
    * declare falls back to the AssemblyLine house style this editor builds for. */
-  function _screenPreviewContext() {
+  function _screenPreviewContext(sourceBlocks) {
     var assets = {};
     var extraCss = [];
     var includesAssemblyLine = false;
@@ -12860,7 +12860,7 @@
     var backLabel = null;
     var continueLabel = null;
 
-    (state.blocks || []).forEach(function (blk) {
+    (sourceBlocks || state.blocks || []).forEach(function (blk) {
       var d = blk && blk.data;
       if (!d || typeof d !== 'object') return;
       if (d.include) {
@@ -13277,6 +13277,58 @@
    * size, with the branching logic between them and a flowchart of the same
    * walk on top, and is laid out to print.
    */
+  function reportBridge() {
+    return {
+      getState: function () {
+        return state;
+      },
+      findings: function (block) {
+        if (
+          block.sourceFile !== state.filename ||
+          state.validationMode === 'style'
+        )
+          return [];
+        return getBlockLintFindings(block.id, block).filter(function (finding) {
+          return _lintFindingLevel(finding) === 'error';
+        });
+      },
+      apiPost: apiPost,
+      prepareSaved: promptAndSaveUnsavedChanges,
+      previewOptions: function (blocks) {
+        var resolved = _screenPreviewContext(blocks);
+        return {
+          assets: resolved.assets,
+          extraCss: resolved.extraCss,
+          widgetStyle: BOOT.previewWidgetStyle,
+          labelLayout: resolved.declaredLayout,
+          continueButtonLabel: resolved.continueLabel,
+          backButtonLabel: resolved.backLabel,
+          origin: window.location.origin,
+        };
+      },
+      reload: function (project, filename) {
+        if (state.project === project && state.filename === filename)
+          return loadFile();
+        return Promise.resolve();
+      },
+      openBlock: function (block) {
+        if (block.sourceFile.indexOf(':') !== -1) return;
+        deferNavigationForUnsavedChanges(
+          'open the report location',
+          function () {
+            state.filename = block.sourceFile;
+            state.selectedBlockId = block.id;
+            state.currentView = 'interview';
+            state.canvasMode = 'question';
+            state.jumpTarget = 'all';
+            syncJumpSelect();
+            loadFile();
+          },
+        );
+      },
+    };
+  }
+
   function openInterviewFlowReport() {
     if (typeof ALWeaverInterviewReport === 'undefined') {
       window.alert(
@@ -13302,16 +13354,34 @@
     );
     win.document.close();
 
-    _collectInterviewBlocks()
-      .then(function (collected) {
+    promptAndSaveUnsavedChanges('generate the whole-interview flow report')
+      .then(function (ready) {
+        if (!ready) return null;
+        return apiPost('/api/reports/scan', {
+          project: state.project,
+          filename: state.filename,
+          whole_interview: true,
+        });
+      })
+      .then(function (response) {
+        if (!response) {
+          if (!win.closed) win.close();
+          return;
+        }
+        if (!response.success) throw new Error(response.error.message);
+        var collected = response.data;
         var blocks = collected.blocks;
         var steps = ALWeaverInterviewReport.expandNamedOrders(
-          state.orderSteps || [],
-          collected.namedOrders,
+          collected.order_steps || [],
+          collected.named_order_steps,
         );
-        var resolved = _screenPreviewContext();
-        var interviewName = state.filename
-          ? state.filename.replace(/\.ya?ml$/, '')
+        var resolved = _screenPreviewContext(
+          blocks.filter(function (block) {
+            return block.sourceFile === collected.filename;
+          }),
+        );
+        var interviewName = collected.filename
+          ? collected.filename.replace(/\.ya?ml$/, '')
           : '';
         var html = ALWeaverInterviewReport.buildReport(steps, blocks, {
           assets: resolved.assets,
@@ -13330,7 +13400,11 @@
           title:
             (interviewName ? interviewName + ' \u2014 ' : '') +
             'Interview flow report',
-          subtitle: state.filename || '',
+          subtitle:
+            collected.filename +
+            (collected.warnings.length
+              ? ' · ' + collected.warnings.join(' ')
+              : ''),
           // The report is served from a blob: URL, which cannot resolve a
           // root-relative stylesheet path on its own.
           origin: window.location.origin,
@@ -21806,6 +21880,22 @@
       )
         return;
       enterOrderBuilder(requestedMenuOrderBlock, 'interview-menu');
+      return;
+    }
+    if (uiAction === 'export-wording-workbook') {
+      window.ALWeaverReports.exportWording(reportBridge());
+      return;
+    }
+    if (uiAction === 'import-wording-workbook') {
+      window.ALWeaverReports.importWording(reportBridge());
+      return;
+    }
+    if (uiAction === 'open-repository-reports') {
+      window.ALWeaverReports.openRepository(reportBridge());
+      return;
+    }
+    if (uiAction === 'open-variable-report') {
+      window.ALWeaverReports.openVariables(reportBridge());
       return;
     }
     if (uiAction === 'open-interview-flow-report') {

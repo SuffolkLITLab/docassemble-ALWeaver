@@ -43,8 +43,14 @@
             </div>
             <ul class="editor-section-submenu-list d-none" id="editor-interview-submenu">
               <li><button type="button" class="dropdown-item" data-action="open-interview-order"><i class="fa-solid fa-list-ol fa-fw me-2" aria-hidden="true"></i>Interview Order</button></li>
-              <li><button type="button" class="dropdown-item" data-action="open-interview-flow-report"><i class="fa-solid fa-file-lines fa-fw me-2" aria-hidden="true"></i>Flow report</button></li>
-              <li><button type="button" class="dropdown-item" data-action="run-style-check"><i class="fa-solid fa-ruler fa-fw me-2" aria-hidden="true"></i>Style check</button></li>
+              <li><hr class="dropdown-divider"></li>
+<li><button type="button" class="dropdown-item" data-action="open-interview-flow-report"><i class="fa-solid fa-file-lines fa-fw me-2" aria-hidden="true"></i>Flow report</button></li>
+              <li><button type="button" class="dropdown-item" data-action="export-wording-workbook"><i class="fa-solid fa-file-excel fa-fw me-2" aria-hidden="true"></i>Export wording workbook</button></li>
+              <li><button type="button" class="dropdown-item" data-action="import-wording-workbook"><i class="fa-solid fa-file-import fa-fw me-2" aria-hidden="true"></i>Import wording workbook</button></li>
+              <li><button type="button" class="dropdown-item" data-action="open-repository-reports"><i class="fa-solid fa-folder-tree fa-fw me-2" aria-hidden="true"></i>Repository flow reports</button></li>
+              <li><button type="button" class="dropdown-item" data-action="open-variable-report"><i class="fa-solid fa-list fa-fw me-2" aria-hidden="true"></i>Variables and screen reachability</button></li>
+              <li><hr class="dropdown-divider"></li>
+<li><button type="button" class="dropdown-item" data-action="run-style-check"><i class="fa-solid fa-ruler fa-fw me-2" aria-hidden="true"></i>Style check</button></li>
               <li><button type="button" class="dropdown-item" data-action="run-style-check-ai"><i class="fa-solid fa-wand-magic-sparkles fa-fw me-2" aria-hidden="true"></i>Style check + AI suggestions</button></li>
               <li><hr class="dropdown-divider"></li>
               <li><button type="button" class="dropdown-item" data-action="open-full-yaml"><i class="fa-solid fa-code fa-fw me-2" aria-hidden="true"></i>YAML source</button></li>
@@ -89,8 +95,14 @@
             <button type="button" class="editor-top-tab-caret" id="interview-menu" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false" aria-label="Interview menu"><i class="fa-solid fa-angle-down" aria-hidden="true"></i></button>
             <ul class="dropdown-menu" data-bs-theme="light" aria-labelledby="interview-menu">
               <li><button type="button" class="dropdown-item" data-action="open-interview-order"><i class="fa-solid fa-list-ol fa-fw me-2" aria-hidden="true"></i>Interview Order</button></li>
-              <li><button type="button" class="dropdown-item" data-action="open-interview-flow-report"><i class="fa-solid fa-file-lines fa-fw me-2" aria-hidden="true"></i>Flow report</button></li>
-              <li><button type="button" class="dropdown-item" data-action="run-style-check"><i class="fa-solid fa-ruler fa-fw me-2" aria-hidden="true"></i>Style check</button></li>
+              <li><hr class="dropdown-divider"></li>
+<li><button type="button" class="dropdown-item" data-action="open-interview-flow-report"><i class="fa-solid fa-file-lines fa-fw me-2" aria-hidden="true"></i>Flow report</button></li>
+              <li><button type="button" class="dropdown-item" data-action="export-wording-workbook"><i class="fa-solid fa-file-excel fa-fw me-2" aria-hidden="true"></i>Export wording workbook</button></li>
+              <li><button type="button" class="dropdown-item" data-action="import-wording-workbook"><i class="fa-solid fa-file-import fa-fw me-2" aria-hidden="true"></i>Import wording workbook</button></li>
+              <li><button type="button" class="dropdown-item" data-action="open-repository-reports"><i class="fa-solid fa-folder-tree fa-fw me-2" aria-hidden="true"></i>Repository flow reports</button></li>
+              <li><button type="button" class="dropdown-item" data-action="open-variable-report"><i class="fa-solid fa-list fa-fw me-2" aria-hidden="true"></i>Variables and screen reachability</button></li>
+              <li><hr class="dropdown-divider"></li>
+<li><button type="button" class="dropdown-item" data-action="run-style-check"><i class="fa-solid fa-ruler fa-fw me-2" aria-hidden="true"></i>Style check</button></li>
               <li><button type="button" class="dropdown-item" data-action="run-style-check-ai"><i class="fa-solid fa-wand-magic-sparkles fa-fw me-2" aria-hidden="true"></i>Style check + AI suggestions</button></li>
               <li><hr class="dropdown-divider"></li>
               <li><button type="button" class="dropdown-item" data-action="open-full-yaml"><i class="fa-solid fa-code fa-fw me-2" aria-hidden="true"></i>YAML source</button></li>
@@ -227,6 +239,27 @@
         <button type="button" class="btn btn-primary js-save-file-btn" data-action="save-file" title="Save your changes (Ctrl+S)" disabled><i class="fa-solid fa-floppy-disk me-1" aria-hidden="true"></i>Save<span class="editor-save-badge js-save-badge d-none"></span></button>
       </div>
     </main>
+
+    <aside id="variable-report-rail" class="d-none variable-browser" aria-label="Interview variables">
+      <div class="d-flex align-items-center gap-2 flex-wrap"><h2 class="h5 me-auto mb-0">Interview variables</h2>
+        <div role="group" aria-label="Where to put the variable browser">
+<button type="button" class="btn btn-sm btn-outline-secondary" data-variable-dock="bottom" aria-label="Dock along the bottom" title="Dock along the bottom"><i class="fa-solid fa-window-minimize" aria-hidden="true"></i></button>
+<button type="button" class="btn btn-sm btn-outline-secondary" data-variable-dock="tall" aria-label="Make the panel taller" title="Make the panel taller"><i class="fa-solid fa-up-down" aria-hidden="true"></i></button>
+<button type="button" class="btn btn-sm btn-outline-secondary" data-variable-dock="side" aria-label="Pin to the right rail" title="Pin to the right rail"><i class="fa-solid fa-table-columns" aria-hidden="true"></i></button>
+<button type="button" class="btn btn-sm btn-outline-secondary" data-variable-dock="full" aria-label="Fill the window" title="Fill the window"><i class="fa-solid fa-expand" aria-hidden="true"></i></button>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="variable-report-refresh" aria-label="Refresh variables"><i class="fa-solid fa-rotate-right" aria-hidden="true"></i></button>
+        <button type="button" class="btn-close" id="variable-report-close" aria-label="Close variable browser"></button>
+      </div>
+      <div class="variable-browser-filters">
+        <div class="variable-browser-filter"><label for="variable-report-filter">Search</label><input class="form-control" id="variable-report-filter" type="search"></div>
+        <div class="variable-browser-filter"><label for="variable-report-kind">Show</label><select class="form-select" id="variable-report-kind"><option value="variable">Variables</option><option value="function">Functions</option><option value="method">Methods</option><option value="class">Classes</option><option value="template">Templates</option><option value="table">Tables</option><option value="event">Events</option><option value="screen">Screens</option></select></div>
+        <div class="variable-browser-filter"><label for="variable-report-scope">Scope</label><select class="form-select" id="variable-report-scope"><option value="local">Interview files</option><option value="all">Include shared packages</option></select></div>
+        <div class="variable-browser-filter"><label for="variable-report-status">Status</label><select class="form-select" id="variable-report-status"><option value="all">All</option><option value="used">Used</option><option value="unused">Possibly unused</option><option value="unreachable">Possibly unreachable</option><option value="error">Errors</option></select></div>
+      </div>
+      <p class="small text-muted my-2">Updates after saving. Usage and reachability are static hints; dynamic names and imported Python may add uses.</p>
+      <div id="variable-report-results" aria-live="polite"></div>
+    </aside>
 
     <!-- ASSISTANT DRAWER (opt-in; hidden unless the agent editor is enabled) -->
     <aside class="editor-assistant d-none" id="editor-assistant" aria-label="Editing assistant">
@@ -1306,6 +1339,8 @@
 <script src="/al/editor/static/editor_validation_source.js"></script>
 <script src="/al/editor/static/editor_screen_preview.js"></script>
 <script src="/al/editor/static/editor_interview_report.js"></script>
+<script src="/al/editor/static/html2canvas.min.js"></script>
+<script src="/al/editor/static/editor_reports.js"></script>
 <script src="/al/editor/static/faker_en_us.js"></script>
 <script src="/al/editor/static/editor_fake_filler.js"></script>
 <script src="/al/editor/static/editor_runtime_inspector.js"></script>

@@ -51,6 +51,63 @@ class _TemplateCollector(HTMLParser):
 
 
 class TestEditorFrontend(unittest.TestCase):
+    def test_variable_browser_docking_filters_and_menu_icons(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        for dock in ("bottom", "tall", "side", "full"):
+            self.assertIn(f'data-variable-dock="{dock}"', template)
+        for control in ("kind", "scope", "status", "filter"):
+            self.assertIn(f'id="variable-report-{control}"', template)
+        for action in (
+            "export-wording-workbook",
+            "import-wording-workbook",
+            "open-repository-reports",
+            "open-variable-report",
+        ):
+            matches = re.findall(
+                r'data-action="' + action + r'">(.*?)</button>', template
+            )
+            self.assertEqual(len(matches), 2)
+            self.assertTrue(
+                all(
+                    'aria-hidden="true"' in content and '<i class="fa-solid' in content
+                    for content in matches
+                )
+            )
+
+    def test_wording_workbook_export_import_and_preview_capture(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        controls = (self.package_dir / "data/static/editor_reports.js").read_text()
+        for action in ("export-wording-workbook", "import-wording-workbook"):
+            self.assertEqual(template.count(f'data-action="{action}"'), 2)
+        self.assertIn("Apply reviewed changes", controls)
+        self.assertIn("review_digest: proposal.review_digest", controls)
+        self.assertIn("frame.setAttribute('sandbox', 'allow-same-origin')", controls)
+        self.assertNotIn("allow-scripts", controls)
+        self.assertIn("revisions: prepared.revisions", controls)
+        # Both requests must fit Docassemble's request size limit.
+        self.assertIn("form.append('workbook', file)", controls)
+        self.assertIn("prepared.max_request_bytes", controls)
+
+    def test_repository_reports_offer_entrypoint_selection(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        controls = (self.package_dir / "data/static/editor_reports.js").read_text()
+        self.assertEqual(template.count('data-action="open-repository-reports"'), 2)
+        self.assertIn("/api/reports/entrypoints", controls)
+        self.assertIn("/api/reports/archive", controls)
+        self.assertIn(
+            "expandNamedOrders(scan.order_steps, scan.named_order_steps)", controls
+        )
+
+    def test_variable_report_has_persistent_rail_and_navigation(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        source = (self.package_dir / "data/static/editor.js").read_text()
+        controls = (self.package_dir / "data/static/editor_reports.js").read_text()
+        self.assertIn('id="variable-report-rail"', template)
+        self.assertEqual(template.count('data-action="open-variable-report"'), 2)
+        self.assertIn("'open the report location'", source)
+        self.assertIn("/api/reports/scan", controls)
+        self.assertIn("block.line_start", controls)
+
     def test_template_interview_selector_reuses_guarded_file_navigation(self):
         source = (self.package_dir / "data/static/editor.js").read_text()
         outline = source.split("function renderSectionOutline()", 1)[1].split(

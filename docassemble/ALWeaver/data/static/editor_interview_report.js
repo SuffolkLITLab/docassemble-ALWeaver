@@ -220,6 +220,13 @@
 
     (blocks || []).forEach(function (block) {
       record(block.variable, block);
+      if (block.scan_id) map['source:' + block.scan_id] = block;
+      // Scanned code assignments stay out: code must never stand in for a question.
+      (isScreenBlock(block) ? block.defines || [] : []).forEach(function (name) { record(name, block); });
+      var events = (block.data || {}).event;
+      (Array.isArray(events) ? events : [events]).forEach(function (event) {
+        if (typeof event === 'string') record(event, block);
+      });
       var sets = (block.data || {}).sets;
       if (Array.isArray(sets)) {
         sets.forEach(function (s) { if (typeof s === 'string') record(s, block); });
@@ -305,6 +312,12 @@
       typeof data.table === 'string';
   }
 
+  // An event without an answer or an explicit continuation cannot satisfy
+  // the order's next statement. Action buttons may leave/restart the interview.
+  function isTerminalScreen(block) {
+    return !!(Preview && Preview.isTerminalScreen && Preview.isTerminalScreen((block || {}).data));
+  }
+
   /* An order block often names a variable that a `code:` block assembles --
    * `trial_court` is built by code out of the answers to another screen. The
    * screen is what a reader needs, so the code is followed to whatever it
@@ -348,7 +361,7 @@
   function screenTitle(step, blockMap) {
     var invoke = String((step && (step.invoke || step.summary)) || '').trim();
     var map = blockMap || {};
-    var block = findBlock(invoke, map);
+    var block = step && step.source_block ? map['source:' + step.source_block] : findBlock(invoke, map);
     if (block && !isScreenBlock(block)) block = followToScreen(block, map, 0);
     if (block && !isScreenBlock(block)) block = null;
 
@@ -360,12 +373,12 @@
       if (block.genericSubject && typeof question === 'string') {
         title = firstProseLine(question);
       }
-      if (!title && block.title) title = String(block.title).trim();
+      if (!title && (block.report_title || block.title)) title = String(block.report_title || block.title).trim();
       // A block that arrived without a computed title still has its wording.
       if (!title && typeof question === 'string') title = firstProseLine(question);
       // "What is ${ users[0].possessive('address') }?" is the screen's real
       // wording but a poor name for it in a contents list.
-      if (title.indexOf('${') !== -1) title = variableTitle(invoke) || title;
+      if (title.indexOf('${') !== -1 && !block.report_title) title = variableTitle(invoke) || title;
     }
     if (title === 'Untitled question') title = '';
     if (!title) title = variableTitle(invoke) || humanize(invoke) || invoke || 'Screen';
@@ -1019,7 +1032,9 @@
         switch (kind) {
           case STEP_SCREEN:
             var info = screenTitle(step, blockMap);
-            node = addNode(info.title, info.variable, 'rect', info.block ? 'screen' : 'missing');
+            node = addNode(info.title, info.variable, isTerminalScreen(info.block) ? 'stadium' : 'rect',
+              isTerminalScreen(info.block) ? 'terminal' : (info.block ? 'screen' : 'missing'));
+            node.stops = isTerminalScreen(info.block);
             break;
           case STEP_GATHER:
             var gather = describeGather(step, { blockMap: blockMap, objects: objects || {} });
@@ -1052,7 +1067,9 @@
 
         connect(open, node.id);
 
-        if (kind === STEP_LOOP) {
+        if (node.stops) {
+          open = [];
+        } else if (kind === STEP_LOOP) {
           var nestedLoop = { header: node.id, exits: [] };
           var bodyTails = walk(step.children || [], [{ from: node.id, label: 'next item' }], nestedLoop);
           connect(bodyTails, node.id);
@@ -1557,6 +1574,7 @@
     buildMermaidSource: buildMermaidSource,
     buildFlowModel: buildFlowModel,
     buildBlockMap: buildBlockMap,
+    isTerminalScreen: isTerminalScreen,
     findBlock: findBlock,
     screenTitle: screenTitle,
     assemblyLineStandIn: assemblyLineStandIn,

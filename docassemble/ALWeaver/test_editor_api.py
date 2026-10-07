@@ -6516,3 +6516,232 @@ class TestTemplateFieldReadWithoutInterview(unittest.TestCase):
                     ),
                     [],
                 )
+
+
+class TestInterviewReportScan(unittest.TestCase):
+    def test_scan_requires_authentication(self):
+        with patch.object(api_editor, "_editor_auth_check", return_value=False):
+            with api_editor.app.test_client() as client:
+                response = client.post("/al/editor/api/reports/scan", json={})
+        self.assertEqual(response.status_code, 401)
+
+    def test_scan_reads_only_the_authenticated_project(self):
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                return_value="question: Hello\nyesno: ready\n",
+            ) as read,
+        ):
+            with api_editor.app.test_client() as client:
+                response = client.post(
+                    "/al/editor/api/reports/scan",
+                    json={"project": "default", "filename": "main.yml"},
+                )
+        self.assertEqual(response.status_code, 200)
+        read.assert_called_with(7, "default", "main.yml")
+        self.assertEqual(response.json["data"]["variables"][0]["name"], "ready")
+
+
+class TestRepositoryReports(unittest.TestCase):
+    def test_entrypoints_distinguish_shared_files(self):
+        from .editor_utils import parse_interview_yaml
+
+        files = {
+            "one.yml": "include: shared.yml\n---\nmandatory: true\ncode: done\n",
+            "two.yml": "include: shared.yml\n---\nmandatory: true\ncode: done\n",
+            "shared.yml": "question: Shared\nyesno: done\n",
+        }
+        with (
+            patch.object(
+                api_editor, "parse_interview_yaml", wraps=parse_interview_yaml
+            ),
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor, "_project_yaml_filenames", return_value=list(files)
+            ),
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                side_effect=lambda uid, project, name: files[name],
+            ),
+            api_editor.app.test_client() as client,
+        ):
+            response = client.post(
+                "/al/editor/api/reports/entrypoints", json={"project": "default"}
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [f["filename"] for f in response.json["data"]["files"] if f["suggested"]],
+            ["one.yml", "two.yml"],
+        )
+
+    def test_archive_has_index_and_preserves_each_report(self):
+        import base64
+        import zipfile
+
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            api_editor.app.test_client() as client,
+        ):
+            response = client.post(
+                "/al/editor/api/reports/archive",
+                json={
+                    "reports": [
+                        {"filename": "one.yml", "html": "<h1>One</h1>"},
+                        {"filename": "two.yml", "html": "<h1>Two</h1>"},
+                    ]
+                },
+            )
+            bad = client.post(
+                "/al/editor/api/reports/archive",
+                json={"reports": [{"filename": "../escape.yml", "html": "bad"}]},
+            )
+            malformed = client.post(
+                "/al/editor/api/reports/archive", json={"reports": ["one.yml"]}
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(bad.status_code, 400)
+        self.assertEqual(malformed.status_code, 400)
+        with zipfile.ZipFile(
+            BytesIO(base64.b64decode(response.json["data"]["content"]))
+        ) as archive:
+            self.assertEqual(
+                set(archive.namelist()), {"one.yml.html", "two.yml.html", "index.html"}
+            )
+            self.assertEqual(archive.read("two.yml.html"), b"<h1>Two</h1>")
+            self.assertIn(b"one.yml.html", archive.read("index.html"))
+
+
+class TestWordingWorkbookApi(unittest.TestCase):
+    def setUp(self):
+        from .editor_utils import source_revision
+
+        self.files = {"main.yml": "question: Hello\nyesno: ready\n"}
+        self.patches = ExitStack()
+        self.addCleanup(self.patches.close)
+        self.patches.enter_context(
+            patch.object(api_editor, "_editor_auth_check", return_value=True)
+        )
+        self.patches.enter_context(
+            patch.object(api_editor, "_current_user_id", return_value=7)
+        )
+        self.patches.enter_context(
+            patch.object(api_editor, "source_revision", wraps=source_revision)
+        )
+        self.patches.enter_context(
+            patch.object(
+                api_editor,
+                "playground_read_yaml",
+                side_effect=lambda uid, project, name: self.files[name],
+            )
+        )
+        self.write = self.patches.enter_context(
+            patch.object(
+                api_editor,
+                "playground_write_yaml",
+                side_effect=lambda uid, project, name, text: self.files.update(
+                    {name: text}
+                ),
+            )
+        )
+        self.client = api_editor.app.test_client()
+        self.payload = {"project": "default", "filename": "main.yml"}
+
+    def test_prepare_resolves_wrapper_and_includes_inherited_intro(self):
+        from .test_interview_scan import LEGACY
+
+        self.files = {name: text for name, text in LEGACY.items() if ":" not in name}
+        with (
+            patch.object(
+                api_editor, "_project_yaml_filenames", return_value=list(self.files)
+            ),
+            patch.object(
+                api_editor, "_read_package_yaml", side_effect=LEGACY.__getitem__
+            ),
+        ):
+            result = self.client.post(
+                "/al/editor/api/reports/wording/prepare",
+                json={"project": "default", "filename": "reusable.yml"},
+            )
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(result.json["data"]["filename"], "standalone.yml")
+        self.assertEqual(
+            result.json["data"]["screens"][0]["data"]["question"],
+            "${ interview_short_title }",
+        )
+        self.assertEqual(
+            result.json["data"]["screens"][-1]["data"]["question"],
+            "Download your forms",
+        )
+        self.write.assert_not_called()
+
+    def test_export_requires_current_previews(self):
+        import base64
+        from PIL import Image
+
+        prepared = self.client.post(
+            "/al/editor/api/reports/wording/prepare", json=self.payload
+        )
+        self.assertEqual(prepared.status_code, 200)
+        self.assertEqual(prepared.json["data"]["screens"][0]["id"], "main.yml#0")
+        revisions = prepared.json["data"]["revisions"]
+        missing = self.client.post(
+            "/al/editor/api/reports/wording/export",
+            json=self.payload | {"revisions": revisions, "previews": {}},
+        )
+        self.assertEqual(missing.status_code, 400)
+        png = BytesIO()
+        Image.new("RGB", (100, 100), "white").save(png, format="PNG")
+        body = self.payload | {
+            "revisions": revisions,
+            "previews": {"main.yml#0": base64.b64encode(png.getvalue()).decode()},
+        }
+        good = self.client.post("/al/editor/api/reports/wording/export", json=body)
+        self.assertEqual(good.status_code, 200)
+        self.files["main.yml"] += "# changed\n"
+        stale = self.client.post("/al/editor/api/reports/wording/export", json=body)
+        self.assertEqual(stale.status_code, 400)
+        self.write.assert_not_called()
+
+    def test_import_reviews_before_applying_and_checks_source_again(self):
+        import base64
+        from .text_workbook import export_workbook
+        from .test_text_workbook import edit_workbook
+
+        content = edit_workbook(export_workbook(self.files, {}), {"Hello": "Welcome"})
+
+        def post(**fields):
+            # A fresh file object per request: the test client consumes it.
+            data = self.payload | fields | {"workbook": (BytesIO(content), "w.xlsx")}
+            return self.client.post(
+                "/al/editor/api/reports/wording/import",
+                data=data,
+                content_type="multipart/form-data",
+            )
+
+        review = post()
+        self.assertEqual(review.status_code, 200)
+        self.assertEqual(review.json["data"]["changes"][0]["edited"], "Welcome")
+        self.write.assert_not_called()
+        no_review = post(apply="true")
+        self.assertEqual(no_review.status_code, 400)
+        self.write.assert_not_called()
+        applied = post(apply="true", review_digest=review.json["data"]["review_digest"])
+        self.assertEqual(applied.status_code, 200)
+        self.assertEqual(self.files["main.yml"], "question: Welcome\nyesno: ready\n")
+        stale = post()
+        self.assertEqual(stale.status_code, 400)
+        self.assertEqual(self.write.call_count, 1)
+
+    def test_all_workbook_operations_require_authentication(self):
+        with patch.object(api_editor, "_editor_auth_check", return_value=False):
+            for operation in ("prepare", "export", "import"):
+                result = self.client.post(
+                    "/al/editor/api/reports/wording/" + operation, json=self.payload
+                )
+                self.assertEqual(result.status_code, 401)
+        self.write.assert_not_called()
