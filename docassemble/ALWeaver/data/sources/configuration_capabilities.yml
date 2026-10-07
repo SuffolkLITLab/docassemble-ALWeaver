@@ -9,6 +9,8 @@ jurisdiction_choices:
     default: True
     state: MA
     country: US
+    # Its court picker asks for the court's department, division and county
+    court_details: True
 organization_choices:
   - description: MassAccess
     dependency: "docassemble.MassAccess"

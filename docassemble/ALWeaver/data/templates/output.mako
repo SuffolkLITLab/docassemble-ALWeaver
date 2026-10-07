@@ -2,15 +2,9 @@
     Initial metadata and includes
 </%doc>
 <%
-  selected_includes = list(
-      get_yml_deps_from_choices(
-          interview.jurisdiction_choices.true_values() + interview.org_choices.true_values()
-      )
-  )
-  state_for_theme = str(getattr(interview, "state", "") or "").strip().upper()
-  massaccess_include = "docassemble.MassAccess:massaccess.yml"
-  if state_for_theme == "MA" and massaccess_include not in selected_includes:
-      selected_includes.append(massaccess_include)
+  selected_includes = interview.yaml_includes()
+  row_families = list(getattr(interview.all_fields, "row_families", []))
+  court_attributes = interview.unasked_court_attributes()
 
   categories_selected = sorted(set(interview.categories.true_values()))
   other_categories_selected = []
@@ -56,7 +50,7 @@
       - {"Other"}
   )
 
-  has_addendum = interview.all_fields.has_addendum_fields()
+  has_addendum = interview.all_fields.has_addendum_fields() or bool(row_families)
   aldocument_kwargs = "enabled=True, has_addendum=%s" % has_addendum
   if has_addendum:
       aldocument_kwargs += ", default_overflow_message=AL_DEFAULT_OVERFLOW_MESSAGE"
@@ -116,7 +110,9 @@ ${ indent(interview.description, by=4) }
   can_I_use_this_form: |
 ${ indent(interview.can_I_use_this_form, by=4) }
 % else:
-  can_I_use_this_form: ""
+  ## A starting point for the author, so the metadata isn't left empty
+  can_I_use_this_form: |
+${ indent(interview.default_can_I_use_this_form(), by=4) }
 % endif
 % if getattr(interview, "getting_started", ""):
   before_you_start: |
@@ -286,6 +282,8 @@ code: |
   # allowed_courts = ["Boston Municipal Court"]
   % endif
   % endif
+  ## "Did you start this case?" doesn't mean anything outside a court case
+  % if getattr(interview, "form_type", "other") in ("starts_case", "existing_case", "appeal"):
   % if interview.typical_role == 'unknown':
   # Below sets the user_role and user_ask_role by asking a question.
   # You can set user_ask_role directly instead to either 'plaintiff' or 'defendant'
@@ -293,6 +291,7 @@ code: |
   % else:
   user_role = "${ interview.typical_role }"
   user_ask_role = "${ interview.typical_role }"
+  % endif
   % endif
   % for line in interview_order_lines:
 ${ indent_by(line, 2) }\
@@ -396,6 +395,19 @@ comment: |
 ${ baseline_question_yaml(baseline_question) }\
 % endfor
 % endif
+% for family, datatypes in row_families:
+${ row_family_yaml(family, datatypes) }\
+% endfor
+% if court_attributes:
+---
+id: court details
+question: |
+  Tell us more about the court
+fields:
+  % for label, variable in court_attributes:
+  - "${ label }": ${ variable }
+  % endfor
+% endif
 % if generate_download_screen and signature_field_triggers:
 ---
 id: preview ${ interview.interview_label }
@@ -424,10 +436,11 @@ continue button field: ${ interview.interview_label }_preview_question
 % if generate_download_screen and signature_field_triggers:
 ---
 code: |
-  signature_fields = ${ repr(signature_field_triggers) }
+  signature_fields = ${ signature_fields_expression(signature_field_triggers, item_lists) }
 % endif
 % for custom_signature in interview.all_fields.custom_signatures():
 ---
+id: ${ fix_id(custom_signature.variable + " signature") }
 question: |
   ${custom_signature.variable.replace("_", " ").capitalize()}, add your signature
 signature: ${ custom_signature }
@@ -657,6 +670,12 @@ code: |
   % for field in interview.all_fields.addendum_fields():
   ${ attachment_variable_name }.overflow_fields["${ field.variable }"].overflow_trigger = ${ field.maxlength }
   ${ attachment_variable_name }.overflow_fields["${ field.variable }"].label = "${ field.label }"
+  % endfor
+  % for family, _datatypes in row_families:
+  ## Rows past the ones the form has room for go to the addendum, as a table
+  ${ attachment_variable_name }.overflow_fields["${ family.list_name }"].overflow_trigger = ${ family.capacity }
+  ${ attachment_variable_name }.overflow_fields["${ family.list_name }"].label = "${ family.list_name.replace("_", " ").capitalize() } (continued)"
+  ${ attachment_variable_name }.overflow_fields["${ family.list_name }"].headers = ${ repr(family.overflow_headers()) }
   % endfor
   ${ attachment_variable_name }.overflow_fields.gathered = True
   % endfor

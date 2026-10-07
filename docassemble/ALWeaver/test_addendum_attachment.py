@@ -11,11 +11,9 @@ either a truncated form or an addendum page that never appears.
 
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 import yaml
 
-from . import interview_generator as interview_generator_module
 from .interview_generator import (
     DAInterview,
     _make_static_file_from_path,
@@ -25,49 +23,34 @@ from .interview_generator import (
 ADDENDUM_FIELD = "inspector_name"
 
 
-def _offline_cluster_screens(fields, tools_token=None):
-    """Deterministic fallback grouping for test runs without OpenAI credentials."""
-    del tools_token
-    unique_fields = list(dict.fromkeys(fields or []))
-    return {
-        f"Screen {index // 4 + 1}": unique_fields[index : index + 4]
-        for index in range(0, len(unique_fields), 4)
-    }
-
-
 class TestAddendumAttachmentBlock(unittest.TestCase):
     @classmethod
     def _generate(cls, with_addendum: bool) -> str:
         pdf_path = (
             Path(__file__).parent / "test/test_petition_to_enforce_sanitary_code.pdf"
         )
-        with patch.object(
-            interview_generator_module.formfyxer,
-            "cluster_screens",
-            side_effect=_offline_cluster_screens,
-        ):
-            interview = DAInterview()
-            interview.auto_assign_attributes(
-                input_file=_make_static_file_from_path(
-                    str(pdf_path), filename=pdf_path.name
-                ),
-                jurisdiction="MA",
-            )
-            interview.include_next_steps = False
-            interview.use_llm_assist = False
-            if with_addendum:
-                for field in interview.all_fields:
-                    if field.variable == ADDENDUM_FIELD:
-                        field.field_type = "area"
-                        field.maxlength = 100
-                        field.send_to_addendum = True
-            return _render_interview_yaml(
-                interview=interview,
-                include_download_screen=True,
-                output_mako_choice="Default configuration:standard AssemblyLine",
-                objects=interview._guess_objects_list(),
-                screen_reordered=None,
-            )
+        interview = DAInterview()
+        interview.auto_assign_attributes(
+            input_file=_make_static_file_from_path(
+                str(pdf_path), filename=pdf_path.name
+            ),
+            jurisdiction="MA",
+        )
+        interview.include_next_steps = False
+        interview.use_llm_assist = False
+        if with_addendum:
+            for field in interview.all_fields:
+                if field.variable == ADDENDUM_FIELD:
+                    field.field_type = "area"
+                    field.maxlength = 100
+                    field.send_to_addendum = True
+        return _render_interview_yaml(
+            interview=interview,
+            include_download_screen=True,
+            output_mako_choice="Default configuration:standard AssemblyLine",
+            objects=interview._guess_objects_list(),
+            screen_reordered=None,
+        )
 
     # Generating is slow, and the result is a plain string, so cache it. This
     # cannot happen in setUpClass: the Docassemble thread context the generator

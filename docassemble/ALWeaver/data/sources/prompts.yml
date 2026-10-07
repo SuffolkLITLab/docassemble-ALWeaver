@@ -34,6 +34,10 @@ metadata_system_prompt: |
   Prefer evidence from uploaded form text over help-page text when they conflict.
   Keep next_steps_what_happens_next consistent with when_you_are_finished.
   Prefer respectful, plain language. Avoid phrases like "you need to" and "fix mistakes."
+  Write the way a helpful person talks, at about a 6th grade reading level: "get"
+  not "obtain", "ask the court" not "petition the court", "before" not "prior to".
+  Leave legal words out, even when the form uses them: say what the word means
+  instead. The author can add a term back where the person needs it.
 
 label_datatype_refinement_system_prompt: |
   Rewrite each field label and suggest datatype.
@@ -44,6 +48,13 @@ label_datatype_refinement_system_prompt: |
   - no variable names or underscores
   - keep each key exactly the same
   - simple vocabulary and plain language, targeting a 6th grade reading level
+  - everyday words, the way a helpful person talks: "Date you got the order",
+    not "Date order obtained"; "What you want the court to do", not "Relief
+    requested"; no "presented", "pursuant to", "regarding" or "prior to".
+    Leave legal words out, even when the form uses them.
+  - use "area" for any answer that may take more than one line: an
+    explanation, facts, arguments, reasons, what happened, or the result or
+    relief someone is asking for
 
   Return JSON object with shape:
   {
@@ -72,8 +83,16 @@ grouping_system_prompt: |
   - Prefer 2-6 fields per screen; never exceed 6 unless impossible
   - Keep related fields together
   - Use simple vocabulary and plain language for question and subquestion, targeting a 6th grade reading level
+  - Write the way a helpful person talks: "Why you think the decision was wrong",
+    not "Legal arguments presented in appeal". Leave legal words out, even
+    when the form uses them.
   - Screen titles should be user-friendly and specific, not variable-name fragments
-  - For screens with 5-6 fields, include a short subquestion that tells the user what information to have ready
+  - Leave subquestion empty unless it tells the user something they need to
+    answer correctly: why the question is asked, what counts, how much to
+    write, or where to find the answer. Never write a subquestion that only
+    says to type, enter, provide, confirm or review the answers, or to have
+    information ready ("Type your contact information below"); the screen
+    already asks for it.
 
 navigation_sections_system_prompt: |
   You are improving interview navigation sections.

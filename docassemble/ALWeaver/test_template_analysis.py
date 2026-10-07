@@ -7,11 +7,9 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from docx import Document
 
-from . import interview_generator as interview_generator_module
 from .template_analysis import (
     _attachment_mapping_field_names,
     analyze_template,
@@ -118,18 +116,11 @@ class TestAnalyzeTemplate(unittest.TestCase):
                 document.save(template_path)
         else:
             _build_pdf_with_fields(template_path, field_names)
-        with patch.object(
-            interview_generator_module.formfyxer,
-            "cluster_screens",
-            side_effect=lambda fields, tools_token=None: {
-                "Screen 1": list(dict.fromkeys(fields or []))
-            },
-        ):
-            return analyze_template(
-                template_path=template_path,
-                template_filename=filename,
-                interview_yaml=(EXISTING_INTERVIEW if interview is None else interview),
-            )
+        return analyze_template(
+            template_path=template_path,
+            template_filename=filename,
+            interview_yaml=(EXISTING_INTERVIEW if interview is None else interview),
+        )
 
     def test_it_offers_an_attachment_named_after_the_template(self):
         analysis = self._analyze(["users1_name_first", "landlord_visits"])

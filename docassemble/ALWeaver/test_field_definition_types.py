@@ -1,8 +1,6 @@
 # do not pre-load
 import unittest
-from unittest.mock import patch
 
-from . import interview_generator as interview_generator_module
 from .interview_generator import (
     DAFieldGroup,
     DADataType,
@@ -111,12 +109,7 @@ class test_field_definition_types(unittest.TestCase):
         field.has_label = True
         interview.all_fields.gathered = True
 
-        with patch.object(
-            interview_generator_module.formfyxer,
-            "cluster_screens",
-            return_value={"Empty screen": [], "Names": ["petitioner_name"]},
-        ):
-            interview.auto_group_fields()
+        interview.auto_group_fields()
 
         self.assertEqual(len(interview.questions), 1)
         self.assertEqual(interview.questions[0].question_text, "Petitioner name")

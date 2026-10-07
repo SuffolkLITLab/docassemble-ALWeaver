@@ -22,6 +22,7 @@ class GeneratorConstantObject(object):
     FULL_DISPLAY: Dict[str, str]
     COURT_CHOICES: List[str]
     AL_MANAGED_OBJECTS: Set[str]
+    FIELD_TYPE_YAML: Dict[str, List[str]]
 
 
 generator_constants = GeneratorConstantObject()
@@ -188,6 +189,8 @@ generator_constants.PEOPLE_SUFFIXES_MAP = {
     "_fax_number": ".fax_number",
     "_mobile": ".mobile_number",
     "_mobile_number": ".mobile_number",
+    # AssemblyLine asks pronouns as checkboxes; list_pronouns() prints the chosen ones
+    "_pronouns": ".list_pronouns()",
     "_phones": ".phone_numbers()",
     "_address_block": ".address.block()",
     # TODO: deprecate street and street2 from existing forms and documentation
@@ -286,6 +289,8 @@ generator_constants.DOCX_ONLY_SUFFIXES = [
     r"\.familiar_or\(\)",
     r"\.phone_numbers\(\)",
     r"\.formatted_age\(\)",
+    r"\.pronouns",
+    r"\.list_pronouns\(\)",
 ]
 
 generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX = {
@@ -304,7 +309,9 @@ generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX = {
     r"\.mailing_address.on_one_line\(\)$": ".mailing_address.address",
     r"\.name.middle_initial\(\)$": ".name.first",
     r"\.phone_numbers\(\)$": ".phone_number",
+    r"\.list_pronouns\(\)$": ".pronouns",
     r"\.preferred_name$": ".preferred_name.first",
+    r"\.year_make_model\(\)$": ".year",
 }
 
 # Test needed: Jinja `{{ parents[0].name_of_dog }}` should remain the same,
@@ -313,6 +320,7 @@ generator_constants.FULL_DISPLAY = {
     r"\.name$": ".name_full()",
     r"\.address$": ".address.block()",
     r"\.mailing_address$": ".mailing_address.block()",
+    r"\.pronouns$": ".list_pronouns()",
 }
 
 # Possible values for 'Allowed Courts', when looking up courts to submit to
@@ -340,4 +348,26 @@ generator_constants.AL_MANAGED_OBJECTS = {
     "plaintiffs",
     "respondents",
     "trial_court",
+}
+
+# The lines a field's Weaver type adds to its entry under `fields:`
+generator_constants.FIELD_TYPE_YAML = {
+    "yesno": ["datatype: yesno"],
+    "yesnomaybe": ["datatype: yesnomaybe"],
+    "file": ["datatype: file"],
+    "yesnoradio": ["datatype: yesnoradio"],
+    "noyes": ["datatype: noyes"],
+    "noyesradio": ["datatype: noyesradio"],
+    "integer": ["datatype: integer", "min: 0"],
+    "currency": ["datatype: currency", "min: 0"],
+    "email": ["datatype: email"],
+    "range": ["datatype: range"],
+    "number": ["datatype: number"],
+    "date": ["datatype: date"],
+    "multiple choice radio": ["input type: radio"],
+    "multiple choice checkboxes": ["datatype: checkboxes"],
+    "multiple choice combobox": ["datatype: combobox"],
+    "multiple choice dropdown": ["input type: dropdown"],
+    "multiselect": ["datatype: multiselect"],
+    "area": ["input type: area"],
 }

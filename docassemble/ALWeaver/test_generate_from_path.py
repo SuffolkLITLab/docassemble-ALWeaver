@@ -14,6 +14,7 @@ from pypdf import PdfWriter
 from . import interview_generator as interview_generator_module
 from .interview_generator import (
     _LocalDAFileAdapter,
+    _LocalFile,
     generate_interview_from_path,
     generate_interview_artifacts,
     _rewrite_next_steps_xml,
@@ -37,35 +38,6 @@ class TestGenerateInterviewFromPath(unittest.TestCase):
         self.assertIn("al_next_steps_what_happens_if_i_win", rewritten)
         self.assertNotIn("interview.custom_next_steps_instructions", rewritten)
         self.assertEqual(rewritten.count("<w:r>"), 2)
-
-    @staticmethod
-    def _offline_cluster_screens(fields, tools_token=None):
-        """Deterministic fallback grouping for test runs without OpenAI credentials."""
-        del tools_token
-        unique_fields = list(dict.fromkeys(fields or []))
-        if not unique_fields:
-            return {}
-        grouped = {}
-        chunk_size = 4
-        for index in range(0, len(unique_fields), chunk_size):
-            grouped[f"Screen {index // chunk_size + 1}"] = unique_fields[
-                index : index + chunk_size
-            ]
-        return grouped
-
-    def setUp(self):
-        self._cluster_patch = None
-        if not os.environ.get("OPENAI_API_KEY"):
-            self._cluster_patch = patch.object(
-                interview_generator_module.formfyxer,
-                "cluster_screens",
-                side_effect=self._offline_cluster_screens,
-            )
-            self._cluster_patch.start()
-
-    def tearDown(self):
-        if self._cluster_patch is not None:
-            self._cluster_patch.stop()
 
     def _run_dayamlchecker(self, yaml_path: str) -> None:
         from dayamlchecker.yaml_structure import find_errors_from_string
@@ -112,6 +84,25 @@ class TestGenerateInterviewFromPath(unittest.TestCase):
             self._run_dayamlchecker(result.yaml_path)
             self.assertTrue(result.package_zip_path)
             self.assertTrue(os.path.exists(result.package_zip_path))
+
+    def test_a_choice_field_without_choices_is_written_as_text(self):
+        pdf_path = (
+            Path(__file__).parent / "test/test_petition_to_enforce_sanitary_code.pdf"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = generate_interview_from_path(
+                str(pdf_path),
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+                field_definitions=[
+                    {"field": "fee_choice", "label": "Fee", "datatype": "radio"}
+                ],
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+            self._run_dayamlchecker(result.yaml_path)
+        entry = yaml_text.split('"Fee": fee_choice', 1)[1].split("\n  - ", 1)[0]
+        self.assertNotIn("radio", entry.split("---", 1)[0])
 
     def test_github_user_is_written_only_when_set_and_is_escaped(self):
         """A blank github_user must not override AssemblyLine's own default,
@@ -169,18 +160,13 @@ class TestGenerateInterviewFromPath(unittest.TestCase):
                 "shared_answer",
                 "/Btn",
             )
-            with patch.object(
-                interview_generator_module.formfyxer,
-                "cluster_screens",
-                side_effect=self._offline_cluster_screens,
-            ):
-                result = generate_interview_from_path(
-                    text_path,
-                    additional_templates=[checkbox_path],
-                    output_dir=os.path.join(tmpdir, "output"),
-                    create_package_zip=False,
-                    include_next_steps=False,
-                )
+            result = generate_interview_from_path(
+                text_path,
+                additional_templates=[checkbox_path],
+                output_dir=os.path.join(tmpdir, "output"),
+                create_package_zip=False,
+                include_next_steps=False,
+            )
 
             self.assertEqual(len(result.warnings), 1)
             warning = result.warnings[0]
@@ -257,6 +243,51 @@ question: |
         self.assertIn("id: Duplicate title\n", fixed)
         self.assertIn("id: Duplicate title 2\n", fixed)
         self.assertIn("id: Duplicate title 3\n", fixed)
+
+    def test_docx_dictionary_lookups_are_declared_and_valid(self):
+        """Keys with spaces or curly quotes once produced `x[ ]` in the order block."""
+        import docx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docx_path = os.path.join(tmpdir, "inspection_letter.docx")
+            document = docx.Document()
+            document.add_paragraph('{{ inspector_information["Address Line 1"] }}')
+            document.add_paragraph("{{ inspector_information[‘Zip’] }}")
+            document.add_paragraph("{{ fees['Filing fee'].amount }}")
+            document.save(docx_path)
+
+            result = generate_interview_from_path(
+                docx_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        self.assertNotIn("[ ]", yaml_text)
+        self.assertIn("inspector_information['Address Line 1']", yaml_text)
+        self.assertIn("inspector_information['Zip']", yaml_text)
+        self.assertIn(
+            "- inspector_information: DADict.using(auto_gather=False,gathered=True)",
+            yaml_text,
+        )
+        self.assertIn(
+            "- fees: DADict.using(object_type=DAObject,auto_gather=False,gathered=True)",
+            yaml_text,
+        )
+        self.assertNotIn("inspector_information.name", yaml_text)
+        self._run_dayamlchecker_text(yaml_text)
+
+    def _run_dayamlchecker_text(self, yaml_text: str) -> None:
+        from dayamlchecker.yaml_structure import find_errors_from_string
+
+        errors = [
+            str(getattr(error, "err_str", "") or error).strip()
+            for error in find_errors_from_string(yaml_text, input_file="generated.yml")
+        ]
+        # The publishing metadata only comes from the LLM drafting step
+        errors = [error for error in errors if "CourtFormsOnline" not in error]
+        self.assertFalse(errors, "\n".join(errors))
 
     def test_generate_from_docx(self):
         docx_path = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
@@ -438,7 +469,7 @@ question: |
                 self.interview_label = "my_interview"
                 self.package_title = "MyInterview"
                 self.include_next_steps = True
-                self.uploaded_templates = ["uploaded-template"]
+                self.uploaded_templates = [uploaded_template]
                 self.author = ""
 
             def package_info(self):
@@ -447,6 +478,7 @@ question: |
             def draft_screen_order(self):
                 return []
 
+        uploaded_template = _LocalFile("/nowhere/uploaded-template.pdf")
         interview = MinimalInterview()
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -486,7 +518,7 @@ question: |
             folders_and_files = package_patch.call_args.args[3]
             self.assertEqual(
                 folders_and_files["templates"],
-                ["generated-next-steps", "uploaded-template"],
+                ["generated-next-steps", uploaded_template],
             )
 
     def test_progress_markers_climb_across_the_whole_interview(self):
@@ -558,7 +590,11 @@ question: |
         reviewed_values = re.findall(r"(?m)^      [^%*].*: \$\{ (.+) \}$", review)
 
         # Several variables share one entry, which is the whole point of #865.
-        self.assertGreater(len(reviewed_values), len(entries))
+        values_per_entry = [
+            len(re.findall(r"(?m)^      [^%*].*: \$\{ (.+) \}$", entry))
+            for entry in review.split("\n  - Edit: ")[1:]
+        ]
+        self.assertTrue(any(count > 1 for count in values_per_entry))
         # Every entry has a bold heading and at least one value or a list loop.
         self.assertEqual(review.count("    button: |"), len(entries))
         self.assertEqual(
@@ -789,18 +825,23 @@ class TestGuardIndexedReference(unittest.TestCase):
 
 
 def _build_pdf_with_fields(pdf_path: str, field_names) -> str:
-    """Write a one-page PDF carrying exactly these AcroForm text fields."""
+    """Write a one-page PDF carrying exactly these AcroForm fields.
+
+    Each entry is a field name for a text field, or a `(name, "/Btn")` pair
+    for a checkbox.
+    """
     import pikepdf
 
     pdf = pikepdf.Pdf.new()
     page = pdf.add_blank_page(page_size=(612, 792))
     fields = []
     top = 730
-    for field_name in field_names:
+    for entry in field_names:
+        field_name, field_type = entry if isinstance(entry, tuple) else (entry, "/Tx")
         fields.append(
             pdf.make_indirect(
                 pikepdf.Dictionary(
-                    FT=pikepdf.Name("/Tx"),
+                    FT=pikepdf.Name(field_type),
                     T=pikepdf.String(field_name),
                     Ff=0,
                     Type=pikepdf.Name("/Annot"),
@@ -857,32 +898,19 @@ def _build_pdf_with_typed_field(pdf_path: str, field_name: str, pdf_type: str) -
 class _TestAutoDraftBase(unittest.TestCase):
     """Shared helpers for automatic-draft regression tests."""
 
-    @staticmethod
-    def _offline_cluster(fields, tools_token=None):
-        unique = list(dict.fromkeys(fields or []))
-        return {
-            f"Screen {index // 4 + 1}": unique[index : index + 4]
-            for index in range(0, len(unique), 4)
-        }
-
     def _generate(self, field_names, **options):
         """Build a one-page PDF with these field names and draft an interview."""
         with tempfile.TemporaryDirectory() as tmpdir:
             pdf_path = _build_pdf_with_fields(
                 os.path.join(tmpdir, "auto_draft.pdf"), field_names
             )
-            with patch.object(
-                interview_generator_module.formfyxer,
-                "cluster_screens",
-                side_effect=self._offline_cluster,
-            ):
-                result = generate_interview_from_path(
-                    pdf_path,
-                    output_dir=tmpdir,
-                    create_package_zip=False,
-                    include_next_steps=False,
-                    **options,
-                )
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+                **options,
+            )
             return result, Path(result.yaml_path).read_text(encoding="utf-8")
 
 
@@ -1127,18 +1155,13 @@ class TestAutoDraftFieldNameNormalization(_TestAutoDraftBase):
 
             output_dir = os.path.join(tmpdir, "out")
             os.makedirs(output_dir)
-            with patch.object(
-                interview_generator_module.formfyxer,
-                "cluster_screens",
-                side_effect=self._offline_cluster,
-            ):
-                result = generate_interview_from_path(
-                    pdf_path,
-                    output_dir=output_dir,
-                    create_package_zip=False,
-                    include_next_steps=False,
-                    normalize_field_names=True,
-                )
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=output_dir,
+                create_package_zip=False,
+                include_next_steps=False,
+                normalize_field_names=True,
+            )
             self.assertTrue(result.renames_applied)
             after = hashlib.sha256(Path(pdf_path).read_bytes()).hexdigest()
             self.assertEqual(before, after)
@@ -1154,21 +1177,16 @@ class TestRestApiFieldNameNormalization(unittest.TestCase):
             pdf_path = _build_pdf_with_fields(
                 os.path.join(tmpdir, "api.pdf"), field_names
             )
-            with patch.object(
-                interview_generator_module.formfyxer,
-                "cluster_screens",
-                side_effect=_TestAutoDraftBase._offline_cluster,
-            ):
-                return generate_interview_from_bytes(
-                    filename="api.pdf",
-                    content_bytes=Path(pdf_path).read_bytes(),
-                    mimetype="application/pdf",
-                    generation_options={
-                        "create_package_zip": False,
-                        "include_next_steps": False,
-                        **options,
-                    },
-                )
+            return generate_interview_from_bytes(
+                filename="api.pdf",
+                content_bytes=Path(pdf_path).read_bytes(),
+                mimetype="application/pdf",
+                generation_options={
+                    "create_package_zip": False,
+                    "include_next_steps": False,
+                    **options,
+                },
+            )
 
     def test_renames_are_reported_and_can_be_asked_for(self):
         payload = self._generate(["Name", "users1_name_first"])
@@ -1196,27 +1214,22 @@ class TestRestApiFieldNameNormalization(unittest.TestCase):
                 "shared_answer",
                 "/Btn",
             )
-            with patch.object(
-                interview_generator_module.formfyxer,
-                "cluster_screens",
-                side_effect=_TestAutoDraftBase._offline_cluster,
-            ):
-                payload = generate_interview_from_bytes(
-                    filename="api_text.pdf",
-                    content_bytes=Path(text_path).read_bytes(),
-                    mimetype="application/pdf",
-                    additional_documents=[
-                        {
-                            "filename": "api_checkbox.pdf",
-                            "content_bytes": Path(checkbox_path).read_bytes(),
-                            "mimetype": "application/pdf",
-                        }
-                    ],
-                    generation_options={
-                        "create_package_zip": False,
-                        "include_next_steps": False,
-                    },
-                )
+            payload = generate_interview_from_bytes(
+                filename="api_text.pdf",
+                content_bytes=Path(text_path).read_bytes(),
+                mimetype="application/pdf",
+                additional_documents=[
+                    {
+                        "filename": "api_checkbox.pdf",
+                        "content_bytes": Path(checkbox_path).read_bytes(),
+                        "mimetype": "application/pdf",
+                    }
+                ],
+                generation_options={
+                    "create_package_zip": False,
+                    "include_next_steps": False,
+                },
+            )
 
         self.assertEqual(len(payload["warnings"]), 1)
         self.assertIn("shared_answer", payload["warnings"][0])
@@ -1323,19 +1336,14 @@ class TestMultipleTemplates(unittest.TestCase):
         ]
         output_dir = os.path.join(tmpdir, "out")
         os.makedirs(output_dir)
-        with patch.object(
-            interview_generator_module.formfyxer,
-            "cluster_screens",
-            side_effect=_TestAutoDraftBase._offline_cluster,
-        ):
-            result = generate_interview_from_path(
-                paths[0],
-                output_dir=output_dir,
-                create_package_zip=False,
-                include_next_steps=False,
-                additional_templates=paths[1:],
-                **options,
-            )
+        result = generate_interview_from_path(
+            paths[0],
+            output_dir=output_dir,
+            create_package_zip=False,
+            include_next_steps=False,
+            additional_templates=paths[1:],
+            **options,
+        )
         return result, Path(result.yaml_path).read_text(encoding="utf-8")
 
     def test_every_template_contributes_fields_and_an_attachment(self):
@@ -1434,18 +1442,13 @@ class TestMultipleTemplates(unittest.TestCase):
         )
         output_dir = os.path.join(tmpdir, "out")
         os.makedirs(output_dir)
-        with patch.object(
-            interview_generator_module.formfyxer,
-            "cluster_screens",
-            side_effect=_TestAutoDraftBase._offline_cluster,
-        ):
-            result = generate_interview_from_path(
-                first,
-                output_dir=output_dir,
-                create_package_zip=False,
-                include_next_steps=False,
-                additional_templates=[second],
-            )
+        result = generate_interview_from_path(
+            first,
+            output_dir=output_dir,
+            create_package_zip=False,
+            include_next_steps=False,
+            additional_templates=[second],
+        )
         yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
         self.assertIn("pdf template file: form.pdf", yaml_text)
         self.assertIn("pdf template file: form_2.pdf", yaml_text)
@@ -1463,18 +1466,13 @@ class TestMultipleTemplates(unittest.TestCase):
         )
         output_dir = os.path.join(tmpdir, "out")
         os.makedirs(output_dir)
-        with patch.object(
-            interview_generator_module.formfyxer,
-            "cluster_screens",
-            side_effect=_TestAutoDraftBase._offline_cluster,
-        ):
-            result = generate_interview_from_path(
-                pdf,
-                output_dir=output_dir,
-                create_package_zip=False,
-                include_next_steps=False,
-                additional_templates=[docx],
-            )
+        result = generate_interview_from_path(
+            pdf,
+            output_dir=output_dir,
+            create_package_zip=False,
+            include_next_steps=False,
+            additional_templates=[docx],
+        )
         # Both files keep the name they arrived with.
         self.assertEqual(result.template_names, ["petition.pdf", "petition.docx"])
         yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
@@ -1557,3 +1555,937 @@ class TestUploadedTemplateNaming(unittest.TestCase):
                 path, filename="petition (1).docx"
             )
             self.assertEqual(self._interview_with([static_file]), ["petition (1).docx"])
+
+
+class TestZeroBasedGeneration(unittest.TestCase):
+    def test_zero_based_people_generate_with_a_warning(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "zero_based.pdf"),
+                ["users0_name_first", "users1_name_first", "users[0]_phone"],
+            )
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        self.assertIn('"users0_name_first": ${ users[0].name.first }', yaml_text)
+        self.assertIn('"users1_name_first": ${ users.item(1).name.first }', yaml_text)
+        self.assertIn('"users[0]_phone": ${ users[0].phone_number }', yaml_text)
+        self.assertTrue(
+            any("numbers users from 0" in warning for warning in result.warnings),
+            result.warnings,
+        )
+
+
+class TestRoleQuestion(unittest.TestCase):
+    def _order_for(self, **overrides):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "role_form.pdf"), ["users1_name_first"]
+            )
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+                interview_overrides={"typical_role": "unknown", **overrides},
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+        return yaml_text.split("id: interview_order_", 1)[1].split("\n---", 1)[0]
+
+    def test_a_court_case_asks_which_side_the_user_is_on(self):
+        self.assertIn("\n  user_ask_role\n", self._order_for(form_type="existing_case"))
+
+    def test_forms_outside_a_court_case_do_not(self):
+        for form_type in ["letter", "other_form", "other"]:
+            with self.subTest(form_type=form_type):
+                self.assertNotIn("user_ask_role", self._order_for(form_type=form_type))
+
+
+class TestDefaultPublishingMetadata(unittest.TestCase):
+    def test_metadata_has_a_drafted_can_i_use_this_form_without_ai(self):
+        """Every no-AI draft used to fail the CourtFormsOnline metadata check."""
+        from dayamlchecker.yaml_structure import find_errors_from_string
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "motion_to_reconsider.pdf"),
+                ["users1_name_first", "reason_for_request"],
+            )
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+                interview_overrides={"form_type": "existing_case"},
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "  can_I_use_this_form: |\n    Use this interview if you need to file the",
+            yaml_text,
+        )
+        intro = yaml_text.split(" intro\n", 1)[1].split("\n---", 1)[0]
+        self.assertNotIn("Use this interview if you need to", intro)
+        errors = [
+            str(getattr(error, "err_str", "") or error)
+            for error in find_errors_from_string(yaml_text, input_file="draft.yml")
+        ]
+        self.assertFalse(errors, "\n".join(errors))
+
+
+class TestListSlotsInAttachments(unittest.TestCase):
+    def test_slots_past_what_the_user_entered_read_as_blank(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "family_form.pdf"),
+                [
+                    "users1_name_first",
+                    "users2_name_first",
+                    "children1_name_first",
+                    "children2_name_first",
+                ],
+            )
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        attachment = yaml_text.split("pdf template file:", 1)[1]
+        # Both lists are declared with `there_are_any=True`, so their first
+        # slot is always filled and read directly
+        self.assertIn("- children: ALPeopleList.using(there_are_any=True)", yaml_text)
+        self.assertIn('"users1_name_first": ${ users[0].name.first }', attachment)
+        self.assertIn('"children1_name_first": ${ children[0].name.first }', attachment)
+        # Later slots may be past the people the user entered
+        self.assertIn('"users2_name_first": ${ users.item(1).name.first }', attachment)
+        self.assertIn(
+            '"children2_name_first": ${ children.item(1).name.first }', attachment
+        )
+
+    def test_a_list_that_always_has_someone_is_left_plain(self):
+        from .interview_generator import _PersonObjectSpec
+
+        lists = ig_lists(
+            [
+                _PersonObjectSpec("users", params={"there_are_any": True}),
+                _PersonObjectSpec("children", params={"ask_number": True}),
+                _PersonObjectSpec(
+                    "decedents", params={"ask_number": True, "target_number": 1}
+                ),
+                _PersonObjectSpec("fees", type="DADict"),
+            ]
+        )
+        self.assertEqual(lists, {"users": True, "children": False, "decedents": True})
+
+
+def ig_lists(objects):
+    from .interview_generator import lists_that_may_run_short
+
+    return lists_that_may_run_short(objects)
+
+
+class TestNoAIGroupingMakesNoModelCalls(unittest.TestCase):
+    def test_generation_without_ai_never_asks_formfyxer_to_group(self):
+        """It used to send field names to gpt-5-nano whenever a key was set."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "grouping.pdf"),
+                ["notice_type_mail", "notice_type_email", "vehicle_year"],
+            )
+            with patch.object(
+                interview_generator_module.formfyxer,
+                "cluster_screens",
+                side_effect=AssertionError("no-AI generation called a model"),
+            ):
+                result = generate_interview_from_path(
+                    pdf_path,
+                    output_dir=tmpdir,
+                    create_package_zip=False,
+                    include_next_steps=False,
+                )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+        self.assertIn("question: |\n  Notice type\n", yaml_text)
+
+
+class TestChoicesFromDocxLogic(unittest.TestCase):
+    def test_the_templates_own_tests_become_the_choices(self):
+        import docx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docx_path = os.path.join(tmpdir, "appeal_entry.docx")
+            document = docx.Document()
+            for line in [
+                "{%p if filing_fee_option == 'pay' %}Paid{%p endif %}",
+                "{%p if filing_fee_option == ‘waiver’ %}Waived{%p endif %}",
+                "{%p if filer_role == 'attorney' %}Counsel{%p endif %}",
+                "{%p for key in evaluations %}{%p if evaluations[key] %}"
+                "{{ key }}{%p endif %}{%p endfor %}",
+                "{%p if evaluations['Speech therapy'] %}S{%p endif %}",
+            ]:
+                document.add_paragraph(line)
+            document.save(docx_path)
+            result = generate_interview_from_path(
+                docx_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        self.assertIn(
+            ": filing_fee_option\n    input type: radio\n    choices:\n"
+            '      - "Pay": "pay"\n      - "Waiver": "waiver"\n',
+            yaml_text,
+        )
+        self.assertIn(
+            ": filer_role\n    input type: radio\n    choices:\n"
+            '      - "Yes": "attorney"\n      - "No": "not_attorney"\n',
+            yaml_text,
+        )
+        self.assertIn(
+            ": evaluations\n    datatype: checkboxes\n    choices:\n"
+            '      - "Speech therapy": "Speech therapy"\n',
+            yaml_text,
+        )
+        # The ticked box is one key of the answer, not a question of its own
+        self.assertNotIn(": evaluations['Speech therapy']", yaml_text)
+        self.assertNotIn("evaluations: DADict", yaml_text)
+        TestGenerateInterviewFromPath._run_dayamlchecker_text(self, yaml_text)
+
+
+class TestCheckboxSets(unittest.TestCase):
+    def _generate(self, field_names):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "release_request.pdf"), field_names
+            )
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            return Path(result.yaml_path).read_text(encoding="utf-8"), result
+
+    def test_boxes_sharing_a_name_become_one_checkboxes_question(self):
+        yaml_text, result = self._generate(
+            [
+                ("proceeding_is_adoption", "/Btn"),
+                ("proceeding_is_name_change", "/Btn"),
+                ("proceeding_is_other", "/Btn"),
+                "type_of_proceeding_other",
+            ]
+        )
+        self.assertIn(
+            ": proceeding_is\n    datatype: checkboxes\n    choices:\n"
+            "      - Adoption: adoption\n      - Name change: name_change\n"
+            "      - Other: other\n",
+            yaml_text,
+        )
+        attachment = yaml_text.split("pdf template file:", 1)[1]
+        self.assertIn(
+            "\"proceeding_is_name_change\": ${ proceeding_is['name_change'] }",
+            attachment,
+        )
+        self.assertNotIn(": proceeding_is_adoption\n", yaml_text)
+        self.assertTrue(
+            any("change it to radio buttons" in note for note in result.warnings)
+        )
+
+    def test_boxes_that_only_share_a_filler_word_stay_separate(self):
+        yaml_text, _result = self._generate(
+            [("has_car", "/Btn"), ("has_bank_account", "/Btn")]
+        )
+        self.assertIn(": has_car\n    datatype: yesno", yaml_text)
+        self.assertIn(": has_bank_account\n    datatype: yesno", yaml_text)
+
+
+class TestCheckboxSetsLeaveParallelQuestionsAlone(unittest.TestCase):
+    _generate = TestCheckboxSets._generate
+
+    def test_boxes_named_by_a_pattern_stay_separate(self):
+        yaml_text, _result = self._generate(
+            [("fmv_yesno", "/Btn"), ("fmv_authorization_yesno", "/Btn")]
+        )
+        self.assertIn(": fmv_yesno\n    datatype: yesno", yaml_text)
+        self.assertIn(": fmv_authorization_yesno\n    datatype: yesno", yaml_text)
+
+
+class TestMoneyAfterAPrintedDollarSign(unittest.TestCase):
+    def test_a_box_the_form_already_prints_a_dollar_sign_for_uses_thousands(self):
+        import pikepdf
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "rent_form.pdf"),
+                ["rent_amount", "fee_amount", "vehicle_pv"],
+            )
+            # Print "$" just left of the first box only, as many forms do
+            pdf = pikepdf.Pdf.open(pdf_path, allow_overwriting_input=True)
+            page = pdf.pages[0]
+            page.Resources = pikepdf.Dictionary(
+                Font=pikepdf.Dictionary(
+                    F1=pikepdf.Dictionary(
+                        Type=pikepdf.Name("/Font"),
+                        Subtype=pikepdf.Name("/Type1"),
+                        BaseFont=pikepdf.Name("/Helvetica"),
+                    )
+                )
+            )
+            # Third box (y=686): a "$" says it's money though its name doesn't
+            page.Contents = pdf.make_stream(
+                b"BT /F1 10 Tf 40 733 Td ($) Tj ET BT /F1 10 Tf 40 689 Td ($) Tj ET"
+            )
+            pdf.save(pdf_path)
+
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            attachment = (
+                Path(result.yaml_path)
+                .read_text(encoding="utf-8")
+                .split("pdf template file:", 1)[1]
+            )
+
+        self.assertIn(
+            '"rent_amount": ${ thousands(rent_amount, show_decimals=True) }',
+            attachment,
+        )
+        self.assertIn('"fee_amount": ${ currency(fee_amount) }', attachment)
+        self.assertIn(
+            '"vehicle_pv": ${ thousands(vehicle_pv, show_decimals=True) }', attachment
+        )
+
+
+class TestMappedFieldsKeepTheirExpression(unittest.TestCase):
+    def test_people_fields_print_their_assembly_line_attribute(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "people.pdf"),
+                [
+                    "children1_birthdate",
+                    ("users1_signature", "/Sig"),
+                    "users1_name_first",
+                ],
+            )
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            attachment = (
+                Path(result.yaml_path)
+                .read_text(encoding="utf-8")
+                .split("pdf template file:", 1)[1]
+            )
+        self.assertIn(
+            '"children1_birthdate": ${ children[0].birthdate.format() }', attachment
+        )
+        self.assertIn(
+            '"users1_signature": ${ users[0].signature_if_final(i) }', attachment
+        )
+
+
+class TestTitlePrecedence(unittest.TestCase):
+    def _generate(self, drafted_title, **options):
+        from .interview_generator import DAInterview
+
+        def fake_prefill(interview, apply=True):
+            if drafted_title:
+                interview.llm_draft_title = drafted_title
+            return True
+
+        def no_op(interview, *args, **kwargs):
+            return False
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "upload_123.pdf"), ["reason_for_request"]
+            )
+            with (
+                patch.object(DAInterview, "llm_prefill_metadata", fake_prefill),
+                patch.object(DAInterview, "llm_predict_state", no_op),
+                patch.object(DAInterview, "llm_refine_field_labels", no_op),
+                patch.object(DAInterview, "llm_group_fields", no_op),
+                patch.object(DAInterview, "_prefetch_reference_site", no_op),
+            ):
+                result = generate_interview_from_path(
+                    pdf_path,
+                    output_dir=tmpdir,
+                    create_package_zip=False,
+                    include_next_steps=False,
+                    use_llm_assist=True,
+                    exact_name="Motion_to_Reconsider_fielded.pdf",
+                    **options,
+                )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+            return yaml_text.split("metadata:\n  title: >-\n    ", 1)[1].split("\n")[0]
+
+    def test_an_ai_drafted_title_beats_the_upload_name(self):
+        self.assertEqual(
+            self._generate("Motion to Reconsider a Court Decision"),
+            "Motion to Reconsider a Court Decision",
+        )
+
+    def test_the_cleaned_upload_name_is_the_fallback(self):
+        self.assertEqual(self._generate(""), "Motion to reconsider")
+
+    def test_a_title_the_author_typed_beats_both(self):
+        self.assertEqual(
+            self._generate("AI title", title="My own title"), "My own title"
+        )
+        self.assertEqual(
+            self._generate(
+                "AI title", interview_overrides={"title": "From the editor"}
+            ),
+            "From the editor",
+        )
+
+
+class TestOtherDetailsShowOnlyWhenOtherIsChosen(unittest.TestCase):
+    def test_other_details_follow_their_choice(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "release_request.pdf"),
+                [
+                    ("proceeding_is_adoption", "/Btn"),
+                    ("proceeding_is_name_change", "/Btn"),
+                    ("proceeding_is_other", "/Btn"),
+                    "case_name",
+                    "docket_number_text",
+                    "type_of_proceeding_other",
+                    ("has_other_income", "/Btn"),
+                    "other_income_explain",
+                ],
+            )
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        # On the same screen as its choice, right after it, shown only for it
+        self.assertRegex(
+            yaml_text,
+            r": proceeding_is\n    datatype: checkboxes\n(?:    .*\n)*"
+            r"  - \".*\": type_of_proceeding_other\n(?:    .*\n)*?"
+            r"    show if: proceeding_is\['other'\]\n",
+        )
+        self.assertIn("    show if: has_other_income\n", yaml_text)
+        attachment = yaml_text.split("pdf template file:", 1)[1]
+        self.assertIn(
+            '"type_of_proceeding_other": ${ type_of_proceeding_other if '
+            "proceeding_is['other'] else \"\" }",
+            attachment,
+        )
+        self.assertIn(
+            '"other_income_explain": ${ other_income_explain if has_other_income '
+            'else "" }',
+            attachment,
+        )
+        # Only the two "other" details are conditional
+        self.assertEqual(len(re.findall(r"(?m)^    show if: \S", yaml_text)), 2)
+        TestGenerateInterviewFromPath._run_dayamlchecker_text(self, yaml_text)
+
+
+class TestNumberedRowsBecomeLists(unittest.TestCase):
+    def test_vehicle_rows_are_gathered_as_an_al_vehicle_list(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "assets.pdf"),
+                [
+                    f"vehicle_{attribute}_{row}"
+                    for row in (1, 2)
+                    for attribute in ("year_make_model", "pv", "purpose")
+                ],
+            )
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        self.assertIn("  - docassemble.ALToolbox:al_income.yml\n", yaml_text)
+        self.assertIn(
+            "  - vehicles: ALVehicleList.using(ask_number=True,"
+            "complete_attribute='complete')",
+            yaml_text,
+        )
+        order = yaml_text.split("id: interview_order_", 1)[1].split("\n---", 1)[0]
+        self.assertIn("  vehicles.gather()\n", order)
+        self.assertNotIn("vehicle_pv_1", order)
+        self.assertIn('  - "Purpose": vehicles[i].purpose\n', yaml_text)
+        attachment = yaml_text.split("pdf template file:", 1)[1]
+        self.assertIn(
+            '"vehicle_year_make_model_1": ${ vehicles.item(0).year_make_model() }',
+            attachment,
+        )
+        self.assertIn(
+            '"vehicle_pv_2": ${ currency(vehicles[1].market_value) '
+            'if vehicles.number() > 1 else "" }',
+            attachment,
+        )
+        # A third vehicle goes to the addendum
+        self.assertIn('.overflow_fields["vehicles"].overflow_trigger = 2', yaml_text)
+        self.assertIn("has_addendum=True", yaml_text)
+        TestGenerateInterviewFromPath._run_dayamlchecker_text(self, yaml_text)
+
+
+class _StructureOnlyLlms:
+    """Answers the structure prompt; every other AI step gets nothing back."""
+
+    def chat_completion(self, **kwargs):
+        if "Propose only changes the form's own text supports" not in str(
+            kwargs.get("system_message", "")
+        ):
+            return {}
+        return {
+            "remaps": [
+                {
+                    "field": "date_of_birth",
+                    "label": "user_birthdate",
+                    "evidence": "Date of Birth",
+                },
+                {
+                    "field": "case_name",
+                    "label": "user_birthdate",
+                    "evidence": "not in the form",
+                },
+            ],
+            "choice_groups": [
+                {"field": "proceeding_is", "kind": "radio", "evidence": "check one"}
+            ],
+            "conditions": [],
+        }
+
+    def classify_text(self, **kwargs):
+        return "other"
+
+
+class TestAIStructureProposals(unittest.TestCase):
+    def test_checked_proposals_reshape_the_draft_and_are_reported(self):
+        from .interview_generator import DAInterview
+
+        context = "Type of proceeding (check one): Adoption Other. Date of Birth"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "cari.pdf"),
+                [
+                    ("proceeding_is_adoption", "/Btn"),
+                    ("proceeding_is_other", "/Btn"),
+                    "date_of_birth",
+                    "case_name",
+                ],
+            )
+            with (
+                patch.object(
+                    interview_generator_module,
+                    "_load_llms_module",
+                    return_value=_StructureOnlyLlms(),
+                ),
+                patch.object(
+                    DAInterview, "_llm_context_text", lambda self, **kwargs: context
+                ),
+            ):
+                result = generate_interview_from_path(
+                    pdf_path,
+                    output_dir=tmpdir,
+                    create_package_zip=False,
+                    include_next_steps=False,
+                    use_llm_assist=True,
+                )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        attachment = yaml_text.split("pdf template file:", 1)[1]
+        self.assertIn('"date_of_birth": ${ users[0].birthdate.format() }', attachment)
+        self.assertIn(
+            "\"proceeding_is_other\": ${ proceeding_is == 'other' }", attachment
+        )
+        self.assertIn(": proceeding_is\n    input type: radio\n", yaml_text)
+        # The remap with no support in the form text was not applied
+        self.assertIn('"case_name": ${ case_name }', attachment)
+        notes = "\n".join(result.warnings)
+        self.assertIn("date_of_birth is now users[0].birthdate.format()", notes)
+        self.assertIn("“Date of Birth”", notes)
+        self.assertIn("only one of proceeding_is may be chosen", notes)
+        self.assertNotIn("change it to radio buttons", notes)
+
+    def test_the_structure_question_goes_out_before_metadata_drafting(self):
+        """The slower structure model runs while the metadata is drafted."""
+        from .interview_generator import DAInterview
+
+        order = []
+        ask = DAInterview.ask_for_structure
+
+        def recording_ask(interview):
+            order.append("structure")
+            return ask(interview)
+
+        def recording_prefill(interview, apply=True):
+            order.append("metadata")
+            return False
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "form.pdf"), ["date_of_birth"]
+            )
+            with (
+                patch.object(
+                    interview_generator_module,
+                    "_load_llms_module",
+                    return_value=_StructureOnlyLlms(),
+                ),
+                patch.object(
+                    DAInterview,
+                    "_llm_context_text",
+                    lambda self, **kwargs: "Date of Birth",
+                ),
+                patch.object(DAInterview, "ask_for_structure", recording_ask),
+                patch.object(DAInterview, "llm_prefill_metadata", recording_prefill),
+            ):
+                result = generate_interview_from_path(
+                    pdf_path,
+                    output_dir=tmpdir,
+                    create_package_zip=False,
+                    include_next_steps=False,
+                    use_llm_assist=True,
+                )
+        self.assertEqual(order, ["structure", "metadata"])
+        self.assertIn("date_of_birth is now", "\n".join(result.warnings))
+
+
+class TestStateDependencies(unittest.TestCase):
+    def test_a_massachusetts_draft_includes_al_massachusetts(self):
+        """Without it, `trial_court.division` has no question and the interview fails."""
+        from .interview_generator import DAInterview
+
+        def predict_massachusetts(interview, apply=True):
+            interview.state = "MA"
+            return True
+
+        def no_op(interview, *args, **kwargs):
+            return False
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "court_form.pdf"), ["court_division", "case_name"]
+            )
+            with (
+                patch.object(DAInterview, "llm_predict_state", predict_massachusetts),
+                patch.object(DAInterview, "llm_prefill_metadata", no_op),
+                patch.object(DAInterview, "llm_propose_structure", no_op),
+                patch.object(DAInterview, "llm_refine_field_labels", no_op),
+                patch.object(DAInterview, "llm_group_fields", no_op),
+                patch.object(DAInterview, "_prefetch_reference_site", no_op),
+            ):
+                result = generate_interview_from_path(
+                    pdf_path,
+                    output_dir=tmpdir,
+                    create_package_zip=True,
+                    include_next_steps=False,
+                    use_llm_assist=True,
+                )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+            with zipfile.ZipFile(result.package_zip_path) as archive:
+                package_files = "\n".join(
+                    archive.read(name).decode("utf-8", "replace")
+                    for name in archive.namelist()
+                    if name.endswith(("setup.py", "pyproject.toml"))
+                )
+
+        self.assertIn(
+            "  - docassemble.ALMassachusetts:al_massachusetts.yml\n", yaml_text
+        )
+        self.assertIn("docassemble.ALMassachusetts", package_files)
+        # Massachusetts's default organization comes with its package dependency
+        self.assertIn("  - docassemble.MassAccess:massaccess.yml\n", yaml_text)
+        self.assertIn("docassemble.MassAccess", package_files)
+        self.assertIn('"court_division": ${ trial_court.division }', yaml_text)
+
+    def test_other_states_do_not_get_every_jurisdiction(self):
+        from .interview_generator import DAInterview
+
+        interview = DAInterview()
+        interview.state = "ZZ"
+        self.assertEqual(interview.dependency_choices(), [])
+
+
+class TestCourtDetailsOutsideMassachusetts(unittest.TestCase):
+    def test_court_attributes_get_a_question_without_al_massachusetts(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "court_form.pdf"),
+                ["court_division", "court_county", "case_name"],
+            )
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+                jurisdiction="VT",
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+        self.assertNotIn("al_massachusetts.yml", yaml_text)
+        self.assertIn('  - "Division": trial_court.division\n', yaml_text)
+        self.assertIn('  - "County": trial_court.address.county\n', yaml_text)
+        self.assertNotIn('"Department": trial_court.department', yaml_text)
+        TestGenerateInterviewFromPath._run_dayamlchecker_text(self, yaml_text)
+
+
+class TestReviewScreenWithDictionaryKeys(unittest.TestCase):
+    def test_review_lines_quote_keys_safely(self):
+        """`showifdef('x['Zip']')` broke the whole interview on a live server."""
+        import ast
+        import docx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docx_path = os.path.join(tmpdir, "inspection_letter.docx")
+            document = docx.Document()
+            document.add_paragraph('{{ inspector_information["Zip"] }}')
+            document.save(docx_path)
+            result = generate_interview_from_path(
+                docx_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        review = yaml_text.split("\nreview:", 1)[1].split("\n---", 1)[0]
+        expressions = re.findall(r"\$\{ (.+?) \}$", review, re.M)
+        self.assertIn("showifdef(\"inspector_information['Zip']\")", expressions)
+        for expression in expressions:
+            ast.parse(expression, mode="eval")
+
+
+class TestNamelessPdfFields(unittest.TestCase):
+    def test_a_field_with_no_name_is_left_out_with_a_note(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "nameless.pdf"),
+                [("", "/Sig"), ("rep_payee_signature", "/Sig"), "case_name"],
+            )
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+        self.assertNotRegex(yaml_text, r"(?m)^signature: *$")
+        self.assertNotIn('- "": ', yaml_text)
+        self.assertIn(
+            '"rep_payee_signature": ${ rep_payee[0].signature_if_final(i) }', yaml_text
+        )
+        self.assertTrue(any("no usable name" in w for w in result.warnings))
+
+
+class TestSingleDocxPerson(unittest.TestCase):
+    def test_a_person_the_template_never_indexes_is_one_individual(self):
+        """`requestor: ALPeopleList` made `requestor.address` unfindable."""
+        import docx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docx_path = os.path.join(tmpdir, "evaluation_request.docx")
+            document = docx.Document()
+            for line in [
+                "{{ requestor.name.full() }}",
+                "{{ requestor.address.block() }}",
+                "{{ requestor.phone_number }}",
+            ]:
+                document.add_paragraph(line)
+            document.save(docx_path)
+            result = generate_interview_from_path(
+                docx_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        self.assertIn("  - requestor: ALIndividual\n", yaml_text)
+        self.assertNotIn("requestor: ALPeopleList", yaml_text)
+        self.assertNotIn("requestor[i]", yaml_text)
+        TestGenerateInterviewFromPath._run_dayamlchecker_text(self, yaml_text)
+
+
+class TestSignatureFieldsForMissingPeople(unittest.TestCase):
+    def test_a_second_signer_is_only_listed_when_there_is_one(self):
+        """`guardians[1].signature` with one guardian was an IndexError."""
+        from .interview_generator import signature_fields_expression
+
+        expression = signature_fields_expression(
+            ["users[0].signature", "users[1].signature", "children[0].signature"],
+            {"users": True, "children": False},
+        )
+        self.assertEqual(
+            expression,
+            "['users[0].signature'] + (['users[1].signature'] if users.number() > 1 "
+            "else []) + (['children[0].signature'] if children.number() > 0 else [])",
+        )
+
+    def test_generated_interview_guards_later_signers(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = _build_pdf_with_fields(
+                os.path.join(tmpdir, "two_guardians.pdf"),
+                [("users1_signature", "/Sig"), ("users2_signature", "/Sig")],
+            )
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+        self.assertIn(
+            "signature_fields = ['users[0].signature'] + (['users[1].signature'] "
+            "if users.number() > 1 else [])",
+            yaml_text,
+        )
+
+
+class TestIncludedDocxTemplates(unittest.TestCase):
+    def test_an_included_subdocument_is_called_out(self):
+        """SNAP's template included three files that weren't uploaded with it."""
+        import docx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docx_path = os.path.join(tmpdir, "snap_all.docx")
+            document = docx.Document()
+            document.add_paragraph("{{p include_docx_template(‘snap-summary.docx’) }}")
+            document.add_paragraph("{{ client_name }}")
+            document.save(docx_path)
+            result = generate_interview_from_path(
+                docx_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+        self.assertTrue(
+            any("includes snap-summary.docx" in note for note in result.warnings),
+            result.warnings,
+        )
+
+
+class TestDocxUploadedFiles(unittest.TestCase):
+    def test_looping_over_uploads_asks_for_the_files(self):
+        """`exhibits[0].filename` as text failed on a live server."""
+        import docx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docx_path = os.path.join(tmpdir, "motion.docx")
+            document = docx.Document()
+            document.add_paragraph(
+                "{%p for exhibit in exhibits %}{{ exhibit.filename }}{%p endfor %}"
+            )
+            document.add_paragraph("{{ reason_for_extension }}")
+            document.save(docx_path)
+            result = generate_interview_from_path(
+                docx_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+        self.assertIn(": exhibits\n    datatype: file\n", yaml_text)
+        self.assertNotIn("exhibits[0].filename", yaml_text)
+
+
+class TestDocxExhibitDocuments(unittest.TestCase):
+    def test_an_exhibit_document_is_declared_and_gathered(self):
+        """`appendix.exhibits.there_are_any` crashed when `appendix` was an ALIndividual."""
+        import docx
+        from dayamlchecker.yaml_structure import find_errors_from_string
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docx_path = os.path.join(tmpdir, "appellee_brief.docx")
+            document = docx.Document()
+            document.add_paragraph(
+                "{%p if record_appendix_document.exhibits.there_are_any %}"
+                "Record appendix attached{%p endif %}"
+            )
+            document.add_paragraph("{{ appeal_arguments }}")
+            document.save(docx_path)
+            result = generate_interview_from_path(
+                docx_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+        self.assertIn(
+            "record_appendix_document: ALExhibitDocument.using(title='Record appendix'",
+            yaml_text,
+        )
+        self.assertNotIn("record_appendix_document: ALIndividual", yaml_text)
+        self.assertIn("  record_appendix_document.exhibits.gather()\n", yaml_text)
+        # AssemblyLine's own exhibit questions ask, not a custom yes/no
+        self.assertNotIn(": record_appendix_document.exhibits.there_are_any", yaml_text)
+        self.assertNotIn("record_appendix_document.name.first", yaml_text)
+        self.assertRegex(yaml_text, r"al_user_bundle: .*record_appendix_document\]")
+        self.assertEqual(find_errors_from_string(yaml_text, input_file="x.yml"), [])
+
+
+class TestDocxPronouns(unittest.TestCase):
+    def test_printed_pronouns_use_assemblyline(self):
+        """Printing the checkbox answer listed every pronoun choice."""
+        import docx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docx_path = os.path.join(tmpdir, "brief.docx")
+            document = docx.Document()
+            document.add_paragraph("{{ users[0] }}")
+            paragraph = document.add_paragraph("Your pronouns: {{ users[0]")
+            # Word often splits an expression across runs
+            paragraph.add_run(".pronouns }}")
+            document.add_paragraph(
+                "{% if users[0].pronouns['he/him/his'] %}x{% endif %}"
+            )
+            document.save(docx_path)
+            result = generate_interview_from_path(
+                docx_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+            copy = result.normalized_template_paths["brief.docx"]
+            with zipfile.ZipFile(copy) as packaged:
+                xml = packaged.read("word/document.xml").decode("utf-8")
+        self.assertIn("users[i].pronoun_fields(", yaml_text)
+        self.assertNotIn('"Users[0].pronouns"', yaml_text)
+        self.assertIn("list_pronouns()", xml)
+        # A lookup of one choice still reads the checkbox answer
+        self.assertIn("pronouns[&apos;he/him/his&apos;]", xml.replace("'", "&apos;"))
+        self.assertTrue(any("list_pronouns()" in note for note in result.warnings))
+
+    def test_rewrite_leaves_other_uses_alone(self):
+        rewrite = interview_generator_module._list_printed_pronouns
+        self.assertEqual(
+            rewrite("{{ users[0].pronouns }} and {{ other_parties[1].pronouns }}"),
+            "{{ users[0].list_pronouns() }} and {{ other_parties[1].list_pronouns() }}",
+        )
+        for unchanged in [
+            "{{ users[0].pronouns['he/him/his'] }}",
+            "{{ users[0].pronouns.true_values() }}",
+            "{{ users[0].list_pronouns() }}",
+            "Pronouns are words like he or she",
+        ]:
+            with self.subTest(text=unchanged):
+                self.assertEqual(rewrite(unchanged), unchanged)

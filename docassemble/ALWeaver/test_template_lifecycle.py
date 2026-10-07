@@ -27,7 +27,7 @@ from . import interview_generator as interview_generator_module
 from .document_bundles import interview_documents, template_status
 from .template_analysis import analyze_template
 from .test_editor_api import api_editor
-from .test_generate_from_path import _TestAutoDraftBase, _build_pdf_with_fields
+from .test_generate_from_path import _build_pdf_with_fields
 
 DOCX_FIXTURE = Path(__file__).parent / "test/test_docx_no_pdf_field_names.docx"
 
@@ -71,13 +71,6 @@ class TemplateLifecycleTest(unittest.TestCase):
         self.tmpdir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.tmpdir, True)
         self.project = _Project(self.tmpdir)
-        self._cluster = patch.object(
-            interview_generator_module.formfyxer,
-            "cluster_screens",
-            side_effect=_TestAutoDraftBase._offline_cluster,
-        )
-        self._cluster.start()
-        self.addCleanup(self._cluster.stop)
 
     # -- plumbing -----------------------------------------------------------
 

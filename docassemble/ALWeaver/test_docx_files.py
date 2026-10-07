@@ -1,12 +1,14 @@
 # do not pre-load
 import unittest
 from .interview_generator import (
+    docx_variables_in_order,
     DAFieldList,
     get_docx_variables,
     get_docx_boolean_variables,
     get_docx_function_type_hints,
     is_reserved_docx_label,
     get_pdf_variable_name_matches,
+    straighten_quotes,
 )
 from .validate_template_files import matching_reserved_names
 from docassemble.base.util import DAStaticFile
@@ -159,6 +161,54 @@ class test_docxs(unittest.TestCase):
         )
         self.assertEqual(all_vars, {"mylist", "mylist[0].flag"})
 
+    def test_dictionary_keys_keep_their_text(self):
+        """Keys with spaces used to collapse to `x[ ]`, which isn't Python."""
+        self.assertEqual(
+            get_docx_variables(
+                '{{ inspector_information["Address Line 1"] }}'
+                '{%p if inspector_information["Zip"] and other == "a b" %}{% endif %}'
+            ),
+            {
+                "inspector_information['Address Line 1']",
+                "inspector_information['Zip']",
+                "other",
+            },
+        )
+
+    def test_dictionary_keys_use_docassembles_spelling(self):
+        """A missing key is asked for by its repr(), whatever quotes Word used."""
+        self.assertEqual(
+            get_docx_variables(
+                straighten_quotes(
+                    "{{ income[‘Disability Benefits’] }}"
+                    "{%p if print_options[‘Inputs'] %}{% endif %}"
+                    '{{ notes["Mother\'s name"] }}'
+                )
+            ),
+            {
+                "income['Disability Benefits']",
+                "print_options['Inputs']",
+                'notes["Mother\'s name"]',
+            },
+        )
+
+    def test_looking_up_each_key_of_a_collection_is_not_a_variable(self):
+        self.assertEqual(
+            get_docx_variables(
+                "{%p for key in selected %}{%p if selected[key] %}{{ key }}"
+                "{%p endif %}{%p endfor %}"
+            ),
+            {"selected"},
+        )
+
+    def test_a_loop_counter_index_becomes_the_first_item(self):
+        self.assertEqual(
+            get_docx_variables(
+                "{% for i in range(3) %}{{ users[i].name.first }}{% endfor %}"
+            ),
+            {"users[0].name.first"},
+        )
+
     def test_unindexable_loops_drop_their_targets(self):
         """Nothing sensible to index means the loop body is skipped, not guessed at."""
         self.assertEqual(
@@ -203,7 +253,10 @@ class test_docxs(unittest.TestCase):
     def test_curly_quoted_arguments_are_not_variables(self):
         """Word autocorrects quotes, and the text inside them is not a variable."""
         self.assertEqual(
-            get_docx_variables("{{ format_date(some_date, “MMddyy”) }}"), {"some_date"}
+            get_docx_variables(
+                straighten_quotes("{{ format_date(some_date, “MMddyy”) }}")
+            ),
+            {"some_date"},
         )
 
     def test_reserved_docx_labels(self):
@@ -350,4 +403,25 @@ class test_docx_function_type_hints(unittest.TestCase):
                 "{% for item in mylist %}{{ output_checkbox(item.agreed) }}{% endfor %}"
             ),
             {"mylist[0].agreed": "yesno"},
+        )
+
+
+class test_docx_variable_order(unittest.TestCase):
+    def test_variables_come_in_the_order_the_template_uses_them(self):
+        """A set made fields, and so screens, come out in a new order every run."""
+        text = (
+            "{{ zebra_name }} {% if apple_count %}{{ mango_date }}{% endif %} "
+            "{{ currency(kiwi_amount) }} {{ zebra_name }} "
+            "{% for item in basket %}{{ item.label }}{% endfor %}"
+        )
+        self.assertEqual(
+            docx_variables_in_order(text),
+            [
+                "zebra_name",
+                "apple_count",
+                "mango_date",
+                "kiwi_amount",
+                "basket",
+                "basket[0].label",
+            ],
         )

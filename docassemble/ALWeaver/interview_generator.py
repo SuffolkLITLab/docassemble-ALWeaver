@@ -1,6 +1,28 @@
-from .custom_values import get_matching_deps, get_output_mako_package_and_path
+from .custom_values import (
+    get_full_dep_details,
+    get_matching_deps,
+    get_output_mako_package_and_path,
+    get_pypi_deps_from_choices,
+    get_yml_deps_from_choices,
+)
 from .generator_constants import generator_constants
 from .question_library import baseline_question_specs
+from .field_grouping import (
+    FILLER_NAME_WORDS,
+    group_fields_into_screens,
+    unique_titles,
+)
+from .name_datatypes import datatype_from_name, label_calls_for_area
+from .pdf_layout import fields_after_a_dollar_sign, pdf_text
+from .titles import title_from_filename
+from .plain_language import (
+    PLAIN_LANGUAGE_GUIDANCE,
+    flags_by_text,
+    is_filler_subquestion,
+    plain_language_flags,
+)
+from .repeated_rows import MONEY_ATTRIBUTES, find_row_families, row_family_yaml
+from .llm_structure import STRUCTURE_PROMPT, validated_proposals
 from .review_screen import build_review_entries, table_edit_attributes
 from .project_filenames import safe_project_filename, unique_project_filenames
 from .validate_template_files import matching_reserved_names, has_fields
@@ -30,6 +52,8 @@ from docassemble.base.util import (
 from docx2python import docx2python
 from enum import Enum
 from functools import lru_cache
+import concurrent.futures
+import contextvars
 from itertools import zip_longest, chain
 from pdfminer.high_level import extract_text
 from pdfminer.pdfparser import PDFSyntaxError
@@ -37,21 +61,27 @@ from pdfminer.psparser import PSEOF
 from pikepdf import Pdf
 from typing import (
     Any,
+    Callable,
     Container,
     Dict,
     List,
     NotRequired,
     Mapping,
+    MutableMapping,
     Optional,
     Sequence,
     Set,
     Tuple,
     Union,
     Iterable,
+    Iterator,
     Literal,
+    NamedTuple,
     TypedDict,
     cast,
 )
+from contextlib import contextmanager
+from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse
 from zipfile import BadZipFile
 import ast
@@ -71,7 +101,10 @@ import more_itertools
 import os
 import re
 import shutil
+import io
 import tempfile
+import threading
+import time
 import uuid
 import zipfile
 import ipaddress
@@ -79,7 +112,8 @@ import socket
 from dataclasses import dataclass
 import pycountry
 import yaml
-from urllib.request import Request, urlopen
+from urllib.error import HTTPError
+from urllib.request import urlopen
 
 mako.runtime.UNDEFINED = DAEmpty()
 
@@ -131,11 +165,41 @@ class TemplateInput:
     exact_name: Optional[str] = None
 
 
+class _StructureRequest(NamedTuple):
+    """A structure question to the model, and what its answer is checked against."""
+
+    response: "concurrent.futures.Future[Any]"
+    context_text: str
+    fields: Dict[str, Dict[str, Any]]
+
+
+@lru_cache(maxsize=1)
+def _background_calls() -> concurrent.futures.ThreadPoolExecutor:
+    """Threads for model calls that run while other drafting goes on."""
+    return concurrent.futures.ThreadPoolExecutor(
+        max_workers=4, thread_name_prefix="alweaver-llm"
+    )
+
+
 @dataclass
 class WeaverInterviewArtifacts:
     yaml_text: str
     yaml_file: Any
     package_file: Optional[Any] = None
+    pronoun_template_copies: Dict[str, str] = field(default_factory=dict)
+    """Templates rewritten to print `list_pronouns()`, by filename; see
+    :func:`docx_with_listed_pronouns`. The package holds these copies."""
+
+
+class _BareName(str):
+    """A `.using()` argument that names a class, so it renders without quotes."""
+
+    def __repr__(self) -> str:
+        return str(self)
+
+
+# `name['key']` or `name['key'].attribute`: a lookup in a dictionary of answers
+STRING_KEYED_VARIABLE = re.compile(r"^([A-Za-z_]\w*)\[('[^']*'|\"[^\"]*\")\](\..+)?$")
 
 
 @dataclass
@@ -343,6 +407,8 @@ def get_input_dimensions(
 OPTION_SEPARATOR = "+"
 
 # Field types that ask with a list of `choices`
+# The most choices taken from a model's suggestion for one question
+MAX_LLM_CHOICES = 20
 CHOICE_FIELD_TYPES = [
     "multiple choice radio",
     "multiple choice checkboxes",
@@ -683,6 +749,48 @@ def _prompt_dict(key: str, default: Dict[str, str]) -> Dict[str, str]:
     return value if isinstance(value, dict) else default
 
 
+# Help pages are fetched with urllib's own user agent, gently: one request at
+# a time to a site, at least a second apart, and a site that answers "too many
+# requests" gets the wait it asks for, once, rather than another request now
+_SECONDS_BETWEEN_REQUESTS = 1.0
+_LONGEST_RETRY_WAIT = 10.0
+_DEFAULT_RETRY_WAIT = 2.0
+_next_request_at: Dict[str, float] = {}
+_next_request_lock = threading.Lock()
+
+
+def _wait_for_turn(host: str) -> None:
+    """Space requests to one site at least `_SECONDS_BETWEEN_REQUESTS` apart."""
+    with _next_request_lock:
+        now = time.monotonic()
+        start = max(now, _next_request_at.get(host, now))
+        _next_request_at[host] = start + _SECONDS_BETWEEN_REQUESTS
+    if start > now:
+        time.sleep(start - now)
+
+
+def _retry_wait(retry_after: Optional[str]) -> Optional[float]:
+    """Seconds a `Retry-After` header asks for, or None if it is too long.
+
+    Args:
+        retry_after (Optional[str]): seconds, or an HTTP date, or None.
+
+    Returns:
+        Optional[float]: how long to wait before the one retry, or None to
+        give up.
+    """
+    wait = _DEFAULT_RETRY_WAIT
+    if retry_after:
+        try:
+            wait = float(retry_after)
+        except ValueError:
+            try:
+                wait = parsedate_to_datetime(retry_after).timestamp() - time.time()
+            except (TypeError, ValueError):
+                wait = _DEFAULT_RETRY_WAIT
+    return max(wait, 0.0) if wait <= _LONGEST_RETRY_WAIT else None
+
+
 def _extract_help_page_text(url: str, max_chars: int = 12000) -> str:
     if not url or not is_url(url):
         return ""
@@ -732,30 +840,43 @@ def _extract_help_page_text(url: str, max_chars: int = 12000) -> str:
         log(f"Blocked unsafe help_page_url host={host!r}")
         return ""
 
-    try:
-        req = Request(
-            url,
-            headers={"User-Agent": "ALWeaver/1.0 (+docassemble)"},
-        )
-        # URL safety is validated above before fetching.
-        with urlopen(req, timeout=10) as response:  # nosec B310
-            content_type = str(response.headers.get("Content-Type", "") or "").lower()
-            if content_type and (
-                "text/html" not in content_type
-                and "application/xhtml+xml" not in content_type
-            ):
-                log(
-                    f"Skipped help_page_url={url!r} because content-type is {content_type!r}"
-                )
+    html_text = ""
+    for attempt in range(2):
+        _wait_for_turn(host)
+        try:
+            # URL safety is validated above before fetching.
+            with urlopen(url, timeout=10) as response:  # nosec B310
+                content_type = str(
+                    response.headers.get("Content-Type", "") or ""
+                ).lower()
+                if content_type and (
+                    "text/html" not in content_type
+                    and "application/xhtml+xml" not in content_type
+                ):
+                    log(
+                        f"Skipped help_page_url={url!r} because content-type is {content_type!r}"
+                    )
+                    return ""
+                max_bytes = 2_000_000
+                raw = response.read(max_bytes + 1)
+                if len(raw) > max_bytes:
+                    raw = raw[:max_bytes]
+                html_text = raw.decode("utf-8", errors="replace")
+            break
+        except HTTPError as exc:
+            wait = (
+                _retry_wait(exc.headers.get("Retry-After") if exc.headers else None)
+                if exc.code in (429, 503) and attempt == 0
+                else None
+            )
+            if wait is None:
+                log(f"Unable to fetch help_page_url={url!r}: {exc!r}")
                 return ""
-            max_bytes = 2_000_000
-            raw = response.read(max_bytes + 1)
-            if len(raw) > max_bytes:
-                raw = raw[:max_bytes]
-            html_text = raw.decode("utf-8", errors="replace")
-    except Exception as exc:
-        log(f"Unable to fetch help_page_url={url!r}: {exc!r}")
-        return ""
+            log(f"help_page_url={url!r} asked us to slow down; retrying in {wait:.0f}s")
+            time.sleep(wait)
+        except Exception as exc:
+            log(f"Unable to fetch help_page_url={url!r}: {exc!r}")
+            return ""
     try:
         from bs4 import BeautifulSoup
 
@@ -774,6 +895,24 @@ def _extract_help_page_text(url: str, max_chars: int = 12000) -> str:
     except Exception as exc:
         log(f"Unable to parse help page HTML for {url!r}: {exc!r}")
         return ""
+
+
+# The metadata a model drafts that the person using the interview reads, and
+# so gets the plain-language check; URLs and one-word document kinds don't
+def _needs_room_to_answer(field_obj: Any, label: str) -> bool:
+    """True if a field the model typed as one line of text needs a text area.
+
+    A DOCX field whose name or label is narrative ("appeal_arguments", "Legal
+    arguments") does. A PDF box's own size says how much fits, so a PDF field
+    only keeps an area the box already called for.
+    """
+    already_area = (
+        getattr(field_obj, "field_type", "") == "area"
+        or getattr(field_obj, "field_type_guess", "") == "area"
+    )
+    if getattr(field_obj, "source_document_type", "") == "pdf":
+        return already_area
+    return already_area or label_calls_for_area(label)
 
 
 def _normalize_field_type(value: str) -> Optional[str]:
@@ -802,17 +941,134 @@ def _normalize_field_type(value: str) -> Optional[str]:
     return candidate if candidate in allowed else None
 
 
+def _llm_choice_lines(raw_choices: Any) -> List[str]:
+    """Turn the choices a model suggested into `choices:` lines.
+
+    Each line is `"Label": value`. Quoting the label keeps a choice like
+    `Other: explain` from breaking the YAML, and the value is an identifier so
+    it is safe to compare against in an attachment.
+
+    Args:
+        raw_choices (Any): a list of labels, or of `{"label", "value"}` dicts.
+
+    Returns:
+        List[str]: one line per usable choice, without duplicates.
+    """
+    if not isinstance(raw_choices, list):
+        return []
+    lines: List[str] = []
+    seen: Set[str] = set()
+    for raw in raw_choices[:MAX_LLM_CHOICES]:
+        if isinstance(raw, dict):
+            label = str(raw.get("label") or raw.get("value") or "")
+            value = str(raw.get("value") or label)
+        else:
+            label = value = str(raw)
+        label = _safe_short_label(label, 80)
+        value = varname(value).lower()
+        if not label or not value or value in seen:
+            continue
+        seen.add(value)
+        lines.append(f"{json.dumps(label)}: {value}")
+    return lines
+
+
+def _classification_key(response: Any, choices: Mapping[str, str]) -> str:
+    """The choice key a `classify_text` reply names, or the reply unchanged.
+
+    The model is shown the choices as a dict, and often answers by echoing one
+    entry of it -- `"{'appeal': 'Part of an appeal'}"` instead of `appeal`.
+    Taking that at face value silently threw the classification away.
+
+    Args:
+        response (Any): what `classify_text` returned.
+        choices (Mapping[str, str]): the choices it was asked to pick from.
+
+    Returns:
+        str: the one choice key the reply names, else the stripped reply.
+    """
+    text = str(response or "").strip()
+    by_folded_key = {str(key).casefold(): str(key) for key in choices}
+    if text.casefold() in by_folded_key:
+        return by_folded_key[text.casefold()]
+    try:
+        parsed = ast.literal_eval(text)
+    except (ValueError, SyntaxError, MemoryError, RecursionError):
+        parsed = None
+    if isinstance(parsed, dict) and len(parsed) == 1:
+        key = str(next(iter(parsed))).casefold()
+        if key in by_folded_key:
+            return by_folded_key[key]
+    # Otherwise, accept a reply that quotes exactly one of the keys
+    named = {
+        key
+        for folded, key in by_folded_key.items()
+        if re.search(r"""['"]""" + re.escape(folded) + r"""['"]""", text.casefold())
+    }
+    if len(named) == 1:
+        return named.pop()
+    return text
+
+
+def _classify(
+    llms: Any, text: str, choices: Mapping[str, str], default_response: str, model: str
+) -> str:
+    """Ask `llms.classify_text`, and read the reply as one of the choice keys."""
+    return _classification_key(
+        llms.classify_text(
+            text=text, choices=choices, default_response=default_response, model=model
+        ),
+        choices,
+    )
+
+
+def _current_field_type(field: "DAField") -> str:
+    """The type a field is asked with: the author's choice, else the guess."""
+    if hasattr(field, "field_type"):
+        return str(field.field_type)
+    return str(getattr(field, "field_type_guess", "text"))
+
+
+def _show_if_condition(
+    variable: str, field_type: str, choice: Optional[str] = None
+) -> Tuple[Any, str]:
+    """The `show if` for asking only after `variable` (is `choice`), and the
+    same condition as an attachment expression."""
+    if choice is None:
+        return variable, variable
+    if field_type == "multiple choice radio":
+        return {"variable": variable, "is": choice}, f"{variable} == {choice!r}"
+    condition = f"{variable}[{choice!r}]"
+    return condition, condition
+
+
+def _grouped_field_definition(field: "DAField") -> "FieldDefinition":
+    """The definition a regrouped screen uses to recreate `field`."""
+    definition: Dict[str, Any] = {
+        "field": field.variable,
+        "label": field.label if hasattr(field, "label") else field.variable_name_guess,
+        "datatype": _current_field_type(field),
+    }
+    if getattr(field, "choices", ""):
+        definition["choices"] = str(field.choices).splitlines()
+    if getattr(field, "show_if", None):
+        definition["show if"] = field.show_if
+    return cast("FieldDefinition", definition)
+
+
 def _field_updates_from_llm_response(
     response: Dict[str, Any], custom_fields: List["DAField"]
-) -> Dict[str, Dict[str, str]]:
-    updates: Dict[str, Dict[str, str]] = {}
+) -> Dict[str, Dict[str, Any]]:
+    updates: Dict[str, Dict[str, Any]] = {}
     by_variable = {field.variable: field for field in custom_fields}
     for variable, llm_value in response.items():
         if variable not in by_variable:
             continue
+        choice_lines: List[str] = []
         if isinstance(llm_value, dict):
             new_label = llm_value.get("label", "")
             new_datatype = llm_value.get("datatype", "")
+            choice_lines = _llm_choice_lines(llm_value.get("choices"))
         else:
             new_label = llm_value
             new_datatype = ""
@@ -825,7 +1081,26 @@ def _field_updates_from_llm_response(
             updates[variable]["label"] = cleaned
         if normalized_datatype:
             updates[variable]["datatype"] = normalized_datatype
+            if normalized_datatype in CHOICE_FIELD_TYPES and choice_lines:
+                updates[variable]["choices"] = choice_lines
     return updates
+
+
+# Next-steps passages a model drafts, as keys of `custom_next_steps_instructions`
+_NEXT_STEPS_PASSAGES = (
+    "what_happens_next",
+    "what_can_decision_maker_do",
+    "what_happens_if_i_win",
+)
+# Where a metadata draft waits for the author when it isn't applied right away
+_DRAFT_METADATA_ATTRIBUTES = {
+    "intro_prompt": "llm_draft_intro_prompt",
+    "description": "llm_draft_description",
+    "can_I_use_this_form": "llm_draft_can_i_use_this_form",
+    "getting_started": "llm_draft_getting_started",
+    "when_you_are_finished": "llm_draft_when_you_are_finished",
+    **{name: f"llm_draft_next_steps_{name}" for name in _NEXT_STEPS_PASSAGES},
+}
 
 
 class DAFieldGroup(Enum):
@@ -894,6 +1169,7 @@ class DAField(DAObject):
         reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP,
         used_as_condition: bool = False,
         type_hint: Optional[str] = None,
+        choice_hint: Optional[Tuple[str, List[str]]] = None,
     ):
         """The DAField class expects a few attributes to be filled in.
         We have a lot less info than for PDF fields, so the name carries most
@@ -910,10 +1186,26 @@ class DAField(DAObject):
 
         # variable_name_guess is the placeholder label for the field
         variable_name_guess = self.variable.replace("_", " ").capitalize()
+        keyed = STRING_KEYED_VARIABLE.match(self.variable)
+        if keyed and not keyed.group(3):
+            # `inspector_information['Zip']`: the key is what the author called it
+            variable_name_guess = keyed.group(2)[1:-1]
         self.variable_name_guess = variable_name_guess
 
         if self.variable.endswith(".signature"):
             self.field_type_guess = "signature"
+        elif choice_hint:
+            # The template's own `if` tests say what the answers can be
+            kind, values = choice_hint
+            self.field_type_guess = {
+                "checkboxes": "multiple choice checkboxes",
+            }.get(kind, "multiple choice radio")
+            self.choices = "\n".join(docx_choice_lines(kind, values))
+            self.choices_from_template = True
+            if kind == "yesno_value":
+                self.variable_name_guess = (
+                    f"{variable_name_guess.rstrip('?')}: {_choice_label(values[0])}?"
+                )
         elif type_hint:
             # The author wrapped this in something like `output_checkbox()`,
             # which is a stronger signal than anything the name can give us
@@ -931,12 +1223,19 @@ class DAField(DAObject):
             # The template only ever asks "is this set?", so it's a yes/no
             self.field_type_guess = "yesno"
         else:
-            self.field_type_guess = "text"
+            self.field_type_guess = datatype_from_name(self.variable, "docx") or "text"
 
     def fill_in_pdf_attributes(
-        self, pdf_field_tuple: Any, custom_plurals: Dict[str, str]
+        self,
+        pdf_field_tuple: Any,
+        custom_plurals: Dict[str, str],
+        one_based_names: Optional[Mapping[str, str]] = None,
     ) -> None:
-        """Let's guess the type of each field from the name / info from PDF"""
+        """Let's guess the type of each field from the name / info from PDF
+
+        `one_based_names` respells zero-based people fields for this template;
+        see :func:`one_based_field_names`.
+        """
         if not custom_plurals:
             custom_plurals = {}
         # The raw name of the field from the PDF: must go in attachment block
@@ -947,6 +1246,10 @@ class DAField(DAObject):
         name_for_variable = (
             parent_and_option[0] if parent_and_option else self.raw_field_names[0]
         )
+        if one_based_names:
+            name_for_variable = one_based_names.get(
+                name_for_variable, name_for_variable
+            )
         # turns field_name into a valid python identifier: must be one per field
         self.variable = remove_multiple_appearance_indicator(varname(name_for_variable))
         # the variable, in python: i.e., users[1].name.first
@@ -956,6 +1259,12 @@ class DAField(DAObject):
 
         variable_name_guess = self.variable.replace("_", " ").capitalize()
         self.has_label = True
+        if len(pdf_field_tuple) >= 4 and pdf_field_tuple[2] and pdf_field_tuple[3]:
+            # Where the box sits, to read what the PDF prints around it
+            self.pdf_location = (
+                int(pdf_field_tuple[2]),
+                [float(value) for value in pdf_field_tuple[3]],
+            )
         dimensions = get_input_dimensions(pdf_field_tuple)
         if dimensions:
             self.input_rows, self.input_width = dimensions
@@ -1006,7 +1315,12 @@ class DAField(DAObject):
         elif self.variable.endswith("_value"):
             self.field_type_guess = "currency"
         else:
-            self.field_type_guess = "text"
+            self.field_type_guess = (
+                datatype_from_name(
+                    self.variable, "pdf", knows_box_size=bool(dimensions)
+                )
+                or "text"
+            )
 
         # `/Ch` is a drop-down or list box. Docassemble can't fill one reliably,
         # so it needs to be called out rather than silently treated as text.
@@ -1050,6 +1364,31 @@ class DAField(DAObject):
             f"{option_label(option)}: {option}"
             for option in getattr(self, "choice_options", [])
         )
+
+    def money_expression(self) -> str:
+        """How a money field prints; without a "$" when the PDF prints its own."""
+        if getattr(self, "pdf_prints_dollar_sign", False):
+            return f"thousands({self.final_display_var}, show_decimals=True)"
+        return f"currency({self.final_display_var})"
+
+    def ensure_choices(self) -> None:
+        """Give a choice question something to choose, or ask it as text.
+
+        Any step that sets a field's type (the rules, the AI, an author's
+        screen definitions) can pick a choice type without choices. Writing
+        that out would make a question that can't be answered.
+        """
+        field_type = getattr(self, "field_type", None)
+        if field_type not in CHOICE_FIELD_TYPES or getattr(self, "choices", None):
+            return
+        self.choices = self.choices_string()
+        if not self.choices:
+            log(
+                f"Field {self.variable!r} is {field_type!r} but has no "
+                "choices; asking for it as text instead",
+                "warning",
+            )
+            self.field_type = "text"
 
     def option_fill_expression(self, raw_field_name: str) -> str:
         """What to write into one PDF field of a `parent+option` group.
@@ -1248,6 +1587,12 @@ class DAField(DAObject):
         """
 
         GATHER_CALL = ".gather()"
+        # AssemblyLine asks whether there are exhibits, then for each upload
+        if getattr(self, "exhibit_document", None):
+            return self.exhibit_document + ".exhibits" + GATHER_CALL
+        # A box in a numbered row is filled by gathering the whole list
+        if getattr(self, "row_list", None):
+            return self.row_list + GATHER_CALL
         # HACK LITCon 2023 TODO
         # preferred_name and previous_names won't work w/ current structure of generator_constants
         if self.final_display_var.endswith(".preferred_name"):
@@ -1393,6 +1738,98 @@ class DAField(DAObject):
 
 
 INDEXED_LIST_REFERENCE = re.compile(r"^([A-Za-z_]\w*)\[(\d+)\]")
+
+
+def row_attachment_expression(field: "DAField", item_lists: Mapping[str, bool]) -> str:
+    """What one box of a numbered row prints: its item's attribute, or blank.
+
+    Money is formatted only when the row exists, since `currency()` of a
+    missing item's blank value would fail if `skip undefined` is off.
+    """
+    expression = attachment_reference(field.final_display_var, item_lists)
+    if not getattr(field, "row_money", False):
+        return expression
+    return (
+        f"{field.money_expression()} "
+        f'if {field.row_list}.number() > {field.row_index} else ""'
+    )
+
+
+def signature_fields_expression(
+    triggers: Sequence[str], item_lists: Mapping[str, bool]
+) -> str:
+    """The `signature_fields` list, leaving out people the user didn't enter.
+
+    A form with room for two guardians names `guardians[1].signature`, and
+    AssemblyLine's signature flow looks up every name on the list, so one
+    guardian meant an IndexError (found running a draft on a server). Slots
+    that may be missing are added only when the list is long enough.
+    """
+    always: List[str] = []
+    maybe: List[str] = []
+    for trigger in triggers:
+        match = INDEXED_LIST_REFERENCE.match(trigger)
+        if match and match.group(1) in item_lists:
+            index = int(match.group(2))
+            if index > 0 or not item_lists[match.group(1)]:
+                maybe.append(
+                    f"([{trigger!r}] if {match.group(1)}.number() > {index} else [])"
+                )
+                continue
+        always.append(trigger)
+    return " + ".join([repr(always)] + maybe)
+
+
+def lists_that_may_run_short(objects: Iterable[Any]) -> Dict[str, bool]:
+    """The lists in an `objects:` block, and whether each always has a first item.
+
+    `users` declared with `there_are_any=True`, or any list with a
+    `target_number`, can't be empty, so its `[0]` is always there.
+
+    Args:
+        objects (Iterable[Any]): the generated interview's object entries.
+
+    Returns:
+        Dict[str, bool]: each list's name, mapped to True if it always has
+        a first item.
+    """
+    lists: Dict[str, bool] = {}
+    for spec in objects:
+        name = str(getattr(spec, "name", "") or "")
+        if not name.isidentifier() or not str(getattr(spec, "type", "")).endswith(
+            "List"
+        ):
+            continue
+        params = dict(getattr(spec, "params", None) or {})
+        lists[name] = params.get("there_are_any") is True or bool(
+            params.get("target_number")
+        )
+    return lists
+
+
+def attachment_reference(expression: str, item_lists: Mapping[str, bool]) -> str:
+    """Point an attachment field at a list item that may not exist.
+
+    A form with room for four children shouldn't break when the user has two.
+    `children[3].name` raises an error when there is no fourth child, unless
+    the attachment has `skip undefined` on, which an author may well turn off.
+    `children.item(3).name` gathers the list and then reads as blank instead.
+    A list that always has a first item keeps its plain `[0]`.
+
+    Args:
+        expression (str): the Python expression for one attachment field.
+        item_lists (Mapping[str, bool]): from :func:`lists_that_may_run_short`.
+
+    Returns:
+        str: the expression, reading the list through `.item()` if needed.
+    """
+    match = INDEXED_LIST_REFERENCE.match(expression)
+    if not match or match.group(1) not in item_lists:
+        return expression
+    name, index = match.group(1), int(match.group(2))
+    if index == 0 and item_lists[name]:
+        return expression
+    return f"{name}.item({index}){expression[match.end():]}"
 
 
 def _guard_indexed_reference(line: str, known_lists: Container[str]) -> str:
@@ -1565,6 +2002,38 @@ class DAFieldList(DAList):
             "custom_people_plurals", DADict.using(auto_gather=False, gathered=True)
         )
 
+    def add_generation_note(self, note: str) -> None:
+        """Record advice for the author's generation report."""
+        if not hasattr(self, "generation_notes"):
+            self.generation_notes = []
+        self.generation_notes.append(note)
+
+    def notes_for_author(self) -> List[str]:
+        """The generation notes, plus advice on the fields as they ended up."""
+        notes = list(getattr(self, "generation_notes", []))
+        for field in self.elements:
+            if hasattr(field, "merged_checkbox_set_from") and (
+                _current_field_type(field) == "multiple choice checkboxes"
+            ):
+                notes.append(
+                    f"{field.merged_checkbox_set_from}: the boxes "
+                    f"{', '.join(field.raw_field_names)} were combined into one "
+                    f"checkboxes question, {field.variable}. If the form allows "
+                    "only one of them, change it to radio buttons."
+                )
+        return notes
+
+    @property
+    def exhibit_documents(self) -> List[str]:
+        """The AssemblyLine exhibit documents a DOCX refers to (`x.exhibits`)."""
+        return sorted(
+            {
+                field.exhibit_document
+                for field in self.elements
+                if getattr(field, "exhibit_document", None)
+            }
+        )
+
     def __str__(self) -> str:
         return docassemble.base.functions.comma_and_list(
             map(lambda x: "`" + x.variable + "`", self.complete_elements())
@@ -1590,6 +2059,244 @@ class DAFieldList(DAList):
             if len(yesno_map[field.variable_name_guess]) > 1:
                 mark_to_remove.append(idx)
 
+        self.delitem(*mark_to_remove)
+        self.there_are_any = len(self.elements) > 0
+
+    def consolidate_repeated_rows(self) -> None:
+        """Turn a PDF's numbered rows into lists. See :mod:`.repeated_rows`.
+
+        Runs after people are recognized, so only fields still left as plain
+        variables are considered. Each family's fields read their item, the
+        list joins the interview's lists, and the family is kept so the
+        interview can declare, ask about and overflow it.
+        """
+        candidates = [
+            field
+            for field in self.elements
+            if getattr(field, "source_document_type", "") == "pdf"
+            and getattr(field, "group", None) == DAFieldGroup.CUSTOM
+            and field.final_display_var == field.variable
+            and not field.is_option_group()
+        ]
+        taken = (
+            {field.variable for field in self.elements}
+            | set(_AL_MANAGED_OBJECTS)
+            | set(self.custom_people_plurals.values())
+            | set(generator_constants.RESERVED_PLURALIZERS_MAP.values())
+        )
+        by_variable = {field.variable: field for field in candidates}
+        people = (
+            set(self.custom_people_plurals.keys())
+            | set(self.custom_people_plurals.values())
+            | set(generator_constants.RESERVED_PLURALIZERS_MAP.keys())
+            | set(generator_constants.RESERVED_PLURALIZERS_MAP.values())
+        )
+        families = find_row_families(
+            [field.variable for field in candidates], taken, people
+        )
+        if not hasattr(self, "row_families"):
+            self.row_families = []
+        for family in families:
+            datatypes: Dict[str, str] = {}
+            for variable, expression in family.variables.items():
+                field = by_variable[variable]
+                field.final_display_var = expression
+                field.group = DAFieldGroup.BUILT_IN
+                field.row_list = family.list_name
+                field.row_index = int(expression.split("[", 1)[1].split("]", 1)[0])
+                attribute = expression.split("].", 1)[1] if "]." in expression else ""
+                guess = _current_field_type(field)
+                field.row_money = attribute in MONEY_ATTRIBUTES or guess == "currency"
+                datatypes.setdefault(
+                    attribute, "currency" if field.row_money else guess
+                )
+            self.custom_people_plurals[family.stem] = family.list_name
+            self.row_families.append((family, datatypes))
+
+    def link_other_details(self) -> None:
+        """Show an "Other: please explain" field only when "Other" is chosen.
+
+        A form's `type_of_proceeding_other` box only means something when the
+        `proceeding_is_other` box is ticked. A quarter of the fields in
+        published interviews have a `show if`; drafts had none. Each text field
+        whose name says "other" is tied to the "other" choice that shares a
+        word with it (or sits right before it), so it is shown only when that
+        choice is made and left blank in the document otherwise.
+        """
+        fields = list(self.custom())
+        controllers: List[Tuple[int, Set[str], Any, str]] = []
+        for position, field in enumerate(fields):
+            field_type = _current_field_type(field)
+            variable = field.final_display_var
+            if set(_name_words(field.variable)) & _NEGATING_WORDS:
+                # `do_not_know_of_other_case` turns things off, not on
+                continue
+            if field_type == "yesno" and "other" in _name_words(field.variable):
+                controllers.append(
+                    (position, _topic_words(field.variable))
+                    + _show_if_condition(variable, field_type)
+                )
+                continue
+            if field_type not in (
+                "multiple choice checkboxes",
+                "multiple choice radio",
+            ):
+                continue
+            options = [
+                str(option) for option in getattr(field, "choice_options", []) or []
+            ]
+            other_options = [o for o in options if o.lower() == "other"] or [
+                o for o in options if "other" in _name_words(o)
+            ]
+            for option in other_options[:1]:
+                controllers.append(
+                    (position, _topic_words(field.variable))
+                    + _show_if_condition(variable, field_type, option)
+                )
+
+        for position, field in enumerate(fields):
+            field_type = _current_field_type(field)
+            if field_type not in ("text", "area") or not _names_an_other_detail(
+                field.variable
+            ):
+                continue
+            words = _topic_words(field.variable)
+            best = None
+            for c_position, c_words, show_if, shown_when in controllers:
+                if c_position == position:
+                    continue
+                shared = len(words & c_words)
+                adjacent = c_position == position - 1
+                if not shared and not adjacent:
+                    continue
+                rank = (shared, adjacent, -abs(position - c_position))
+                if best is None or rank > best[0]:
+                    best = (rank, c_position, show_if, shown_when)
+            if best is None:
+                continue
+            _rank, c_position, show_if, shown_when = best
+            field.show_if = show_if
+            field.shown_when = shown_when
+            field.shown_after = fields[c_position].variable
+
+    def mark_money_after_printed_dollar_signs(self, document: Any) -> None:
+        """Note which money fields the PDF already prints a "$" in front of.
+
+        Those are filled with `thousands()`, since `currency()` would print a
+        second "$". See :func:`.pdf_layout.fields_after_a_dollar_sign`.
+        """
+        # Any one-line box can have a "$" printed before it; one that does
+        # holds money even if its name, like `vehicle_pv_1`, doesn't say so
+        money = {
+            field.raw_field_names[0]: field
+            for field in self.elements
+            if field.field_type_guess in ("currency", "text")
+            and getattr(field, "pdf_location", None)
+            and getattr(field, "source_document_type", "") == "pdf"
+        }
+        if not money:
+            return
+        try:
+            marked = fields_after_a_dollar_sign(
+                document.path(),
+                [
+                    (name, field.pdf_location[0], field.pdf_location[1])
+                    for name, field in money.items()
+                ],
+            )
+        except Exception as exc:
+            log(f"Couldn't read the text around {document.filename}'s fields: {exc!r}")
+            return
+        for name in marked:
+            money[name].pdf_prints_dollar_sign = True
+            money[name].field_type_guess = "currency"
+
+    def _merge_into_choice(
+        self,
+        members: Sequence["DAField"],
+        variable: str,
+        options: Sequence[str],
+        field_type: str,
+    ) -> List[int]:
+        """Make `members` one choice question; return the indexes to remove.
+
+        The first field becomes the question and every PDF box keeps its place
+        in `option_values`, so the attachment ticks the right one.
+        """
+        first = members[0]
+        first.variable = variable
+        first.final_display_var = variable
+        first.variable_name_guess = variable.replace("_", " ").capitalize()
+        first.field_type_guess = field_type
+        if hasattr(first, "field_type"):
+            first.field_type = field_type
+            first.label = first.variable_name_guess
+        first.choice_options = []
+        first.option_values = {}
+        raw_names: List[str] = []
+        for member, option in zip(members, options):
+            first.choice_options.append(option)
+            for raw_name in member.raw_field_names:
+                first.option_values[raw_name] = option
+                raw_names.append(raw_name)
+        first.raw_field_names = raw_names
+        if hasattr(first, "field_type"):
+            first.choices = first.choices_string()
+        return [self.elements.index(member) for member in members[1:]]
+
+    def consolidate_checkbox_sets(self, filename: str = "") -> None:
+        """Combine a run of checkboxes that share a name into one question.
+
+        `notice_type_mail`, `notice_type_in_person` and `notice_type_email` are
+        three boxes for one question. Authors of 39 real forms combined boxes
+        like these by hand, and in 35 of them the boxes shared a name prefix
+        like this. They become one `notice_type` checkboxes question, and each
+        box reads its own key, like a `parent+option` group.
+
+        Checkboxes never lose an answer even when the form only allows one, so
+        that is the type used; a note tells the author to make it a radio if
+        only one box may be ticked. Only boxes next to each other merge, and the
+        shared part has to name a topic: `has_car` and `has_bank_account` stay
+        separate questions.
+        """
+        taken = {field.variable for field in self.elements}
+        candidates = [
+            field
+            for field in self.elements
+            if getattr(field, "source_document_type", "") == "pdf"
+            and getattr(field, "group", None) == DAFieldGroup.CUSTOM
+            and field.field_type_guess == "yesno"
+            and not getattr(field, "paired_yesno", False)
+            and not field.is_option_group()
+            and field.final_display_var == field.variable
+        ]
+
+        runs: List[Tuple[str, List[DAField]]] = []
+        for field in candidates:
+            if runs:
+                prefix, members = runs[-1]
+                shared = _shared_name_prefix(
+                    prefix or members[0].variable, field.variable
+                )
+                if shared and (not prefix or shared == prefix):
+                    runs[-1] = (shared, members + [field])
+                    continue
+            runs.append(("", [field]))
+
+        mark_to_remove: List[int] = []
+        for prefix, members in runs:
+            variable = prefix.rstrip("_")
+            if len(members) < 2 or variable in taken or not variable.isidentifier():
+                continue
+            options = [member.variable[len(prefix) :] for member in members]
+            if _options_are_parallel_questions(options):
+                continue
+            mark_to_remove += self._merge_into_choice(
+                members, variable, options, "multiple choice checkboxes"
+            )
+            taken.add(variable)
+            # See notes_for_author()
+            members[0].merged_checkbox_set_from = filename
         self.delitem(*mark_to_remove)
         self.there_are_any = len(self.elements) > 0
 
@@ -1758,6 +2465,11 @@ class DAFieldList(DAList):
             collection
             for collection in self.find_parent_collections()
             if not _is_signature_only_collection(collection)
+            # Exhibits print as a list object; AssemblyLine's upload screens
+            # are where they get changed
+            and not all(
+                getattr(field, "exhibit_document", None) for field in collection.fields
+            )
         ]
         if not screen_order:
             return collections
@@ -1806,15 +2518,81 @@ class DAFieldList(DAList):
 
         boolean_fields: Set[str] = set()
         type_hints: Dict[str, str] = {}
+        choice_hints: Dict[str, Tuple[str, List[str]]] = {}
         if document_type == "docx":
             # Read the template once so the variables and the "used as a
             # condition" hints come from the same pass over the text
-            docx_text = docx2python(document.path()).text
-            all_fields: Iterable = get_docx_variables(docx_text)
+            docx_text = docx_template_text(document.path())
+            all_fields: Iterable = docx_variables_in_order(docx_text)
             boolean_fields = get_docx_boolean_variables(docx_text)
             type_hints = get_docx_function_type_hints(docx_text)
+            choice_hints = get_docx_choice_hints(docx_text)
+            for included in DOCX_INCLUDED_TEMPLATE.findall(docx_text):
+                # The interview fails to assemble without the included file
+                self.add_generation_note(
+                    f"{document.filename} includes {included} with "
+                    "include_docx_template(). Add that file to the package's "
+                    "templates, or the document can't be assembled."
+                )
+            checkbox_roots = {
+                name
+                for name, (kind, _values) in choice_hints.items()
+                if kind == "checkboxes"
+            }
+            # Each ticked box is one key of the checkbox answer, not a question
+            all_fields = [
+                field
+                for field in all_fields
+                if re.sub(r"\[.*", "", field) not in checkbox_roots
+                or not STRING_KEYED_VARIABLE.match(field)
+            ]
+            all_fields += sorted(checkbox_roots - set(all_fields))
+            # `{% for exhibit in exhibits %}{{ exhibit.filename }}` loops over
+            # uploads; asking for `exhibits[0].filename` as text broke the
+            # interview, so ask for the files themselves
+            uploads = {
+                match.group(1)
+                for field in all_fields
+                for match in [DOCX_UPLOADED_FILE_ATTRIBUTE.match(field)]
+                if match
+            }
+            all_fields = [
+                field
+                for field in all_fields
+                if not DOCX_UPLOADED_FILE_ATTRIBUTE.match(field)
+                or field.split("[", 1)[0] not in uploads
+            ]
+            all_fields += sorted(uploads - set(all_fields))
+            for upload in uploads:
+                type_hints[upload] = "file"
+            # Declared as an ALIndividual and asked as a yes/no question, an
+            # exhibit document crashed the interview (`.exhibits` undefined)
+            exhibit_documents = {
+                match.group(1)
+                for field in all_fields
+                for match in [DOCX_EXHIBIT_ATTRIBUTE.match(field)]
+                if match
+            }
+            all_fields = [
+                field for field in all_fields if not DOCX_EXHIBIT_ATTRIBUTE.match(field)
+            ] + sorted(name + ".exhibits" for name in exhibit_documents)
         else:
-            all_fields = get_fields(document)
+            all_fields = list(get_fields(document))
+
+        one_based_names: Dict[str, str] = {}
+        if document_type == "pdf":
+            one_based_names, zero_based_prefixes = one_based_field_names(
+                [
+                    (split_option_field_name(field[0]) or (field[0],))[0]
+                    for field in all_fields
+                ]
+            )
+            for prefix in zero_based_prefixes:
+                self.add_generation_note(
+                    f"{document.filename} numbers {prefix} from 0, so its "
+                    f"{prefix}0 fields were read as the first of the {prefix}. "
+                    "Check that the people line up in the generated interview."
+                )
 
         if document_type == "pdf":
             # Use pikepdf to get more info about each field
@@ -1830,6 +2608,15 @@ class DAFieldList(DAList):
             pike_obj.close()
             for pdf_field_tuple, pike_info in zip_longest(all_fields, pike_fields):
                 pdf_field_name = pdf_field_tuple[0]
+                if not remove_multiple_appearance_indicator(varname(pdf_field_name)):
+                    # A field with no usable name can't be filled from an
+                    # attachment, and became `signature:` with no variable
+                    self.add_generation_note(
+                        f"{document.filename} has a field with no usable name "
+                        f"({pdf_field_name!r}); it was left out. Rename it in the "
+                        "PDF to fill it in."
+                    )
+                    continue
                 if pdf_field_name in pike_fields:
                     pike_info = pike_fields[pdf_field_name]
                     # PDF fields have bit flags that set specific options. The 17th bit (or hex
@@ -1858,7 +2645,7 @@ class DAFieldList(DAList):
                 # This function determines what type of variable
                 # we're dealing with
                 new_field.fill_in_pdf_attributes(
-                    pdf_field_tuple, self.custom_people_plurals
+                    pdf_field_tuple, self.custom_people_plurals, one_based_names
                 )
                 # Some PDFs declare the field type on a parent field, so a
                 # drop-down can reach us looking like plain text. pikepdf sees
@@ -1886,6 +2673,10 @@ class DAFieldList(DAList):
                 new_field.source_document_type = "docx"
                 if matching_reserved_names({field}):
                     new_field.group = DAFieldGroup.RESERVED
+                elif exhibit := DOCX_EXHIBIT_ATTRIBUTE.match(field):
+                    # AssemblyLine's exhibit questions ask for the uploads
+                    new_field.group = DAFieldGroup.BUILT_IN
+                    new_field.exhibit_document = exhibit.group(1)
                 elif is_reserved_docx_label(field):
                     new_field.group = DAFieldGroup.BUILT_IN
                 elif field.endswith(".signature"):
@@ -1896,6 +2687,11 @@ class DAFieldList(DAList):
                     field,
                     used_as_condition=field in boolean_fields,
                     type_hint=type_hints.get(field),
+                    choice_hint=(
+                        choice_hints.get(field)
+                        if new_field.group == DAFieldGroup.CUSTOM
+                        else None
+                    ),
                 )
                 new_field.source_template_types = [
                     (
@@ -1911,6 +2707,9 @@ class DAFieldList(DAList):
         self.consolidate_radios()
         self.consolidate_duplicate_fields(document_type)
         self.consolidate_yesnos()
+        if document_type == "pdf":
+            self.consolidate_checkbox_sets(document.filename)
+            self.mark_money_after_printed_dollar_signs(document)
 
     def ask_about_fields(self) -> List[dict]:
         """
@@ -2092,17 +2891,56 @@ class DAFieldList(DAList):
             for person, max_idx in max_indices.items()
         }
 
+    def _is_single_docx_person(self, name: str) -> bool:
+        """True if a DOCX template only ever refers to `name` as one person.
+
+        `{{ requestor.name.full() }}` is a single person, not a list: declaring
+        `requestor` as an `ALPeopleList` made `requestor.address` impossible to
+        look up and the interview failed (found running a draft on a server).
+        A person a PDF names, or a template indexes, stays a list.
+        """
+        uses = [
+            field
+            for field in self.elements
+            if field.variable == name
+            or field.variable.startswith(name + ".")
+            or field.variable.startswith(name + "[")
+            or field.variable.startswith(name + "_")
+        ]
+        return bool(uses) and all(
+            getattr(field, "source_document_type", "") == "docx"
+            and field.variable.startswith(name + ".")
+            for field in uses
+        )
+
     def mark_people_as_builtins(self, people_list: Iterable[str]) -> None:
         """Scan the list of fields and see if any of them should be renamed
         or marked as built-ins given the list of new, custom prefixes."""
+        people_list = list(people_list)
         self.custom_people_plurals = {
-            var_name: var_name for var_name in list(people_list)
+            var_name: var_name
+            for var_name in people_list
+            if not self._is_single_docx_person(var_name)
         }
+        # A custom person counted from 0 (`guardian0_name`) is respelled the
+        # one-based way, as the built-in people were when the PDF was read
+        one_based_names, zero_based_prefixes = one_based_field_names(
+            [field.variable for field in self if field.source_document_type == "pdf"],
+            reserved_prefixes=people_list,
+            reserved_pluralizers_map={},
+        )
+        for prefix in zero_based_prefixes:
+            self.add_generation_note(
+                f"{prefix} is numbered from 0, so the {prefix}0 fields were read "
+                f"as the first of the {prefix}. Check that the people line up in "
+                "the generated interview."
+            )
         for field in self:
             if field.source_document_type == "pdf":
                 if is_reserved_label(field.variable, reserved_prefixes=people_list):
                     field.group = DAFieldGroup.BUILT_IN
                     field.label = field.variable_name_guess
+                    field.variable = one_based_names.get(field.variable, field.variable)
                     # Try checking to see if the custom prefix + predefined suffixes
                     # result in a new variable name
                     new_potential_name = map_raw_to_final_display(
@@ -2144,7 +2982,7 @@ class DAFieldList(DAList):
                 field.field_type_guess if hasattr(field, "field_type_guess") else "text"
             )
             field.label = field.variable_name_guess
-            # A choice field with no `choices` renders an incomplete question
+            # The wizard's "Options" box starts from the template's own choices
             if field.field_type in CHOICE_FIELD_TYPES and not hasattr(field, "choices"):
                 field.choices = field.choices_string()
 
@@ -2600,7 +3438,64 @@ class DAInterview(DAObject):
             result.append(_PersonObjectSpec(name=person, params=params))
         for singleton in sorted(singletons):
             result.append(_PersonObjectSpec(name=singleton, type="ALIndividual"))
+        for document in self.all_fields.exhibit_documents:
+            # Like a row family below: this declaration replaces any guess
+            result = [existing for existing in result if existing.name != document]
+            result.append(
+                _PersonObjectSpec(
+                    name=document,
+                    type="ALExhibitDocument",
+                    params={
+                        "title": exhibit_document_title(document),
+                        "filename": document,
+                        "include_table_of_contents": True,
+                        "include_exhibit_cover_pages": True,
+                        "add_page_numbers": True,
+                    },
+                )
+            )
+        for family, _datatypes in getattr(self.all_fields, "row_families", []):
+            row_params: Dict[str, Any] = {"complete_attribute": "complete"}
+            if family.object_type == "DAList":
+                row_params = {"object_type": _BareName("DAObject"), **row_params}
+            elif family.uses_al_income:
+                row_params = {"ask_number": True, **row_params}
+            spec = _PersonObjectSpec(
+                name=family.list_name, type=family.object_type, params=row_params
+            )
+            result = [existing for existing in result if existing.name != spec.name]
+            result.append(spec)
+        declared = {spec.name for spec in result} | _AL_MANAGED_OBJECTS
+        for name, holds_objects in sorted(self._referenced_dicts().items()):
+            if name in declared:
+                continue
+            dict_params: Dict[str, Any] = {"auto_gather": False, "gathered": True}
+            if holds_objects:
+                dict_params = {"object_type": _BareName("DAObject"), **dict_params}
+            result.append(
+                _PersonObjectSpec(name=name, type="DADict", params=dict_params)
+            )
         return result
+
+    def _referenced_dicts(self) -> Dict[str, bool]:
+        """Names the interview only ever looks up by a string key.
+
+        `inspector_information['Zip']` needs `inspector_information` to exist as
+        a dictionary before a question can set the key. Returns each such name,
+        mapped to whether its entries carry attributes (`fees['Filing'].waive`),
+        which needs the entries to be objects. A name that is also used on its
+        own is left out: that is a checkbox group, not a lookup table.
+        """
+        plain_variables = {field.final_display_var for field in self.all_fields}
+        dicts: Dict[str, bool] = {}
+        for field in self.all_fields:
+            match = STRING_KEYED_VARIABLE.match(field.final_display_var)
+            if not match or match.group(1) in plain_variables:
+                continue
+            dicts[match.group(1)] = dicts.get(match.group(1), False) or bool(
+                match.group(3)
+            )
+        return dicts
 
     def draft_screen_order(self, instanceName: str = "screen_order") -> DAList:
         """
@@ -2635,6 +3530,83 @@ class DAInterview(DAObject):
         screen_order.gathered = True
         return screen_order
 
+    def dependency_choices(self) -> List[str]:
+        """The YAML includes this interview's jurisdiction and organization need.
+
+        The choices are worked out from the jurisdiction given when the draft
+        starts, but the state is often only known later, from AI drafting or
+        the author. A Massachusetts draft without `al_massachusetts.yml` has a
+        `trial_court` with no department or division, so the interview fails
+        as soon as the form asks for one. The final state's jurisdiction
+        packages are added here, with the state's default organization.
+        """
+        chosen: List[str] = []
+        for choices in (
+            getattr(self, "jurisdiction_choices", None),
+            getattr(self, "org_choices", None),
+        ):
+            if choices is not None:
+                chosen.extend(choices.true_values())
+        chosen.extend(choice["include_name"] for choice in self._state_dependencies())
+        return list(dict.fromkeys(chosen))
+
+    def _state_dependencies(self) -> List[Dict[str, Any]]:
+        """The final state's jurisdiction packages and default organization."""
+        state = str(getattr(self, "state", "") or "").strip().lower()
+        if not state:
+            return []
+        organizations = [
+            choice
+            for choice in get_full_dep_details("organization")
+            if choice.get("default")
+        ]
+        return [
+            choice
+            for choice in get_full_dep_details("jurisdiction") + organizations
+            if str(choice.get("state", "")).lower() == state
+            and choice.get("include_name")
+        ]
+
+    def yaml_includes(self) -> List[str]:
+        """Every YAML file the generated interview includes."""
+        includes = list(get_yml_deps_from_choices(self.dependency_choices()))
+        # Vehicles and assets use the questions ALToolbox writes for its own classes
+        if any(
+            family.uses_al_income
+            for family, _datatypes in getattr(self.all_fields, "row_families", [])
+        ):
+            includes.append("docassemble.ALToolbox:al_income.yml")
+        return includes
+
+    def unasked_court_attributes(self) -> List[Tuple[str, str]]:
+        """Court attributes the form uses that nothing else will ask about.
+
+        AssemblyLine's own `trial_court` only has a name and address, so a
+        form's division, department or county has no question unless a
+        jurisdiction package like `al_massachusetts.yml` supplies one.
+
+        Returns:
+            List[Tuple[str, str]]: (label, variable) for each attribute.
+        """
+        includes = self.dependency_choices()
+        if any(
+            choice.get("court_details") and choice.get("include_name") in includes
+            for choice in get_full_dep_details("jurisdiction")
+        ):
+            return []
+        wanted = {
+            "trial_court.department": "Department",
+            "trial_court.division": "Division",
+            "trial_court.address.county": "County",
+        }
+        used = {
+            substitute_suffix(field.final_display_var, {r"\(\)$": ""})
+            for field in self.all_fields
+        }
+        return [
+            (label, variable) for variable, label in wanted.items() if variable in used
+        ]
+
     def package_info(self) -> Dict[str, Any]:
         assembly_line_dep = "docassemble.AssemblyLine"
         if not hasattr(self, "dependencies"):
@@ -2643,6 +3615,9 @@ class DAInterview(DAObject):
             self.dependencies = [assembly_line_dep]
         elif assembly_line_dep not in self.dependencies:
             self.dependencies.append(assembly_line_dep)
+        for dependency in get_pypi_deps_from_choices(self.dependency_choices()):
+            if dependency not in self.dependencies:
+                self.dependencies.append(dependency)
 
         info: Dict[str, Union[str, List[str]]] = {}
         for field in [
@@ -2710,13 +3685,16 @@ class DAInterview(DAObject):
         )
 
     def attachment_varnames(self) -> str:
+        """The bundle elements: each template, then any exhibits the user uploads."""
+        exhibits = self.all_fields.exhibit_documents
         if len(self.uploaded_templates) == 1:
-            return f"{self.interview_label }_attachment"
+            return comma_list([f"{self.interview_label }_attachment"] + exhibits)
         names = document_names(
             [document.filename for document in self.uploaded_templates]
         )
         return comma_list(
             [names[document.filename].variable for document in self.uploaded_templates]
+            + exhibits
         )
 
     def _initialize_basic_attributes(
@@ -2747,15 +3725,10 @@ class DAInterview(DAObject):
             self._set_template_from_file(input_file)
 
         # Title extraction - very fast, safe to do on main thread
-        self.title = self._set_title(url=url, input_file=input_file)
-        if title:
-            self.title = title
-        self.short_title = self.title
-        self.description = self.title
-        self.short_filename_with_spaces = self.title
-        self.short_filename = space_to_underscore(
-            varname(self.short_filename_with_spaces)
+        _apply_title_to_interview(
+            self, title or self._set_title(url=url, input_file=input_file)
         )
+        self.description = self.title
         self.interview_label = self.short_filename.lower()
 
         # Heuristics-based attributes - all fast, no file access
@@ -2819,6 +3792,8 @@ class DAInterview(DAObject):
         self._auto_load_fields()
         self.all_fields.auto_label_fields()
         self.all_fields.auto_mark_people_as_builtins()
+        self.all_fields.consolidate_repeated_rows()
+        self.all_fields.link_other_details()
 
     def _process_fields_and_group(
         self,
@@ -2891,8 +3866,8 @@ class DAInterview(DAObject):
         categories: Optional[str] = None,
         default_country_code: str = "US",
     ):
-        """Like auto_assign_attributes but skips the slow formfyxer.cluster_screens()
-        call. Use when LLM-based grouping will be done in a background task instead."""
+        """Like auto_assign_attributes but skips grouping fields into screens.
+        Use when LLM-based grouping will be done in a background task instead."""
         self._initialize_basic_attributes(
             url=url,
             input_file=input_file,
@@ -2905,10 +3880,18 @@ class DAInterview(DAObject):
         self.questions.gathered = True
 
     def _llm_default_model(self) -> str:
+        return _configured_llm_model()
+
+    def _llm_structure_model(self) -> str:
+        """The model for structure proposals, which needs more than labelling.
+
+        The default drafting model echoed every field's own name back as its
+        AssemblyLine label, so this one call defaults to a stronger model. Set
+        `weaver structure model` under `assembly line` to use another.
+        """
         return (
-            get_config("assembly line", {}).get("weaver llm model")
-            or get_config("open ai", {}).get("model")
-            or "gpt-4o-mini"
+            get_config("assembly line", {}).get("weaver structure model")
+            or "gpt-6-luna"
         )
 
     def _cached_template_context_text(self) -> str:
@@ -2940,7 +3923,7 @@ class DAInterview(DAObject):
                 extracted = ""
                 try:
                     if template.filename.lower().endswith(".pdf"):
-                        extracted = extract_text(template.path())
+                        extracted = pdf_text(template.path())
                     elif template.filename.lower().endswith(".docx"):
                         extracted = docx2python(template.path()).text
                 except Exception as exc:
@@ -3036,13 +4019,15 @@ class DAInterview(DAObject):
                     "unknown": "Cannot confidently determine role from available text",
                 },
             )
-            form_type = llms.classify_text(
+            form_type = _classify(
+                llms,
                 text=f"Title: {self.title}\n\n{context_text[:6000]}",
                 choices=form_type_choices,
                 default_response=getattr(self, "form_type", "other"),
                 model=self._llm_default_model(),
             )
-            role = llms.classify_text(
+            role = _classify(
+                llms,
                 text=f"Title: {self.title}\n\n{context_text[:6000]}",
                 choices=role_choices,
                 default_response=getattr(self, "typical_role", "unknown"),
@@ -3147,14 +4132,10 @@ Predicted role: {{ROLE}}
                     drafted_when_finished = drafted_next_steps_what_happens_next
                 elif drafted_when_finished and drafted_next_steps_what_happens_next:
                     drafted_next_steps_what_happens_next = drafted_when_finished
+                if drafted_title:
+                    # Only a candidate: see choose_title()
+                    self.llm_draft_title = drafted_title
                 if apply:
-                    if drafted_title:
-                        self.title = drafted_title
-                        self.short_title = drafted_title[:25]
-                        self.short_filename_with_spaces = drafted_title
-                        self.short_filename = space_to_underscore(
-                            varname(drafted_title)
-                        )
                     if intro_prompt:
                         self.intro_prompt = intro_prompt
                     if drafted_description:
@@ -3196,8 +4177,6 @@ Predicted role: {{ROLE}}
                             drafted_next_steps_what_happens_if_i_win
                         )
                 else:
-                    if drafted_title:
-                        self.llm_draft_title = drafted_title
                     if intro_prompt:
                         self.llm_draft_intro_prompt = intro_prompt
                     if drafted_description:
@@ -3236,6 +4215,27 @@ Predicted role: {{ROLE}}
                         self.llm_draft_next_steps_what_happens_if_i_win = (
                             drafted_next_steps_what_happens_if_i_win
                         )
+                # The user reads these passages too, so they get the same
+                # plain-language check as labels and screens
+                reader_texts = [
+                    ("title", drafted_title),
+                    ("intro_prompt", intro_prompt),
+                    ("description", drafted_description),
+                    ("can_I_use_this_form", drafted_can_use),
+                    ("getting_started", drafted_getting_started),
+                    ("when_you_are_finished", drafted_when_finished),
+                    ("what_happens_next", drafted_next_steps_what_happens_next),
+                    (
+                        "what_can_decision_maker_do",
+                        drafted_next_steps_what_can_decision_maker_do,
+                    ),
+                    ("what_happens_if_i_win", drafted_next_steps_what_happens_if_i_win),
+                ]
+                self._reword_plainly_soon(
+                    self._drafted_metadata_slot(name, apply)
+                    for name, text in reader_texts
+                    if text
+                )
 
             if form_type in {
                 "starts_case",
@@ -3287,13 +4287,13 @@ Predicted role: {{ROLE}}
             }
             if not choices:
                 return False
-            predicted_state = llms.classify_text(
+            predicted_state = _classify(
+                llms,
                 text=f"Title: {self.title}\nJurisdiction: {getattr(self, 'jurisdiction', '')}\n\n{context_text}",
                 choices=choices,
                 default_response=(getattr(self, "state", "") or "MA"),
                 model=self._llm_default_model(),
-            )
-            predicted_state = str(predicted_state or "").strip().upper()
+            ).upper()
             if predicted_state not in choices:
                 return False
             if apply:
@@ -3377,6 +4377,7 @@ Return JSON object with shape:
                 return {} if not apply else 0
 
             updates = _field_updates_from_llm_response(response, custom_fields)
+            self._reword_plainly_soon((update, "label") for update in updates.values())
             if not apply:
                 return updates
 
@@ -3385,6 +4386,210 @@ Return JSON object with shape:
         except Exception as exc:
             log(f"LLM field-label refinement failed: {exc!r}")
             return {} if not apply else 0
+
+    def ask_for_structure(self) -> Optional["_StructureRequest"]:
+        """Start asking the model for structure proposals, in the background.
+
+        The question only needs the form's text and fields, so drafting the
+        metadata doesn't have to wait for this slower model. Pass the result
+        to :meth:`llm_propose_structure`.
+
+        Returns:
+            Optional[_StructureRequest]: the request, or None if there is
+            nothing to ask about.
+        """
+        llms = _load_llms_module()
+        if not llms:
+            return None
+        context_text = self._llm_context_text(max_chars=14000)
+        if not context_text:
+            return None
+        fields, rows = self._structure_field_inventory()
+        if not rows:
+            return None
+        response = _background_calls().submit(
+            # Carries docassemble's per-request context into the worker
+            contextvars.copy_context().run,
+            llms.chat_completion,
+            system_message=_prompt_str("structure_system_prompt", STRUCTURE_PROMPT),
+            user_message="Form text:\n"
+            + context_text
+            + "\n\nFields:\n"
+            + json.dumps(rows, indent=0),
+            json_mode=True,
+            model=self._llm_structure_model(),
+            # ALToolbox only knows o1/o3/gpt-5 reject a temperature; newer
+            # models such as gpt-6-luna accept only the default of 1
+            temperature=1,
+        )
+        return _StructureRequest(response, context_text, fields)
+
+    def llm_propose_structure(
+        self,
+        apply: bool = True,
+        regroup: bool = True,
+        request: Optional["_StructureRequest"] = None,
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Ask the model for structural changes and apply the ones that check out.
+
+        See :mod:`.llm_structure`. Each applied change is listed in the
+        generation notes with the text from the form that supports it.
+
+        Args:
+            apply (bool): whether to change the interview's fields.
+            regroup (bool): whether to redo the screens afterwards, which the
+                caller turns off when the author supplied the screens.
+            request (Optional[_StructureRequest]): a question already started
+                with :meth:`ask_for_structure`; otherwise it is asked now.
+
+        Returns:
+            Dict[str, List[Dict[str, Any]]]: the accepted proposals.
+        """
+        empty: Dict[str, List[Dict[str, Any]]] = {}
+        request = request or self.ask_for_structure()
+        if request is None:
+            return empty
+        context_text, fields = request.context_text, request.fields
+        try:
+            response = request.response.result()
+        except Exception as exc:
+            log(f"LLM structure proposals failed: {exc!r}")
+            return empty
+
+        def label_maps_to(label: str) -> Optional[str]:
+            settable = varname(str(label))
+            try:
+                target = map_raw_to_final_display(
+                    settable,
+                    custom_people_plurals_map=self.all_fields.custom_people_plurals,
+                )
+            except ParsingException:
+                return None
+            return target if target and target != settable else None
+
+        proposals = validated_proposals(response, context_text, fields, label_maps_to)
+        if apply:
+            self.apply_structure_proposals(proposals, regroup=regroup)
+        return proposals
+
+    def _structure_field_inventory(
+        self,
+    ) -> Tuple[Dict[str, Dict[str, Any]], List[Dict[str, Any]]]:
+        """The fields the model may name, for checking and for the prompt."""
+        fields: Dict[str, Dict[str, Any]] = {}
+        rows: List[Dict[str, Any]] = []
+        for field in self.all_fields.custom():
+            field_type = _current_field_type(field)
+            if field_type in ("code", "skip this field"):
+                continue
+            info: Dict[str, Any] = {
+                "type": field_type,
+                "pdf": getattr(field, "source_document_type", "") == "pdf"
+                and field.final_display_var == field.variable
+                and not field.is_option_group(),
+            }
+            row: Dict[str, Any] = {
+                "field": field.variable,
+                "label": (
+                    field.label
+                    if hasattr(field, "label")
+                    else getattr(field, "variable_name_guess", field.variable)
+                ),
+                "type": field_type,
+            }
+            if field.is_option_group():
+                info["choices"] = [str(o) for o in getattr(field, "choice_options", [])]
+                row["choices"] = info["choices"]
+            fields[field.variable] = info
+            rows.append(row)
+        return fields, rows
+
+    def apply_structure_proposals(
+        self, proposals: Optional[Mapping[str, Any]], regroup: bool = True
+    ) -> None:
+        """Apply checked structure proposals; see :meth:`llm_propose_structure`."""
+        if not proposals:
+            return
+        all_fields = self.all_fields
+        by_variable = {field.variable: field for field in all_fields.elements}
+        changed_fields = False
+
+        for remap in proposals.get("remaps") or []:
+            field = by_variable.get(remap["field"])
+            if field is None:
+                continue
+            field.variable = varname(remap["label"])
+            field.final_display_var = remap["target"]
+            field.group = DAFieldGroup.BUILT_IN
+            field.label = field.variable_name_guess
+            changed_fields = True
+            all_fields.add_generation_note(
+                f"AI: {remap['field']} is now {remap['target']} "
+                f"(the form says \u201c{remap['evidence']}\u201d)."
+            )
+
+        to_remove: List[int] = []
+        for group in proposals.get("choice_groups") or []:
+            if "fields" not in group:
+                field = by_variable.get(group["field"])
+                if field is not None and field.is_option_group():
+                    field.field_type_guess = "multiple choice radio"
+                    if hasattr(field, "field_type"):
+                        field.field_type = "multiple choice radio"
+                    all_fields.add_generation_note(
+                        f"AI: only one of {group['field']} may be chosen, so it "
+                        f"is radio buttons (the form says \u201c{group['evidence']}\u201d)."
+                    )
+                continue
+            members = [
+                by_variable[name] for name in group["fields"] if name in by_variable
+            ]
+            if len(members) != len(group["fields"]):
+                continue
+            prefix = os.path.commonprefix([member.variable for member in members])
+            prefix = prefix[: prefix.rfind("_") + 1] if "_" in prefix else ""
+            options = [
+                member.variable[len(prefix) :] or member.variable for member in members
+            ]
+            field_type = (
+                "multiple choice radio"
+                if group["kind"] == "radio"
+                else "multiple choice checkboxes"
+            )
+            to_remove += all_fields._merge_into_choice(
+                members, group["variable"], options, field_type
+            )
+            changed_fields = True
+            all_fields.add_generation_note(
+                f"AI: {', '.join(group['fields'])} are one question, "
+                f"{group['variable']} (the form says \u201c{group['evidence']}\u201d)."
+            )
+        if to_remove:
+            all_fields.delitem(*sorted(set(to_remove)))
+        if changed_fields:
+            all_fields.consolidate_duplicate_fields("pdf")
+            by_variable = {field.variable: field for field in all_fields.elements}
+
+        for condition in proposals.get("conditions") or []:
+            field, control = by_variable.get(condition["field"]), by_variable.get(
+                condition["when"]
+            )
+            if field is None or control is None:
+                continue
+            choice = condition.get("choice")
+            field.show_if, field.shown_when = _show_if_condition(
+                control.final_display_var, _current_field_type(control), choice
+            )
+            field.shown_after = control.variable
+            all_fields.add_generation_note(
+                f"AI: {condition['field']} is only asked after {condition['when']}"
+                f"{' is ' + choice if choice else ''} (the form says "
+                f"\u201c{condition['evidence']}\u201d)."
+            )
+
+        if regroup and changed_fields and hasattr(self, "questions"):
+            self.questions.clear()
+            self.auto_group_fields()
 
     def llm_group_fields(self, apply: bool = True) -> Union[bool, List[Screen]]:
         llms = _load_llms_module()
@@ -3463,32 +4668,29 @@ Rules:
                     ):
                         continue
                     used.add(variable)
-                    field_obj = by_variable[variable]
-                    field_defs.append(
-                        {
-                            "field": variable,
-                            "label": (
-                                field_obj.label
-                                if hasattr(field_obj, "label")
-                                else field_obj.variable_name_guess
-                            ),
-                            "datatype": getattr(
-                                field_obj,
-                                "field_type",
-                                getattr(field_obj, "field_type_guess", "text"),
-                            ),
-                        }
-                    )
+                    field_defs.append(_grouped_field_definition(by_variable[variable]))
                 if field_defs:
+                    subquestion = str(raw_screen.get("subquestion") or "")
                     screen_list.append(
                         {
                             "question": str(
                                 raw_screen.get("question") or "More information"
                             ),
-                            "subquestion": str(raw_screen.get("subquestion") or ""),
+                            # "Type your contact information below" adds reading,
+                            # not help
+                            "subquestion": (
+                                ""
+                                if is_filler_subquestion(subquestion)
+                                else subquestion
+                            ),
                             "fields": field_defs,
                         }
                     )
+            self._reword_plainly_soon(
+                (screen, key)
+                for screen in screen_list
+                for key in ("question", "subquestion")
+            )
 
             for field in custom_fields:
                 if field.variable in used:
@@ -3501,26 +4703,20 @@ Rules:
                             else field.variable_name_guess
                         ),
                         "subquestion": "",
-                        "fields": [
-                            {
-                                "field": field.variable,
-                                "label": (
-                                    field.label
-                                    if hasattr(field, "label")
-                                    else field.variable_name_guess
-                                ),
-                                "datatype": getattr(
-                                    field,
-                                    "field_type",
-                                    getattr(field, "field_type_guess", "text"),
-                                ),
-                            }
-                        ],
+                        "fields": [_grouped_field_definition(field)],
                     }
                 )
 
             if not screen_list:
                 return [] if not apply else False
+            _place_detail_definitions_after_controls(
+                screen_list,
+                {
+                    field.variable: field.shown_after
+                    for field in custom_fields
+                    if getattr(field, "shown_after", None)
+                },
+            )
             if not apply:
                 return screen_list
             if hasattr(self, "questions"):
@@ -3538,7 +4734,7 @@ Rules:
             return [] if not apply else False
 
     def apply_llm_field_updates(
-        self, field_updates: Mapping[str, Mapping[str, str]]
+        self, field_updates: Mapping[str, Mapping[str, Any]]
     ) -> int:
         if not field_updates:
             return 0
@@ -3553,18 +4749,93 @@ Rules:
             if label:
                 field_obj.label = label
                 field_obj.has_label = True
+            if field_obj.is_option_group() or getattr(
+                field_obj, "choices_from_template", False
+            ):
+                # Each choice is a box in the PDF, or a value the template
+                # compares against; a model's rewording would unhook them
+                if label:
+                    updated += 1
+                continue
+            choices = update.get("choices")
+            if datatype in CHOICE_FIELD_TYPES:
+                if choices:
+                    field_obj.choices = "\n".join(choices)
+                elif not getattr(field_obj, "choices", ""):
+                    # Never leave a choice question with nothing to choose
+                    datatype = ""
+            if datatype == "text" and _needs_room_to_answer(field_obj, label):
+                # "Legal arguments" squeezed into one line was the model's
+                # call; the name and the label both say it needs a text area
+                datatype = "area"
             if datatype:
                 field_obj.field_type = datatype
             if label or datatype:
                 updated += 1
         return updated
 
+    def _drafted_metadata_slot(self, name: str, apply: bool) -> Tuple[Any, str]:
+        """Where :meth:`llm_prefill_metadata` keeps the passage it drafted."""
+        if name == "title":
+            return self, "llm_draft_title"
+        if not apply:
+            return self, _DRAFT_METADATA_ATTRIBUTES[name]
+        if name in _NEXT_STEPS_PASSAGES:
+            return self.custom_next_steps_instructions, name
+        return self, name
+
+    def _reword_plainly_soon(self, slots: Iterable[Tuple[Any, str]]) -> None:
+        """Rewrite formal words in AI-written text; see :func:`_reword_plainly`.
+
+        Inside :meth:`_plain_wording_in_one_call`, the text waits for that
+        one model call, instead of a call per drafting stage.
+        """
+        pending = getattr(self, "_pending_plain_wording", None)
+        if pending is None:
+            _reword_plainly(slots, self._text_copies())
+        else:
+            pending.extend(slots)
+
+    @contextmanager
+    def _plain_wording_in_one_call(
+        self, more_copies: Callable[[], Iterable[Tuple[Any, str]]] = lambda: ()
+    ) -> Iterator[None]:
+        """Make one plain-language rewrite for all the drafting stages inside.
+
+        Args:
+            more_copies: other places the drafted text was copied to.
+        """
+        if getattr(self, "_pending_plain_wording", None) is not None:
+            yield
+            return
+        self._pending_plain_wording: List[Tuple[Any, str]] = []
+        try:
+            yield
+        finally:
+            slots = self._pending_plain_wording
+            del self._pending_plain_wording
+            _reword_plainly(slots, [*self._text_copies(), *more_copies()])
+
+    def _text_copies(self) -> List[Tuple[Any, str]]:
+        """Where drafted labels and screen text end up once applied."""
+        fields = list(self.all_fields.elements)
+        copies: List[Tuple[Any, str]] = []
+        questions = getattr(self, "questions", None)
+        for question in getattr(questions, "elements", []):
+            copies += [(question, "question_text"), (question, "subquestion_text")]
+            fields += getattr(getattr(question, "field_list", None), "elements", [])
+        return copies + [(field, "label") for field in fields]
+
     def llm_generate_draft_payload(self) -> Dict[str, Any]:
         payload: Dict[str, Any] = {}
-        # Fetch reference site content upfront in background task
-        self._prefetch_reference_site()
-        self.llm_prefill_metadata(apply=False)
-        self.llm_predict_state(apply=False)
+        with self._plain_wording_in_one_call(
+            lambda: [
+                (definition, "label")
+                for screen in payload.get("screen_list") or []
+                for definition in screen.get("fields", [])
+            ]
+        ):
+            self._draft_payload(payload)
         for key in [
             "llm_draft_title",
             "llm_draft_intro_prompt",
@@ -3589,7 +4860,19 @@ Rules:
         ]:
             if hasattr(self, key):
                 payload[key] = getattr(self, key)
+        return payload
 
+    def _draft_payload(self, payload: Dict[str, Any]) -> None:
+        # Fetch reference site content upfront in background task
+        self._prefetch_reference_site()
+        structure_request = self.ask_for_structure()
+        self.llm_prefill_metadata(apply=False)
+        self.llm_predict_state(apply=False)
+        # Restructure this copy first, so the screens below match the fields
+        # the live interview will have once it applies the same proposals
+        payload["structure_proposals"] = self.llm_propose_structure(
+            apply=True, regroup=False, request=structure_request
+        )
         field_updates = self.llm_refine_field_labels(apply=False)
         if not isinstance(field_updates, dict):
             field_updates = {}
@@ -3599,7 +4882,21 @@ Rules:
         if field_updates:
             self.apply_llm_field_updates(field_updates)
         payload["screen_list"] = self.llm_group_fields(apply=False)
-        return payload
+
+    def choose_title(self, typed_title: str = "", filename: str = "") -> None:
+        """Name the interview from the best title it has.
+
+        A title the author typed wins, then one AI drafting wrote from the
+        form itself, then one made from the upload's filename. With none of
+        them, the title auto assignment gave it stays.
+        """
+        drafted = _safe_short_label(str(getattr(self, "llm_draft_title", "")), 100)
+        if str(typed_title or "").strip():
+            _apply_title_to_interview(self, str(typed_title).strip())
+        elif drafted:
+            _apply_title_to_interview(self, drafted, short_title_length=25)
+        elif filename:
+            _apply_exact_name_to_interview(self, filename)
 
     def apply_llm_draft_payload(self, payload: Mapping[str, Any]) -> None:
         if not payload:
@@ -3660,13 +4957,7 @@ Rules:
 
         # Lucky mode skips the step-by-step metadata screens, so copy drafted
         # intro metadata onto the live interview fields before rendering output.
-        if hasattr(self, "llm_draft_title"):
-            drafted_title = _safe_short_label(str(self.llm_draft_title), 100)
-            if drafted_title:
-                self.title = drafted_title
-                self.short_title = drafted_title[:25]
-                self.short_filename_with_spaces = drafted_title
-                self.short_filename = space_to_underscore(varname(drafted_title))
+        self.choose_title()
         if hasattr(self, "llm_draft_intro_prompt"):
             intro_prompt = _safe_short_label(str(self.llm_draft_intro_prompt), 60)
             if intro_prompt:
@@ -3711,6 +5002,12 @@ Rules:
                     "existing_case",
                     "appeal",
                 }
+
+        structure = payload.get("structure_proposals")
+        if isinstance(structure, Mapping):
+            # Same proposals the background copy applied before grouping, so
+            # the screens below name fields this interview now has
+            self.apply_structure_proposals(structure, regroup=False)
 
         field_updates = payload.get("field_updates")
         if isinstance(field_updates, Mapping):
@@ -3775,11 +5072,7 @@ Rules:
             draft_title = getattr(input_file, "filename", None) or input_file.path()
         else:
             draft_title = self.uploaded_templates[0].filename
-        return (
-            os.path.splitext(os.path.basename(draft_title))[0]
-            .replace("_", " ")
-            .capitalize()
-        )
+        return title_from_filename(draft_title)
 
     def _set_template_from_url(self, url: str):
         self.uploaded_templates = DAFileList(
@@ -3950,6 +5243,23 @@ Rules:
             + completion_text
         )
 
+    def default_can_I_use_this_form(self) -> str:
+        """A plain first draft of who the form is for, from its title and type.
+
+        Only the publishing metadata uses it, when nothing better was written;
+        the intro screen already says what the interview helps with.
+        """
+        title_text = str(getattr(self, "title", "") or "").strip() or "this form"
+        form_type = getattr(self, "form_type", "other")
+        if form_type == "letter":
+            return f"Use this interview if you need to write the {title_text}."
+        if form_type in ("starts_case", "existing_case", "appeal"):
+            return (
+                f"Use this interview if you need to file the {title_text} "
+                "in your court case."
+            )
+        return f"Use this interview if you need to fill out the {title_text}."
+
     def _guess_role(self, title: str):
         """Guess role from the form's title, using some simple heuristics.
 
@@ -3998,7 +5308,7 @@ Rules:
         full_text = ""
         for template in self.uploaded_templates:
             if template.filename.lower().endswith(".pdf"):
-                full_text += extract_text(template.path())
+                full_text += pdf_text(template.path())
             elif template.filename.lower().endswith(".docx"):
                 docx_data = docx2python(
                     template.path()
@@ -4227,42 +5537,56 @@ Rules:
                     new_field.range_step = field.get("step", None)
                 if field.get("required") == False:
                     new_field.is_optional = True
+                if field.get("show if"):
+                    new_field.show_if = field.get("show if")
             new_screen.field_list.gathered = True
             if not screen.get("fields"):
                 new_screen.needs_continue_button_field = True
         self.questions.gathered = True
 
     def auto_group_fields(self):
+        """Put the custom fields on screens, without calling a language model.
+
+        Generation with AI assist off makes no model calls; the AI path regroups
+        with :meth:`llm_group_fields` instead. See :mod:`.field_grouping`.
         """
-        Use FormFyxer to assign fields to screens.
-        To assist with "I'm feeling lucky" button
-        """
-        try:
-            field_grouping = formfyxer.cluster_screens(
-                [field.variable for field in self.all_fields.custom()],
+        custom_fields = list(self.all_fields.custom())
+        labels = {
+            field.variable: str(
+                getattr(field, "label", "") or field.variable_name_guess
             )
-            if not field_grouping:
-                field_grouping = self._null_group_fields()
-        except Exception as ex:
-            log(f"Auto field grouping failed. {ex}")
-            field_grouping = self._null_group_fields()
+            for field in custom_fields
+        }
+        field_grouping = unique_titles(
+            group_fields_into_screens(
+                [field.variable for field in custom_fields],
+                label_for=lambda variable: labels.get(variable, variable),
+            )
+        )
+        _place_details_after_controls(
+            field_grouping,
+            {
+                field.variable: field.shown_after
+                for field in custom_fields
+                if getattr(field, "shown_after", None)
+            },
+        )
         self.field_grouping = field_grouping
         self.questions.auto_gather = False
-        for group in field_grouping:
-            group_fields = [name for name in (field_grouping[group] or []) if name]
-            if not group_fields:
-                continue
+        by_variable: Dict[str, DAField] = {}
+        for field in self.all_fields:
+            by_variable.setdefault(field.variable, field)
+        for title, group_fields in field_grouping.items():
             new_screen = self.questions.appendObject()
             new_screen.is_informational_screen = False
             new_screen.has_mandatory_field = True
             new_screen.type = "question"
             new_screen.needs_continue_button_field = False
-            new_screen.question_text = group_fields[0].capitalize().replace("_", " ")
+            new_screen.question_text = title
             new_screen.subquestion_text = ""
             new_screen.field_list.clear()
-            for field in self.all_fields:
-                if field.variable in group_fields:
-                    new_screen.field_list.append(field)
+            for variable in group_fields:
+                new_screen.field_list.append(by_variable[variable])
             new_screen.field_list.gathered = True
             if not new_screen.field_list:
                 new_screen.needs_continue_button_field = True
@@ -4384,9 +5708,7 @@ def get_fields(document: Union[DAFile, DAFileList]) -> Iterable:
         if document.mimetype == "application/pdf":
             return document.get_pdf_fields()
 
-    docx_data = docx2python(document.path())  # Will error with invalid value
-    text = docx_data.text
-    return get_docx_variables(text)
+    return get_docx_variables(docx_template_text(document.path()))
 
 
 def get_question_file_variables(screens: List[Screen]) -> List[str]:
@@ -4431,8 +5753,25 @@ JINJA_ANY_TAG = re.compile(r"\{\{(.*?)\}\}|\{%(.*?)%\}", re.DOTALL)
 JINJA_SIMPLE_OUTPUT = re.compile(r"^ *([^\} ]+) *$")
 # A chain we can safely index into, i.e. `mylist` or `user.children`
 JINJA_INDEXABLE_CHAIN = re.compile(r"^[A-Za-z_]\w*(?:\[[^\[\]]*\]|\.[A-Za-z_]\w*)*$")
-# Straight and curly quotes -- Word likes to autocorrect the ones an author types
-JINJA_STRING_LITERAL = re.compile(r"'[^']*'|\"[^\"]*\"|‘[^’]*’|“[^”]*”")
+# A string literal; Word's curly quotes were straightened by docx_template_text()
+JINJA_STRING_LITERAL = re.compile(r"'[^']*'|\"[^\"]*\"")
+# A string-literal subscript, i.e. the `["Address Line 1"]` in a dictionary lookup
+JINJA_LITERAL_SUBSCRIPT = re.compile(r"\[\s*('[^']*'|\"[^\"]*\")\s*\]")
+JINJA_KEY_PLACEHOLDER = re.compile(r"__alweaver_key_(\d+)__")
+
+
+def _normalize_literal_subscripts(chain: str) -> str:
+    """Rewrite string-literal subscripts the way Docassemble names them.
+
+    A missing dictionary key raises an error naming the variable with the key's
+    `repr()`, so `x["Zip"]` and `x['Zip']` are both asked for as `x['Zip']`. The
+    question that sets it has to use that exact spelling to be found.
+    """
+    return JINJA_LITERAL_SUBSCRIPT.sub(
+        lambda match: "[" + repr(match.group(1)[1:-1]) + "]", chain
+    )
+
+
 # A dotted/subscripted chain like `users[0].name.first` or `child.name.full()`
 JINJA_VARIABLE_CHAIN = re.compile(
     r"[A-Za-z_]\w*(?:\[[^\[\]]*\]|\.[A-Za-z_]\w*(?:\(\s*\))?)*"
@@ -4481,7 +5820,7 @@ JINJA_NON_VARIABLE_WORDS = frozenset(
 )
 
 
-def _variables_in_jinja_expression(expression: str) -> Set[str]:
+def _variables_in_jinja_expression(expression: str) -> List[str]:
     """Pull everything that looks like a variable out of a Jinja expression.
 
     Unlike a simple "first word wins" match, this finds variables wherever they
@@ -4493,11 +5832,20 @@ def _variables_in_jinja_expression(expression: str) -> Set[str]:
             half of a `for` statement.
 
     Returns:
-        Set[str]: the variable chains found in the expression.
+        List[str]: the variable chains found in the expression, in order.
     """
-    # Blank out string literals so their contents are never read as variables
+    # Dictionary keys belong to the variable, so set them aside before blanking
+    # out the other string literals, whose contents must never be read as
+    # variables. Blanking a key too would leave a `x[ ]` that isn't Python.
+    keys: List[str] = []
+
+    def set_key_aside(match: "re.Match[str]") -> str:
+        keys.append(_normalize_literal_subscripts(match.group(0)))
+        return f"[__alweaver_key_{len(keys) - 1}__]"
+
+    expression = JINJA_LITERAL_SUBSCRIPT.sub(set_key_aside, expression)
     expression = JINJA_STRING_LITERAL.sub(" ", expression)
-    found = set()
+    found: Dict[str, None] = {}
     for match in JINJA_VARIABLE_CHAIN.finditer(expression):
         preceding = expression[: match.start()].rstrip()
         # `.attribute` and `|filter` continue the chain before them
@@ -4510,8 +5858,11 @@ def _variables_in_jinja_expression(expression: str) -> Set[str]:
         root = re.split(r"[.\[]", chain, maxsplit=1)[0]
         if root in JINJA_NON_VARIABLE_WORDS or keyword.iskeyword(root):
             continue
-        found.add(chain)
-    return found
+        # Put the keys back, minus the brackets the placeholder already sits in
+        found.setdefault(
+            JINJA_KEY_PLACEHOLDER.sub(lambda key: keys[int(key.group(1))][1:-1], chain)
+        )
+    return list(found)
 
 
 def _has_identifier_root(chain: str) -> bool:
@@ -4547,6 +5898,18 @@ def _resolve_loop_variable(
     """
     root = re.split(r"[.\[]", chain, maxsplit=1)[0]
     for scope in reversed(loop_scopes):
+        for target, replacement in scope.items():
+            subscript = re.search(r"\[\s*" + re.escape(target) + r"\s*\]", chain)
+            if not subscript:
+                continue
+            # `selected[key]` inside `for key in selected` looks up each key of
+            # the collection in turn; there is no one variable to ask for, and
+            # the `for` statement already recorded the collection itself
+            if replacement == chain[: subscript.start()] + "[0]":
+                return None
+            # Any other `users[i]` is a loop counter standing in for an index
+            chain = chain[: subscript.start()] + "[0]" + chain[subscript.end() :]
+    for scope in reversed(loop_scopes):
         if root not in scope:
             continue
         replacement = scope[root]
@@ -4574,7 +5937,7 @@ def _loop_target_replacements(
     return {names[0]: f"{resolved}[0]"}
 
 
-def _raw_variables_from_template(text: str) -> Set[str]:
+def _raw_variables_from_template(text: str) -> List[str]:
     """Find every variable-looking chain in a DOCX template's Jinja tags.
 
     Walks the tags in document order so that `for` loops can be tracked: inside
@@ -4585,16 +5948,21 @@ def _raw_variables_from_template(text: str) -> Set[str]:
         text (str): the full text of a DOCX template.
 
     Returns:
-        Set[str]: the variable chains found, before any suffix mapping.
+        List[str]: the variable chains found, before any suffix mapping, in the
+        order the template first uses them.
     """
-    found: Set[str] = set()
+    # A dict keeps document order; a set made the fields, and so the screens,
+    # come out in a different order on every run
+    found: Dict[str, None] = {}
     loop_scopes: List[Dict[str, Optional[str]]] = []
 
     def keep(chains: Iterable[str]) -> None:
         for chain in chains:
-            resolved = _resolve_loop_variable(chain, loop_scopes)
+            resolved = _resolve_loop_variable(
+                _normalize_literal_subscripts(chain), loop_scopes
+            )
             if resolved:
-                found.add(resolved)
+                found.setdefault(resolved)
 
     for match in JINJA_ANY_TAG.finditer(text):
         output, raw_statement = match.group(1), match.group(2)
@@ -4625,7 +5993,7 @@ def _raw_variables_from_template(text: str) -> Set[str]:
         conditional_match = JINJA_CONDITIONAL_STATEMENT.match(statement)
         if conditional_match:
             keep(_variables_in_jinja_expression(conditional_match.group(1)))
-    return found
+    return list(found)
 
 
 # Functions an author can wrap a variable in inside a DOCX template that say
@@ -4703,6 +6071,153 @@ def get_docx_function_type_hints(text: str) -> Dict[str, str]:
             settable = _settable_docx_variable(resolved)
             if settable:
                 hints[settable] = DOCX_FUNCTION_TYPE_HINTS[call.group(1)]
+    return hints
+
+
+# An item of an uploaded file list: `exhibits[0].filename`
+DOCX_UPLOADED_FILE_ATTRIBUTE = re.compile(
+    r"^([A-Za-z_]\w*)\[0\]\.(?:filename|url_for|path|extension|mimetype|pngs?|size_in_bytes)$"
+)
+# `{% if appendix.exhibits.there_are_any %}`: `appendix` is an AssemblyLine
+# ALExhibitDocument, whose uploads AssemblyLine asks for itself
+DOCX_EXHIBIT_ATTRIBUTE = re.compile(r"^([A-Za-z_]\w*)\.exhibits(?:$|[.\[])")
+# `{{p include_docx_template('summary.docx') }}` pulls another template in
+DOCX_INCLUDED_TEMPLATE = re.compile(r"include_docx_template\(\s*['\"]([^'\"]+)['\"]")
+# Word's curly quotes, as the straight ones Jinja reads them as
+_CURLY_TO_STRAIGHT_QUOTES = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"'})
+
+
+def straighten_quotes(text: str) -> str:
+    """`text` with Word's curly quotes as the straight ones Jinja reads them as.
+
+    Word autocorrects the quotes an author types, and mixes them, so
+    `x[‘Inputs']` is one string to Jinja. The template scanners only handle
+    straight quotes.
+    """
+    return text.translate(_CURLY_TO_STRAIGHT_QUOTES)
+
+
+def docx_template_text(path: str) -> str:
+    """The text of a DOCX template, as the template scanners read it."""
+    with docx2python(path) as document:
+        return straighten_quotes(document.text or "")
+
+
+_JINJA_CHAIN = r"[A-Za-z_]\w*(?:\[[^\[\]]*\]|\.[A-Za-z_]\w*)*"
+_JINJA_QUOTED = r"""(?:'[^']*'|"[^"]*")"""
+_COMPARED_TO_LITERAL = re.compile(
+    rf"({_JINJA_CHAIN})\s*(?:==|!=)\s*({_JINJA_QUOTED})"
+    rf"|({_JINJA_QUOTED})\s*(?:==|!=)\s*({_JINJA_CHAIN})"
+)
+_IN_LITERAL_LIST = re.compile(
+    rf"({_JINJA_CHAIN})\s+(?:not\s+)?in\s*[\[\(]((?:\s*{_JINJA_QUOTED}\s*,?)+)[\]\)]"
+)
+_CHECKBOX_METHOD = re.compile(
+    rf"({_JINJA_CHAIN})\.(?:true_values|false_values|any_true|all_true|all_false)\s*\("
+)
+_KEYED_LOOKUP = re.compile(rf"({_JINJA_CHAIN}?)\[\s*({_JINJA_QUOTED})\s*\]")
+# `i` is the attachment's preview/final marker, not something to ask about
+_NOT_TEMPLATE_VARIABLES = frozenset({"i", "loop"})
+
+
+def _choice_label(value: str) -> str:
+    """How to show a template's literal value as a choice."""
+    if "_" in value or value == value.lower():
+        return option_label(value)
+    return value
+
+
+def docx_choice_lines(kind: str, values: Sequence[str]) -> List[str]:
+    """The `choices:` lines for a choice the template's own logic revealed.
+
+    The value of each choice has to be the template's literal exactly, since
+    that is what `{% if fee_option == 'pay' %}` compares against.
+    """
+    if kind == "yesno_value":
+        value = values[0]
+        return [
+            f"{json.dumps('Yes')}: {json.dumps(value)}",
+            f"{json.dumps('No')}: {json.dumps('not_' + varname(value).lower())}",
+        ]
+    return [
+        f"{json.dumps(_choice_label(value))}: {json.dumps(value)}" for value in values
+    ]
+
+
+def get_docx_choice_hints(text: str) -> Dict[str, Tuple[str, List[str]]]:
+    """Find the variables whose choices a DOCX template's own logic spells out.
+
+    * `{% if fee_option == 'pay' %}` and `== 'waiver'`: a radio with those two
+      choices (kind `radio`).
+    * A single `{% if filer_role == 'attorney' %}`: a yes/no question whose
+      "yes" stores `attorney`, so the comparison still works (`yesno_value`).
+    * `{% if evaluations['Other'] %}`, `{% for key in evaluations %}` with
+      `evaluations[key]`, or `evaluations.true_values()`: checkboxes, whose
+      choices are the keys the template names (`checkboxes`).
+
+    Args:
+        text (str): the full text of a DOCX template.
+
+    Returns:
+        Dict[str, Tuple[str, List[str]]]: variable -> (kind, values in order).
+    """
+    compared: Dict[str, List[str]] = {}
+    keys: Dict[str, List[str]] = {}
+    tested_keyed: Set[str] = set()
+    printed_keyed: Set[str] = set()
+    checkbox_roots: Set[str] = set()
+    loop_targets: Dict[str, str] = {}
+
+    def add(store: Dict[str, List[str]], name: str, value: str) -> None:
+        values = store.setdefault(name, [])
+        if value not in values:
+            values.append(value)
+
+    for match in JINJA_ANY_TAG.finditer(text):
+        output, statement = match.group(1), match.group(2)
+        body = output if output is not None else statement
+        for keyed in _KEYED_LOOKUP.finditer(body):
+            root = keyed.group(1)
+            add(keys, root, keyed.group(2)[1:-1])
+            (printed_keyed if output is not None else tested_keyed).add(root)
+        for method in _CHECKBOX_METHOD.finditer(body):
+            checkbox_roots.add(method.group(1))
+        if output is not None:
+            continue
+        statement = JINJA_STATEMENT_PREFIX.sub("", statement.strip())
+        statement = JINJA_STATEMENT_SUFFIX.sub("", statement)
+        for_match = JINJA_FOR_STATEMENT.match(statement)
+        if for_match:
+            target = for_match.group(1).strip()
+            if target.isidentifier():
+                loop_targets[target] = for_match.group(2).strip()
+            continue
+        for target, iterable in loop_targets.items():
+            if re.search(
+                re.escape(iterable) + r"\[\s*" + re.escape(target) + r"\s*\]", statement
+            ):
+                checkbox_roots.add(iterable)
+        for comparison in _COMPARED_TO_LITERAL.finditer(statement):
+            name = comparison.group(1) or comparison.group(4)
+            literal = comparison.group(2) or comparison.group(3)
+            add(compared, name, literal[1:-1])
+        for membership in _IN_LITERAL_LIST.finditer(statement):
+            for literal in re.findall(_JINJA_QUOTED, membership.group(2)):
+                add(compared, membership.group(1), literal[1:-1])
+
+    hints: Dict[str, Tuple[str, List[str]]] = {}
+    for root, root_keys in keys.items():
+        # Keys that are only ever tested, never printed, are boxes to tick
+        if root in checkbox_roots or (
+            root in tested_keyed and root not in printed_keyed
+        ):
+            hints[_normalize_literal_subscripts(root)] = ("checkboxes", root_keys)
+    for name, values in compared.items():
+        name = _normalize_literal_subscripts(name)
+        root = re.split(r"[.\[]", name, maxsplit=1)[0]
+        if name in hints or root in _NOT_TEMPLATE_VARIABLES or root in loop_targets:
+            continue
+        hints[name] = ("radio" if len(values) > 1 else "yesno_value", values)
     return hints
 
 
@@ -4797,17 +6312,24 @@ def get_docx_variables(text: str) -> set:
 
     Special handling for methods that look like they belong to Individual/Address classes.
     """
-    #   Can be easily tested in a repl using the libs keyword and re
-    minimally_filtered = _raw_variables_from_template(text)
+    return set(docx_variables_in_order(text))
 
-    fields = set()
 
-    for possible_var in minimally_filtered:
+def docx_variables_in_order(text: str) -> List[str]:
+    """:func:`get_docx_variables`, in the order the template first uses them.
+
+    Args:
+        text (str): the full text of a DOCX template.
+
+    Returns:
+        List[str]: the settable variables, without repeats.
+    """
+    fields: Dict[str, None] = {}
+    for possible_var in _raw_variables_from_template(text):
         settable_var = _settable_docx_variable(possible_var)
         if settable_var:
-            fields.add(settable_var)
-
-    return fields
+            fields.setdefault(settable_var)
+    return list(fields)
 
 
 def _settable_docx_variable(possible_var: str) -> Optional[str]:
@@ -4898,9 +6420,13 @@ def map_raw_to_final_display(
     all_prefixes = list(reserved_prefixes) + list(custom_people_plurals_map.values())
     label_groups = get_reserved_label_parts(all_prefixes, label)
 
-    # If no matches to automateable labels were found,
-    # just use the label as it is
-    if label_groups is None or label_groups[1] == "":
+    # If no matches to automateable labels were found, or the rest isn't an
+    # attribute the Weaver knows (`user0_unknown`), use the label as it is
+    if (
+        label_groups is None
+        or label_groups[1] == ""
+        or label_groups[3] not in ("", *reserved_suffixes_map)
+    ):
         return label
 
     prefix = label_groups[1]
@@ -4937,16 +6463,17 @@ def map_raw_to_final_display(
         digit_str = ""
         index = ""
 
+    # AssemblyLine's court is `trial_court`; it keeps `courts[0] = trial_court`
+    # only so older interviews still work
+    if adjusted_prefix == "courts" and index == "[0]":
+        adjusted_prefix, index = "trial_court", ""
+
     # it's just a standalone, like "defendant", or it's a numbered singular
     # prefix, e.g. user3
     if label == prefix or label == prefix + digit_str:
         return adjusted_prefix + index  # Return the pluralized standalone variable
 
     suffix = label_groups[3]
-    # Avoid transforming arbitrary suffixes into attributes
-    if not suffix in reserved_suffixes_map:
-        return label  # return it as is
-
     # Get the mapped suffix attribute if present, else just use the same suffix
     suffix_as_attribute = reserved_suffixes_map.get(suffix, suffix)
     return "".join([adjusted_prefix, index, suffix_as_attribute])
@@ -5057,12 +6584,236 @@ def substitute_suffix(
     return label
 
 
+# A PDF field named like Python, with the index written out: `users[0]_signature`
+EXPLICIT_INDEX_FIELD_NAME = re.compile(r"^([A-Za-z_]+)\[(\d+)\](.*)$")
+
+
+def one_based_field_names(
+    field_names: Iterable[str],
+    reserved_prefixes=generator_constants.RESERVED_PREFIXES,
+    reserved_pluralizers_map=generator_constants.RESERVED_PLURALIZERS_MAP,
+    reserved_suffixes_map=generator_constants.RESERVED_SUFFIXES_MAP,
+) -> Tuple[Dict[str, str], List[str]]:
+    """Respell one template's zero-based people fields the one-based way.
+
+    The labelling convention counts people from 1, so `users1_name_first` is
+    the first user. Some authors count from 0 instead: either a whole series
+    (`users0_name_first`, `users1_name_first`, ...) or Python-style names like
+    `users[0]_signature`. Both used to stop generation. Rewriting them up front
+    means every later step only ever sees the convention it already handles,
+    while the attachment block keeps the PDF's own field names.
+
+    A series is only treated as zero-based when its `0` field is one the
+    Weaver would actually map; `user0_unknown` stays a plain variable. The
+    decision is made per prefix, for one template, so another template that
+    counts from 1 is unaffected.
+
+    Args:
+        field_names (Iterable[str]): every field name in one PDF.
+
+    Returns:
+        Tuple[Dict[str, str], List[str]]: the raw names to respell, mapped to
+        their one-based spelling, and the prefixes found counting from 0.
+    """
+    names = list(field_names)
+    prefixes = list(reserved_prefixes)
+    renames: Dict[str, str] = {}
+
+    def mappable(groups: "re.Match[str]") -> bool:
+        suffix = remove_multiple_appearance_indicator(groups.group(3))
+        return suffix == "" or suffix in reserved_suffixes_map
+
+    for name in names:
+        explicit = EXPLICIT_INDEX_FIELD_NAME.match(name)
+        if explicit:
+            renames[name] = (
+                f"{explicit.group(1)}{int(explicit.group(2)) + 1}{explicit.group(3)}"
+            )
+
+    zero_based: Set[str] = set()
+    for name in names:
+        if name in renames:
+            continue
+        groups = get_reserved_label_parts(prefixes, varname(name))
+        if groups and groups.group(2) == "0" and mappable(groups):
+            zero_based.add(
+                reserved_pluralizers_map.get(groups.group(1), groups.group(1))
+            )
+
+    for name in names:
+        if name in renames:
+            continue
+        groups = get_reserved_label_parts(prefixes, varname(name))
+        if not groups or groups.group(2) == "":
+            continue
+        plural = reserved_pluralizers_map.get(groups.group(1), groups.group(1))
+        if plural in zero_based:
+            renames[name] = (
+                f"{groups.group(1)}{int(groups.group(2)) + 1}{groups.group(3)}"
+            )
+    return renames, sorted(zero_based)
+
+
+# Words that say a field is a checkbox, rather than which choice it is
+CHECKBOX_TYPE_WORDS = frozenset({"yesno", "checkbox", "check", "box", "cb", "x"})
+
+
+def _options_are_parallel_questions(options: Sequence[str]) -> bool:
+    """True if what's left after a shared prefix names questions, not choices.
+
+    `fmv_yesno` and `fmv_authorization_yesno` share `fmv_`, but what's left,
+    `yesno` and `authorization_yesno`, ends the same way: these are two
+    separate yes/no questions named by a pattern, not two answers to one.
+    """
+    if any(option in CHECKBOX_TYPE_WORDS or not option for option in options):
+        return True
+    last_words = {option.rsplit("_", 1)[-1] for option in options}
+    return len(last_words) == 1 and all("_" in option for option in options)
+
+
+def _place_details_after_controls(
+    screens: Dict[str, List[str]], shown_after: Mapping[str, str]
+) -> None:
+    """Move each "please explain" field onto its control's screen, just after it.
+
+    `show if` only reacts on the screen where the control is, so the two have
+    to be asked together. Screens left empty by the move are dropped.
+    """
+    for detail, control in shown_after.items():
+        home = next((t for t, v in screens.items() if control in v), None)
+        if home is None:
+            continue
+        for variables in screens.values():
+            if detail in variables:
+                variables.remove(detail)
+        screens[home].insert(screens[home].index(control) + 1, detail)
+    for title in [t for t, v in screens.items() if not v]:
+        del screens[title]
+
+
+def _place_detail_definitions_after_controls(
+    screen_list: List[Screen], shown_after: Mapping[str, str]
+) -> None:
+    """:func:`_place_details_after_controls`, for screens the AI drafted."""
+    titles = [f"{index}" for index in range(len(screen_list))]
+    by_title = {
+        title: [str(entry.get("field")) for entry in screen.get("fields", []) or []]
+        for title, screen in zip(titles, screen_list)
+    }
+    definitions = {
+        str(entry.get("field")): entry
+        for screen in screen_list
+        for entry in screen.get("fields", []) or []
+    }
+    _place_details_after_controls(by_title, shown_after)
+    kept = []
+    for title, screen in zip(titles, screen_list):
+        if title in by_title:
+            screen["fields"] = [definitions[name] for name in by_title[title]]
+            kept.append(screen)
+    screen_list[:] = kept
+
+
+def _name_words(name: str) -> List[str]:
+    return [word for word in re.split(r"[_\.\[\]'\" ]+", name.lower()) if word]
+
+
+# Words that don't say what a field is about, for matching a field to its control
+_NOT_TOPIC_WORDS = (
+    FILLER_NAME_WORDS
+    | CHECKBOX_TYPE_WORDS
+    | {
+        "other",
+        "explain",
+        "explanation",
+        "specify",
+        "describe",
+        "description",
+        "details",
+        "text",
+        "please",
+        "yes",
+        "no",
+    }
+)
+
+
+_NEGATING_WORDS = frozenset({"not", "no", "dont", "never"})
+# Words that say a field holds the details of an answer
+_DETAIL_WORDS = frozenset(
+    {
+        "explain",
+        "explanation",
+        "explination",
+        "specify",
+        "describe",
+        "description",
+        "details",
+        "detail",
+        "reason",
+        "reasons",
+    }
+)
+
+
+def _names_an_other_detail(name: str) -> bool:
+    """True for `type_of_proceeding_other` or `other_relief_description`.
+
+    "Other" is often just an adjective: `other_case_1_docket` is about some
+    other case, not the details of an "Other" answer, so it needs a word like
+    "explain" too, unless "other" is the last word of the name.
+    """
+    words = _name_words(name)
+    return "other" in words and (
+        words[-1] == "other" or bool(set(words) & _DETAIL_WORDS)
+    )
+
+
+def _topic_words(name: str) -> Set[str]:
+    return {
+        word
+        for word in _name_words(name)
+        if word not in _NOT_TOPIC_WORDS and not word.isdigit()
+    }
+
+
+def _shared_name_prefix(first: str, second: str) -> str:
+    """The name two checkboxes share, up to an underscore, if it names a topic.
+
+    `notice_type_mail` and `notice_type_email` share `notice_type_`. A shared
+    part made only of words like `is_` or `user_has_` says nothing about what
+    the boxes are about, so it doesn't count.
+    """
+    first_words, second_words = first.split("_"), second.split("_")
+    shared: List[str] = []
+    for first_word, second_word in zip(first_words[:-1], second_words[:-1]):
+        if first_word != second_word:
+            break
+        shared.append(first_word)
+    if not shared or all(
+        word in FILLER_NAME_WORDS or word.isdigit() for word in shared
+    ):
+        return ""
+    return "_".join(shared) + "_"
+
+
 def get_reserved_label_parts(prefixes: list, label: str):
     """
     Return an re.matches object for all matching variable names,
     like user1_something, etc.
     """
     return re.search(r"^(" + "|".join(prefixes) + r")(\d*)(.*)", label)
+
+
+def exhibit_document_title(name: str) -> str:
+    """A title for an exhibit document: `record_appendix_document` -> "Record appendix"."""
+    words = re.sub(r"_(document|doc|attachment)$", "", name).replace("_", " ").strip()
+    if not words:
+        return name.replace("_", " ").capitalize()
+    if words != name.replace("_", " ") and " " not in words:
+        # `impounded_document` -> "Impounded documents", not just "Impounded"
+        words += " documents"
+    return words.capitalize()
 
 
 def using_string(params: dict, elements_as_variable_list: bool = False) -> str:
@@ -5428,12 +7179,11 @@ def get_pdf_variable_name_matches(document: Union[DAFile, str]) -> Set[Tuple[str
     Identify any variable names that look like they are intended to be for a PDF
     in a DOCX template.
     """
-    if isinstance(document, DAFile):
-        docx_data = docx2python(document.path())
-    else:
-        docx_data = docx2python(document)
-    text = docx_data.text
-    fields = get_docx_variables(text)
+    fields = get_docx_variables(
+        docx_template_text(
+            document.path() if isinstance(document, DAFile) else document
+        )
+    )
     res = set()
     for field in fields:
         # See if the docx fields would change at all if they were actually in a PDF.
@@ -5821,17 +7571,25 @@ def _make_static_file_from_path(
     return _LocalDAStaticFile(full_path=path)
 
 
+def _apply_title_to_interview(
+    interview: DAInterview, title: str, short_title_length: Optional[int] = None
+) -> None:
+    """Name the interview `title`, as auto assignment does for a given title."""
+    interview.title = title
+    interview.short_title = title[:short_title_length]
+    interview.short_filename_with_spaces = title
+    interview.short_filename = space_to_underscore(varname(title))
+
+
 def _apply_exact_name_to_interview(interview: DAInterview, exact_name: str) -> None:
     exact_base = os.path.splitext(os.path.basename(str(exact_name or "").strip()))[
         0
     ].strip()
     if not exact_base:
         return
-    exact_title = exact_base.replace("_", " ").capitalize()
-    interview.title = exact_title
-    interview.short_title = exact_title[:25]
-    interview.short_filename_with_spaces = exact_title
-    interview.short_filename = space_to_underscore(varname(exact_title))
+    _apply_title_to_interview(
+        interview, title_from_filename(exact_base), short_title_length=25
+    )
 
 
 def _resolve_template_path(template_ref: str) -> str:
@@ -6217,7 +7975,7 @@ def _llm_refine_section_catalog(
             system_message=prompt,
             user_message=user_message,
             json_mode=True,
-            model="gpt-5-mini",
+            model=_configured_llm_model(),
         )
         if not isinstance(rewritten, dict):
             return None
@@ -6276,7 +8034,7 @@ def _llm_refine_section_ids(
             system_message=prompt,
             user_message=user_message,
             json_mode=True,
-            model="gpt-5-mini",
+            model=_configured_llm_model(),
         )
         if not isinstance(rewritten, dict):
             return None
@@ -6566,29 +8324,152 @@ def _lint_with_aldashboard_interview_linter(
         return None
 
 
-def _llm_rewrite_for_plain_language(text: str) -> str:
+def _configured_llm_model() -> str:
+    """The model every AI drafting stage uses, unless a stage has its own setting."""
+    return (
+        get_config("assembly line", {}).get("weaver llm model")
+        or get_config("open ai", {}).get("model")
+        or "gpt-4o-mini"
+    )
+
+
+def _can_reword(text: str) -> bool:
+    """Mako in a passage would not survive being reworded."""
+    return bool(text.strip()) and not (
+        "${" in text or "<%text>" in text or "% if" in text
+    )
+
+
+def _llm_rewrites(
+    texts: Sequence[str], instructions: str, user_message: str
+) -> Dict[str, str]:
+    """One model call that rewrites `texts`, each mapped to its rewrite.
+
+    Args:
+        texts (Sequence[str]): the texts the model may rewrite.
+        instructions (str): how to rewrite them.
+        user_message (str): the texts as sent to the model.
+
+    Returns:
+        Dict[str, str]: each text that got a changed rewrite, mapped to it.
+    """
     llms = _load_llms_module()
-    if not llms or not text.strip():
-        return text
-    if "${" in text or "<%text>" in text or "% if" in text:
-        return text
+    if not llms or not texts:
+        return {}
     try:
-        rewritten = llms.chat_completion(
-            system_message=(
-                "Rewrite the text in plain, respectful language at about 6th-grade reading level. "
-                "Preserve legal meaning. Keep similar length. Return JSON with key `rewrite`."
-            ),
-            user_message=text,
+        response = llms.chat_completion(
+            system_message=instructions
+            + "\nReturn JSON with key `rewrites`: a list of objects with keys "
+            "`original` (copied exactly) and `rewrite`.",
+            user_message=user_message,
             json_mode=True,
-            model="gpt-5-mini",
+            model=_configured_llm_model(),
         )
-        if isinstance(rewritten, dict):
-            candidate = str(rewritten.get("rewrite", "") or "").strip()
-            if candidate:
-                return candidate
-    except Exception:
-        return text
-    return text
+    except Exception as exc:
+        log(f"Plain-language rewrite failed: {exc!r}")
+        return {}
+    rewrites: Dict[str, str] = {}
+    entries = response.get("rewrites") if isinstance(response, dict) else None
+    for entry in entries if isinstance(entries, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        original = str(entry.get("original", "") or "")
+        rewrite = str(entry.get("rewrite", "") or "").strip()
+        if original in texts and rewrite and rewrite != original:
+            rewrites[original] = rewrite
+    return rewrites
+
+
+def _llm_rewrite_for_plain_language(texts: Sequence[str]) -> Dict[str, str]:
+    """Rewrite several passages in plain language with one model call.
+
+    This used to make one call per sentence, which was about 7 of the 17 calls
+    drafting a single form took.
+
+    Args:
+        texts (Sequence[str]): the passages to rewrite.
+
+    Returns:
+        Dict[str, str]: each passage that got a usable rewrite, mapped to it.
+    """
+    texts = [text for text in texts if _can_reword(text)]
+    return _llm_rewrites(
+        texts,
+        "Rewrite each text in plain, respectful language at about 6th-grade "
+        "reading level. Preserve legal meaning. Keep similar length.",
+        json.dumps(texts),
+    )
+
+
+def _plainer_wording(texts: Sequence[str]) -> Dict[str, str]:
+    """Rewrite the AI-written texts that use formal or legalistic words.
+
+    Words come from DAYamlChecker's plain-language table, and are flagged
+    even when the form uses them. Only the flagged texts go back to the
+    model, in one call, and a rewrite is kept only if it really drops some
+    of the flagged words.
+
+    Args:
+        texts (Sequence[str]): labels, screen titles, subquestions or passages.
+
+    Returns:
+        Dict[str, str]: each text that got a plainer rewrite, mapped to it.
+    """
+    flagged = flags_by_text([text for text in texts if _can_reword(text)])
+    if not flagged:
+        return {}
+    rewrites = _llm_rewrites(
+        list(flagged),
+        "Rewrite each text so it does not use the words listed in `avoid`, "
+        "using the `suggestions` or other everyday words. Keep the meaning and "
+        "keep it about as short. " + PLAIN_LANGUAGE_GUIDANCE,
+        json.dumps(
+            [
+                {
+                    "text": text,
+                    "avoid": [word for word, _ in flags],
+                    "suggestions": {word: alt for word, alt in flags},
+                }
+                for text, flags in flagged.items()
+            ]
+        ),
+    )
+    return {
+        original: rewrite
+        for original, rewrite in rewrites.items()
+        if len(plain_language_flags(rewrite)) < len(flagged[original])
+    }
+
+
+def _slot_text(holder: Any, key: str) -> str:
+    """The text in `holder[key]`, or in `holder.key` for an object."""
+    if isinstance(holder, Mapping):
+        return str(holder.get(key) or "")
+    return str(getattr(holder, key, "") or "")
+
+
+def _reword_plainly(
+    slots: Iterable[Tuple[Any, str]], copies: Iterable[Tuple[Any, str]] = ()
+) -> None:
+    """Replace formal wording in each slot's text, with one model call.
+
+    Args:
+        slots (Iterable[Tuple[Any, str]]): `(dict or object, key)` pairs
+            holding AI-written text.
+        copies (Iterable[Tuple[Any, str]]): other places the same text was
+            copied to, which get the same rewrite; nothing else there is sent.
+    """
+    slots = list(slots)
+    plainer = _plainer_wording([_slot_text(holder, key) for holder, key in slots])
+    if not plainer:
+        return
+    for holder, key in [*slots, *copies]:
+        text = _slot_text(holder, key)
+        if text in plainer:
+            if isinstance(holder, MutableMapping):
+                holder[key] = plainer[text]
+            else:
+                setattr(holder, key, plainer[text])
 
 
 def _apply_plain_language_repairs(yaml_text: str, max_rewrites: int = 8) -> str:
@@ -6606,21 +8487,14 @@ def _apply_plain_language_repairs(yaml_text: str, max_rewrites: int = 8) -> str:
         problematic_text = str(finding.get("problematic_text", "") or "").strip()
         if not problematic_text or len(problematic_text) < 8:
             continue
-        if problematic_text not in candidates:
+        if problematic_text not in candidates and problematic_text in yaml_text:
             candidates.append(problematic_text)
 
+    candidates = sorted(candidates, key=len, reverse=True)[:max_rewrites]
     updated = yaml_text
-    rewrite_count = 0
-    for original in sorted(candidates, key=len, reverse=True):
-        if rewrite_count >= max_rewrites:
-            break
-        if original not in updated:
-            continue
-        rewritten = _llm_rewrite_for_plain_language(original)
-        if not rewritten or rewritten == original:
-            continue
-        updated = updated.replace(original, rewritten, 1)
-        rewrite_count += 1
+    for original, rewritten in _llm_rewrite_for_plain_language(candidates).items():
+        if original in updated:
+            updated = updated.replace(original, rewritten, 1)
     return updated
 
 
@@ -6717,7 +8591,6 @@ def _render_interview_yaml(
         from . import __version__
     except ImportError:
         __version__ = "0.0.0"
-    from .custom_values import get_yml_deps_from_choices
     from docassemble.base.util import (
         action_button_html,
         currency,
@@ -6768,6 +8641,16 @@ def _render_interview_yaml(
     for question in screen_reordered:
         if isinstance(question, DAQuestion) and not hasattr(question, "type"):
             question.type = "question"
+    for field in [
+        *interview.all_fields,
+        *(
+            field
+            for screen in screen_reordered
+            for field in getattr(screen, "field_list", [])
+        ),
+    ]:
+        if isinstance(field, DAField):
+            field.ensure_choices()
 
     screen_triggers: List[str] = []
     for screen in screen_reordered:
@@ -6837,7 +8720,12 @@ def _render_interview_yaml(
         "fix_id": fix_id,
         "varname": varname,
         "remove_multiple_appearance_indicator": remove_multiple_appearance_indicator,
-        "get_yml_deps_from_choices": get_yml_deps_from_choices,
+        "attachment_reference": attachment_reference,
+        "row_attachment_expression": row_attachment_expression,
+        "row_family_yaml": row_family_yaml,
+        "FIELD_TYPE_YAML": generator_constants.FIELD_TYPE_YAML,
+        "signature_fields_expression": signature_fields_expression,
+        "item_lists": lists_that_may_run_short(objects or []),
     }
     yaml_text = _tidy_generated_yaml(template.render(**context))
     return _tidy_generated_yaml(_repair_generated_yaml_with_lint(yaml_text, interview))
@@ -6866,18 +8754,51 @@ def _runtime_next_steps_template(source_path: str) -> str:
     Rewrite XML expressions in a temporary copy while leaving the bundled
     source template (used by the question-driven Weaver) untouched.
     """
-    handle = tempfile.NamedTemporaryFile(suffix=".docx", delete=False)
-    handle.close()
-    with zipfile.ZipFile(source_path, "r") as source_zip, zipfile.ZipFile(
-        handle.name, "w"
-    ) as target_zip:
-        for info in source_zip.infolist():
-            content = source_zip.read(info.filename)
-            if info.filename.endswith(".xml"):
-                content = _rewrite_next_steps_xml(content.decode("utf-8")).encode(
-                    "utf-8"
-                )
+    rewritten = _rewritten_docx(source_path, _rewrite_next_steps_xml)
+    if rewritten is None:
+        with open(source_path, "rb") as source:
+            rewritten = source.read()
+    return _temporary_docx(rewritten)
+
+
+def _rewritten_docx(
+    source_path: str, rewrite_xml: Callable[[str], str], prefix: str = ""
+) -> Optional[bytes]:
+    """A DOCX with `rewrite_xml` applied to its XML parts, or None if unchanged.
+
+    Args:
+        source_path (str): the DOCX.
+        rewrite_xml (Callable[[str], str]): rewrites one XML part.
+        prefix (str): only rewrite parts whose name starts with this.
+
+    Returns:
+        Optional[bytes]: the rewritten DOCX, or None if nothing changed.
+    """
+    try:
+        with zipfile.ZipFile(source_path, "r") as source_zip:
+            parts = [
+                (info, source_zip.read(info.filename)) for info in source_zip.infolist()
+            ]
+    except (OSError, zipfile.BadZipFile):
+        return None
+    changed = False
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as target_zip:
+        for info, content in parts:
+            if info.filename.startswith(prefix) and info.filename.endswith(".xml"):
+                xml_text = content.decode("utf-8")
+                updated = rewrite_xml(xml_text)
+                if updated != xml_text:
+                    changed = True
+                    content = updated.encode("utf-8")
             target_zip.writestr(info, content)
+    return output.getvalue() if changed else None
+
+
+def _temporary_docx(content: bytes) -> str:
+    """Write a DOCX to a temporary file and return its path."""
+    with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as handle:
+        handle.write(content)
     return handle.name
 
 
@@ -6887,15 +8808,7 @@ _WORD_TEXT_RE = re.compile(r"(<w:t(?:\s[^>]*)?>)(.*?)(</w:t>)", re.DOTALL)
 
 def _rewrite_next_steps_xml(xml_text: str) -> str:
     """Replace template expressions even when Word splits them across runs."""
-    paragraphs = list(_WORD_PARAGRAPH_RE.finditer(xml_text))
-    logical_values: List[str] = []
-    for paragraph in paragraphs:
-        logical_values.append(
-            "".join(
-                html.unescape(match.group(2))
-                for match in _WORD_TEXT_RE.finditer(paragraph.group(0))
-            )
-        )
+    paragraphs, logical_values = _paragraph_texts(xml_text)
 
     transformed: List[str] = []
     for logical in logical_values:
@@ -6921,6 +8834,28 @@ def _rewrite_next_steps_xml(xml_text: str) -> str:
             "if al_next_steps_what_happens_if_i_win %}",
         )
 
+    return _replace_paragraph_texts(xml_text, paragraphs, logical_values, transformed)
+
+
+def _paragraph_texts(xml_text: str) -> Tuple[List[Any], List[str]]:
+    """Each Word paragraph and the text it shows, with its runs joined up."""
+    paragraphs = list(_WORD_PARAGRAPH_RE.finditer(xml_text))
+    return paragraphs, [
+        "".join(
+            html.unescape(match.group(2))
+            for match in _WORD_TEXT_RE.finditer(paragraph.group(0))
+        )
+        for paragraph in paragraphs
+    ]
+
+
+def _replace_paragraph_texts(
+    xml_text: str,
+    paragraphs: Sequence[Any],
+    logical_values: Sequence[str],
+    transformed: Sequence[str],
+) -> str:
+    """Write each changed paragraph's new text back over its runs."""
     pieces: List[str] = []
     cursor = 0
     for paragraph, original, updated in zip(paragraphs, logical_values, transformed):
@@ -6949,6 +8884,46 @@ def _rewrite_next_steps_xml(xml_text: str) -> str:
         cursor = paragraph.end()
     pieces.append(xml_text[cursor:])
     return "".join(pieces)
+
+
+# `users[0].pronouns`, but not `users[0].pronouns['he/him/his']` or
+# `users[0].pronouns.true_values()`
+_PRINTED_PRONOUNS = re.compile(rf"(?<![\w.])({_JINJA_CHAIN})\.pronouns\b(?!\s*[\[.(])")
+
+
+def _list_printed_pronouns(text: str) -> str:
+    """`{{ users[0].pronouns }}` -> `{{ users[0].list_pronouns() }}`."""
+    return JINJA_ANY_TAG.sub(
+        lambda tag: _PRINTED_PRONOUNS.sub(r"\1.list_pronouns()", tag.group(0)), text
+    )
+
+
+def _list_printed_pronouns_in_xml(xml_text: str) -> str:
+    """:func:`_list_printed_pronouns` over each paragraph of a Word XML part."""
+    if "pronouns" not in xml_text:
+        return xml_text
+    paragraphs, texts = _paragraph_texts(xml_text)
+    updated = [_list_printed_pronouns(text) for text in texts]
+    if updated == texts:
+        return xml_text
+    return _replace_paragraph_texts(xml_text, paragraphs, texts, updated)
+
+
+def docx_with_listed_pronouns(source_path: str) -> Optional[bytes]:
+    """A DOCX that prints pronouns with `list_pronouns()`, or None.
+
+    AssemblyLine asks pronouns as checkboxes, and printing the checkbox answer
+    lists every choice, ticked or not.
+
+    Args:
+        source_path (str): the DOCX template.
+
+    Returns:
+        Optional[bytes]: the rewritten DOCX, or None if nothing changed.
+    """
+    if not str(source_path).lower().endswith(".docx"):
+        return None
+    return _rewritten_docx(source_path, _list_printed_pronouns_in_xml, prefix="word/")
 
 
 def runtime_next_steps_template_for_form_type(form_type: str) -> str:
@@ -7067,6 +9042,19 @@ def generate_interview_artifacts(
         objects=resolved_objects,
         screen_reordered=None,
     )
+    pronoun_template_copies: Dict[str, str] = {}
+    for template in interview.uploaded_templates:
+        pronoun_copy = docx_with_listed_pronouns(template.path())
+        if pronoun_copy:
+            pronoun_template_copies[template.filename] = _temporary_docx(pronoun_copy)
+    templates = [
+        (
+            _LocalFile(pronoun_template_copies[template.filename], template.filename)
+            if template.filename in pronoun_template_copies
+            else template
+        )
+        for template in interview.uploaded_templates
+    ]
 
     yaml_file = yaml_output_file or DAFile(filename=yaml_filename)
     yaml_file.initialize(filename=yaml_filename)
@@ -7089,11 +9077,9 @@ def generate_interview_artifacts(
         }
         if include_download_screen:
             if include_next_steps and hasattr(interview, "instructions"):
-                folders_and_files["templates"] = [interview.instructions] + list(
-                    interview.uploaded_templates
-                )
+                folders_and_files["templates"] = [interview.instructions] + templates
             else:
-                folders_and_files["templates"] = list(interview.uploaded_templates)
+                folders_and_files["templates"] = templates
 
         package_info = interview.package_info()
         if interview.author and str(interview.author).splitlines():
@@ -7113,7 +9099,10 @@ def generate_interview_artifacts(
         )
 
     return WeaverInterviewArtifacts(
-        yaml_text=yaml_text, yaml_file=yaml_file, package_file=package_file
+        yaml_text=yaml_text,
+        yaml_file=yaml_file,
+        package_file=package_file,
+        pronoun_template_copies=pronoun_template_copies,
     )
 
 
@@ -7330,6 +9319,7 @@ def generate_interview_from_path(
     suggested_renames: List[Tuple[str, str]] = []
     suggested_renames_by_template: Dict[str, List[Tuple[str, str]]] = {}
     normalized_template_paths: Dict[str, str] = {}
+    template_notes: List[str] = []
     renames_applied = False
     da_files: List[Union[DAFile, DAStaticFile]] = []
     for template_input in template_inputs:
@@ -7453,13 +9443,6 @@ def generate_interview_from_path(
         interview.help_source_text = str(interview.help_source_text or "")
 
     added_fields = _apply_field_definitions_to_interview(interview, field_definitions)
-    for field in interview.all_fields:
-        if (
-            hasattr(field, "field_type")
-            and field.field_type in CHOICE_FIELD_TYPES
-            and not hasattr(field, "choices")
-        ):
-            field.choices = field.choices_string()
     if screen_definitions:
         for screen in merged_screens or []:
             for field_entry in screen.get("fields", []) or []:
@@ -7479,14 +9462,27 @@ def generate_interview_from_path(
             "info",
         )
         interview._prefetch_reference_site()
-        interview.llm_prefill_metadata(apply=True)
-        interview.llm_predict_state(apply=True)
-        interview.llm_refine_field_labels(apply=True)
-        if not screen_definitions:
-            interview.llm_group_fields(apply=True)
+        with interview._plain_wording_in_one_call():
+            structure_request = interview.ask_for_structure()
+            interview.llm_prefill_metadata(apply=True)
+            interview.llm_predict_state(apply=True)
+            interview.llm_propose_structure(
+                apply=True,
+                regroup=not bool(screen_definitions),
+                request=structure_request,
+            )
+            interview.llm_refine_field_labels(apply=True)
+            if not screen_definitions:
+                interview.llm_group_fields(apply=True)
 
-    if exact_name and not str(title or "").strip() and not override_title_requested:
-        _apply_exact_name_to_interview(interview, exact_name)
+    interview.choose_title(
+        typed_title=str(title or ""),
+        filename="" if override_title_requested else str(exact_name or ""),
+    )
+    # Names the caller set outright stay as they set them
+    for key in ("title", "short_title", "short_filename_with_spaces", "short_filename"):
+        if interview_overrides and key in interview_overrides:
+            setattr(interview, key, interview_overrides[key])
 
     interview_label = varname(interview.title)
     if not interview_label:
@@ -7535,6 +9531,13 @@ def generate_interview_from_path(
     )
 
     yaml_path = artifacts.yaml_file.path()
+    for template_name, copy_path in artifacts.pronoun_template_copies.items():
+        normalized_template_paths[template_name] = copy_path
+        template_notes.append(
+            f"{template_name} printed pronouns as the raw checkbox answer, "
+            "which lists every choice. The packaged copy uses "
+            "list_pronouns() so it shows only the ones chosen."
+        )
     if artifacts.package_file:
         package_zip_path = artifacts.package_file.path()
 
@@ -7547,6 +9550,8 @@ def generate_interview_from_path(
         generated_template_paths.append(next_steps_output_path)
 
     generation_warnings = interview.all_fields.cross_template_type_warnings()
+    generation_warnings.extend(interview.all_fields.notes_for_author())
+    generation_warnings.extend(template_notes)
     if interview.has_all_unlabeled_pdfs():
         generation_warnings.append(
             "No fillable PDF fields were detected. Weaver created a general "
