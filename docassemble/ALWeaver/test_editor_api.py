@@ -6600,8 +6600,12 @@ class TestRepositoryReports(unittest.TestCase):
                 "/al/editor/api/reports/archive",
                 json={"reports": [{"filename": "../escape.yml", "html": "bad"}]},
             )
+            malformed = client.post(
+                "/al/editor/api/reports/archive", json={"reports": ["one.yml"]}
+            )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(bad.status_code, 400)
+        self.assertEqual(malformed.status_code, 400)
         with zipfile.ZipFile(
             BytesIO(base64.b64decode(response.json["data"]["content"]))
         ) as archive:

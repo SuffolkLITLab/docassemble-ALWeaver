@@ -488,3 +488,11 @@ console.log('editor_interview_report.js: all assertions passed');
     children: [{kind: 'screen', invoke: 'stop'}]}], map);
   assert.ok(!loop.edges.some(e => e.from === loop.nodes.find(n => n.stops).id));
 }
+
+// Scanned definitions from code never stand in for the question that asks the same name.
+{
+  const code = {id: 'c', data: {code: 'needs_fee_waiver = False'}, defines: ['needs_fee_waiver']};
+  const question = {id: 'q', data: {question: 'Do you need a fee waiver?', yesno: 'needs_fee_waiver'},
+    defines: ['needs_fee_waiver']};
+  assert.strictEqual(report.findBlock('needs_fee_waiver', report.buildBlockMap([code, question])), question);
+}

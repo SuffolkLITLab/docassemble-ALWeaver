@@ -220,7 +220,8 @@
 
     (blocks || []).forEach(function (block) {
       record(block.variable, block);
-      (block.defines || []).forEach(function (name) { record(name, block); });
+      // Scanned code assignments stay out: code must never stand in for a question.
+      (isScreenBlock(block) ? block.defines || [] : []).forEach(function (name) { record(name, block); });
       var events = (block.data || {}).event;
       (Array.isArray(events) ? events : [events]).forEach(function (event) {
         if (typeof event === 'string') record(event, block);
