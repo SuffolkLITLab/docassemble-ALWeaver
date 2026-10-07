@@ -1,3 +1,4 @@
+# do not pre-load
 from io import BytesIO
 import json
 
