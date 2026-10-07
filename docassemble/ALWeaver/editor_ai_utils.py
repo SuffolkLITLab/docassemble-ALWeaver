@@ -257,12 +257,14 @@ def validate_yaml_with_dayamlchecker(
     yaml_text: str,
 ) -> Tuple[bool, str]:
     """Validate YAML content using DAYamlChecker's Python API."""
-    from dayamlchecker.yaml_structure import find_errors_from_string
+    from .editor_agent_validation import dayamlchecker_findings, SEVERITY_ERROR
 
-    errors = find_errors_from_string(yaml_text)
+    errors = [
+        finding
+        for finding in dayamlchecker_findings(yaml_text, "interview.yml")
+        if finding["level"] == SEVERITY_ERROR
+    ]
     if not errors:
         return True, ""
-    details = "\n".join(
-        str(getattr(error, "err_str", "") or error).strip() for error in errors
-    )
+    details = "\n".join(error["message"] for error in errors)
     return False, details or "DAYamlChecker validation failed"

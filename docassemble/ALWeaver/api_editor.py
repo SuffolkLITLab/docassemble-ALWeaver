@@ -297,6 +297,7 @@ from .editor_agent_validation import (
     annotate_lint_findings,
     block_line_span,
     block_lookup_map,
+    dayamlchecker_findings,
     lint_level_from_severity,
     lint_summary_for_findings,
     resolve_lint_block_id,
@@ -5349,36 +5350,7 @@ def editor_api_validate() -> Response:
         raw_yaml = playground_read_yaml(uid, project, filename)
         model = parse_interview_yaml(raw_yaml)
 
-        errors: List[Dict[str, Any]] = []
-        from dayamlchecker.yaml_structure import find_errors_from_string  # type: ignore
-
-        checker_errors = find_errors_from_string(raw_yaml, input_file=filename)
-        for checker_error in checker_errors:
-            msg = str(getattr(checker_error, "err_str", "") or "").strip() or str(
-                checker_error
-            )
-            lowered = msg.lower()
-            level = "error"
-            if lowered.startswith("warning:"):
-                level = "warning"
-                msg = msg[len("warning:") :].strip()
-            elif lowered.startswith("info:"):
-                level = "info"
-                msg = msg[len("info:") :].strip()
-            variable = ""
-            qmatch = re.search(r'"([^"]+)"', msg) or re.search(r"'([^']+)'", msg)
-            if qmatch:
-                variable = qmatch.group(1)
-            errors.append(
-                {
-                    "level": level,
-                    "message": msg,
-                    "variable": variable,
-                    "line_number": getattr(checker_error, "line_number", None),
-                    "filename": filename,
-                    "source": "dayamlchecker",
-                }
-            )
+        errors = dayamlchecker_findings(raw_yaml, filename)
         # Also include playground-style undefined variable and parse diagnostics.
         try:
             variable_info = playground_get_variables(uid, project, filename)
