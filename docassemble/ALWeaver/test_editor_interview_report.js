@@ -481,7 +481,7 @@ console.log('editor_interview_report.js: all assertions passed');
   assert.ok(flow.edges.some(e => e.label === 'no'));
   assert.ok(report.isTerminalScreen({data: {event: 'end', question: 'Done'}}));
   for (const extra of [{fields: [{Name: 'name'}]}, {buttons: [{Continue: 'continue'}]},
-    {'continue button field': 'done'}, {buttons: [{code: 'dynamic_buttons'}]}, {review: []}]) {
+    {'continue button field': 'done'}, {buttons: [{code: 'dynamic_buttons'}]}, {buttons: [{Go: {code: 'went = True'}}]}, {review: []}]) {
     assert.ok(!report.isTerminalScreen({data: {event: 'end', question: 'Done', ...extra}}));
   }
   const loop = report.buildFlowModel([{kind: 'loop', target: 'item', iterable: 'items',
