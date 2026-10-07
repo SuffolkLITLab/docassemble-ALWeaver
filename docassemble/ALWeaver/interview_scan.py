@@ -5,8 +5,14 @@ external modules and dynamically constructed variable names can add dependencies
 """
 
 import ast
+import builtins
+import functools
+import os
 import re
+import textwrap
 from typing import Any, Callable, Dict, List, Set
+
+import yaml
 
 from .editor_utils import parse_interview_yaml, parse_order_code, source_revision
 
@@ -103,6 +109,9 @@ DEFINITIONS = (
     "event",
     "template",
     "table",
+    "only sets",
+    "variable name",
+    "def",
 )
 
 
@@ -111,6 +120,14 @@ def _strings(value: Any) -> List[str]:
         return [value]
     if isinstance(value, list):
         return [v for v in value if isinstance(v, str)]
+    return []
+
+
+def _dicts(value: Any) -> List[Dict[str, Any]]:
+    if isinstance(value, dict):
+        return [value]
+    if isinstance(value, list):
+        return [v for v in value if isinstance(v, dict)]
     return []
 
 
@@ -163,18 +180,50 @@ def _names(code: str) -> tuple[Set[str], Set[str]]:
     return reads, (writes - local_writes) | module_writes | declarations
 
 
-def _mako_uses(text: str) -> tuple[Set[str], Set[str]]:
-    """Read expression and control-line names and whole-object uses with Mako's parser."""
+def _roots(code: str) -> tuple[Set[str], Set[str]]:
+    """Bare names the code loads, and every name it binds anywhere.
+
+    Docassemble reports an undefined name only at the top level, so attribute
+    paths are reduced to their root. Bindings include loop and comprehension
+    targets, parameters, imports and nested definitions.
+    """
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return set(), set()
+    loads: Set[str] = set()
+    bound: Set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            (loads if isinstance(node.ctx, ast.Load) else bound).add(node.id)
+        elif isinstance(node, ast.arg):
+            bound.add(node.arg)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                bound.add((alias.asname or alias.name).split(".")[0])
+        elif isinstance(
+            node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+        ) or (isinstance(node, ast.ExceptHandler) and node.name):
+            bound.add(node.name)  # type: ignore[arg-type]
+        elif isinstance(node, (ast.Global, ast.Nonlocal)):
+            bound.update(node.names)
+    return loads, bound
+
+
+def _mako_uses(text: str) -> tuple[Set[str], Set[str], Set[str], Set[str]]:
+    """Names, whole-object uses, bare loads and bindings, via Mako's own parser."""
     from mako.lexer import Lexer
 
-    if "${" not in text and not re.search(r"^\s*%", text, re.M):
-        return set(), set()
+    if "${" not in text and "<%" not in text and not re.search(r"^\s*%", text, re.M):
+        return set(), set(), set(), set()
     try:
         tree = Lexer(text).parse()
     except Exception:
-        return set(), set()
+        return set(), set(), set(), set()
     reads: Set[str] = set()
     receivers: Set[str] = set()
+    loads: Set[str] = set()
+    bound: Set[str] = set()
     seen: Set[int] = set()
     pending = list(tree.get_children())
     while pending:
@@ -183,16 +232,27 @@ def _mako_uses(text: str) -> tuple[Set[str], Set[str]]:
             continue
         seen.add(id(node))
         expression = getattr(node, "text", "")
-        if type(node).__name__ == "Expression":
-            reads.update(_names(expression.strip())[0])
-            receivers.update(_receivers(expression.strip()))
-        elif type(node).__name__ == "ControlLine" and not node.isend:
-            if node.keyword == "elif":
-                expression = "if" + expression[4:]
-            reads.update(_names(expression + "\n    pass")[0])
-            receivers.update(_receivers(expression + "\n    pass"))
+        kind = type(node).__name__
+        code = None
+        if kind == "Expression":
+            code = expression.strip()
+        elif kind == "ControlLine" and not node.isend:
+            if node.keyword in ("elif", "else"):
+                expression = "if" + expression[4:] if node.keyword == "elif" else ""
+            code = expression + "\n    pass" if expression else ""
+        elif kind == "Code":
+            code = textwrap.dedent(expression)
+        elif kind == "DefTag":
+            # <%def name="item(label)"> binds its name and parameters.
+            code = "def " + str(node.attributes.get("name", "")) + ": pass"
+        if code:
+            reads.update(_names(code)[0])
+            receivers.update(_receivers(code))
+            load, bind = _roots(code)
+            loads.update(load)
+            bound.update(bind)
         pending.extend(node.get_children())
-    return reads, receivers
+    return reads, receivers, loads, bound
 
 
 # Reading one of these attributes asks Docassemble to gather the whole object.
@@ -463,6 +523,78 @@ def _symbols(blocks: List[Dict[str, Any]], package: str = "") -> List[Dict[str, 
     return list(unique.values())
 
 
+# Mako's runtime names inside templates.
+MAKO_NAMES = {
+    "context",
+    "loop",
+    "caller",
+    "capture",
+    "local",
+    "self",
+    "parent",
+    "next",
+    "UNDEFINED",
+    "pageargs",
+}
+
+
+@functools.lru_cache(maxsize=1)
+def _predefined_names() -> frozenset:
+    """Python builtins, Docassemble's own vocabulary and its utility functions.
+
+    The vocabulary is the file the Playground's "Undefined names" list uses,
+    read as data so no Docassemble version-specific module is imported.
+    """
+    from importlib.util import find_spec
+
+    from .editor_function_catalog import IMPLICIT_UTIL_MODULES, module_star_names
+
+    names = set(dir(builtins)) | MAKO_NAMES
+    try:
+        spec = find_spec("docassemble.base")
+        for root in (spec.submodule_search_locations or []) if spec else []:
+            path = os.path.join(root, "data", "questions", "docstring.yml")
+            if os.path.isfile(path):
+                with open(path, encoding="utf-8") as handle:
+                    vocabulary = yaml.safe_load(handle.read().replace("\t", "  "))
+                if isinstance(vocabulary, dict):
+                    names.update(str(name) for name in vocabulary)
+                break
+    except (ImportError, OSError, ValueError, yaml.YAMLError):
+        pass
+    for module in IMPLICIT_UTIL_MODULES:
+        names.update(module_star_names(module) or ())
+    return frozenset(names)
+
+
+def _available_names(
+    blocks: List[Dict[str, Any]], package: str
+) -> tuple[Set[str], List[str]]:
+    """Names the interview's ``modules`` and ``imports`` bring into scope."""
+    from .editor_function_catalog import module_star_names
+
+    names: Set[str] = set()
+    unreadable: List[str] = []
+    for block in blocks:
+        data = block.get("data") or {}
+        for module in _strings(data.get("imports")):
+            names.add(module.strip().split(".")[0].split(" as ")[-1].strip())
+        for module in _strings(data.get("modules")):
+            if module.startswith("."):
+                origin = (
+                    block["sourceFile"].split(":", 1)[0]
+                    if ":" in block["sourceFile"]
+                    else package
+                )
+                module = origin + module
+            exported = module_star_names(module)
+            if exported is None:
+                unreadable.append(module)
+            else:
+                names.update(exported)
+    return names, unreadable
+
+
 def _boundary_suffixes(key: str) -> List[str]:
     """``users[].name.first`` -> ``[].name.first``, ``.name.first``, ``.first``."""
     return [key[i:] for i in range(1, len(key)) if key[i] in ".["]
@@ -511,6 +643,7 @@ def scan_interview(
     files: Dict[str, str] = {}
     blocks: List[Dict[str, Any]] = []
     warnings: List[str] = []
+    unanalyzed: List[str] = []
     pending = [filename]
     seen: Set[str] = set()
     while pending:
@@ -523,7 +656,9 @@ def scan_interview(
             break
         try:
             source = read_file(name)
-            model = parse_interview_yaml(source)
+            # Docassemble replaces each tab with two spaces before parsing YAML;
+            # line numbers are unchanged.
+            model = parse_interview_yaml(source.replace("\t", "  "))
         except (OSError, ValueError) as exc:
             warnings.append(f"Could not read {name}: {type(exc).__name__}.")
             continue
@@ -538,28 +673,47 @@ def scan_interview(
             )
             block["scan_id"] = f"{name}#{block['index']}"
             data = block.get("data") or {}
-            if block["type"] == "raw" and not data:
+            if (block["type"] == "raw" and not data) or data.get("_unparseable"):
                 warnings.append(
                     f"Could not analyze {name}, line {block['line_start']}."
                 )
+                unanalyzed.append(f"{name}, line {block['line_start']}")
             for target in _strings(data.get("include")):
                 if ":" not in target and ":" in name:
                     target = name.split(":")[0] + ":" + target
                 pending.append(target)
             blocks.append(block)
 
+    # The editor shows commented-out blocks, but Docassemble ignores them.
+    every = blocks
+    for block in every:
+        if block["type"] == "commented":
+            block.update(defines=[], references=[], possibly_unreachable=False)
+    blocks = [block for block in every if block["type"] != "commented"]
+
     definitions: Dict[str, List[str]] = {}
     index = _DefinitionIndex()
     reads_by_block: Dict[str, Set[str]] = {}
     receivers_by_block: Dict[str, Set[str]] = {}
+    loads_by_block: Dict[str, Set[str]] = {}
     roots: Set[str] = set()
     for block in blocks:
-        data = block.get("data") or {}
+        # Docassemble lowercases a block's keys: "Fields:" works as "fields:".
+        data = {str(k).lower(): v for k, v in (block.get("data") or {}).items()}
         names: Set[str] = set()
         reads: Set[str] = set()
         receivers: Set[str] = set()
+        loads: Set[str] = set()
+        bound: Set[str] = set()
         for key in DEFINITIONS:
             names.update(_strings(data.get(key)))
+        # Attachments assign their document to a variable name.
+        for attachment in _dicts(data.get("attachment")) + _dicts(
+            data.get("attachments")
+        ):
+            names.update(_strings(attachment.get("variable name")))
+        for entry in _dicts(data.get("objects from file")):
+            names.update(entry)
         for field in (
             data.get("fields", []) if isinstance(data.get("fields"), list) else []
         ):
@@ -569,15 +723,16 @@ def scan_interview(
             for label, value in field.items():
                 if label not in FIELD_OPTIONS and isinstance(value, str):
                     names.add(value)
-        for obj in (
-            data.get("objects", []) if isinstance(data.get("objects"), list) else []
-        ):
-            if isinstance(obj, dict):
-                names.update(obj)
+        # Docassemble accepts a list of mappings or a single mapping.
+        for obj in _dicts(data.get("objects")):
+            names.update(obj)
         if isinstance(data.get("code"), str):
             r, w = _names(data["code"])
             reads.update(r)
             names.update(w)
+        # Assignments in validation code persist, a common way to set flags.
+        if isinstance(data.get("validation code"), str):
+            names.update(_names(data["validation code"])[1])
         # A review item's value names the variable its Edit button asks again.
         for item in (
             data.get("review", []) if isinstance(data.get("review"), list) else []
@@ -587,6 +742,7 @@ def scan_interview(
                     if label not in FIELD_OPTIONS | {"button"}:
                         for target in _strings(value):
                             reads.update(_names(target)[0])
+                            loads.update(_roots(target)[0])
 
         # Traverse all scalar expressions and Mako substitutions without treating
         # user prose or metadata as variable names.
@@ -613,14 +769,25 @@ def scan_interview(
                 }:
                     reads.update(_names(value)[0])
                     receivers.update(_receivers(value))
-                mako_reads, mako_receivers = _mako_uses(value)
+                    if key == "code":
+                        # An embedded block's code (a button's ``code:``) runs in
+                        # the interview's namespace, so its assignments persist.
+                        names.update(_names(value)[1])
+                    load, bind = _roots(value)
+                    loads.update(load)
+                    bound.update(bind)
+                mako_reads, mako_receivers, mako_loads, mako_bound = _mako_uses(value)
                 reads.update(mako_reads)
                 receivers.update(mako_receivers)
+                loads.update(mako_loads)
+                bound.update(mako_bound)
 
         visit(data)
         bid = block["scan_id"]
         reads_by_block[bid] = {_key(n) for n in reads}
         receivers_by_block[bid] = {_key(n) for n in receivers}
+        # Names bound anywhere in the block are its own, not interview variables.
+        loads_by_block[bid] = loads - bound
         block["defines"] = sorted(names)
         block["references"] = sorted(reads)
         # Actions can run an event block at any time, as can a mandatory block.
@@ -664,6 +831,37 @@ def scan_interview(
                 "possibly_unused": not used and not any(b in roots for b in defined),
             }
         )
+    # Docassemble's "Undefined names": a bare name nothing defines, imports or
+    # predefines raises "could not be looked up" when the interview reaches it.
+    available, unreadable = _available_names(blocks, package)
+    # A file or module that could not be read may define any name.
+    unreadable += [name for name in seen if name not in files] + unanalyzed
+    if unreadable:
+        warnings.append(
+            "Undefined names are not checked because these could not be read: "
+            + ", ".join(sorted(set(unreadable)))
+            + "."
+        )
+    else:
+        known = (
+            _predefined_names()
+            | available
+            | {re.split(r"[.\[]", name, maxsplit=1)[0] for name in definitions}
+        )
+        undefined: Dict[str, List[str]] = {}
+        for block in blocks:
+            for name in sorted(loads_by_block[block["scan_id"]] - known):
+                undefined.setdefault(name, []).append(block["scan_id"])
+        for name, used in sorted(undefined.items()):
+            variables.append(
+                {
+                    "name": name,
+                    "definitions": [],
+                    "references": used,
+                    "possibly_unused": False,
+                    "undefined": True,
+                }
+            )
     for block in blocks:
         block["possibly_unreachable"] = (
             bool(block["defines"] or "question" in (block.get("data") or {}))
@@ -720,7 +918,7 @@ def scan_interview(
     return {
         "symbols": _symbols(blocks, package),
         "filename": filename,
-        "blocks": blocks,
+        "blocks": every,
         "variables": variables,
         "order_steps": orders,
         "screen_order": screen_order,

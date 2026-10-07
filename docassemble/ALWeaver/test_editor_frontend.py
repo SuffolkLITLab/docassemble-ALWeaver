@@ -88,6 +88,11 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("form.append('workbook', file)", controls)
         self.assertIn("prepared.max_request_bytes", controls)
 
+    def test_undefined_names_are_reported_as_errors(self):
+        controls = (self.package_dir / "data/static/editor_reports.js").read_text()
+        self.assertIn("entry.undefined", controls)
+        self.assertIn("Error · Not defined", controls)
+
     def test_repository_reports_offer_entrypoint_selection(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
         controls = (self.package_dir / "data/static/editor_reports.js").read_text()
