@@ -291,7 +291,7 @@ async function main() {
     });
     await question.first().click();
     await page.locator('[data-question-tab="screen"]').click();
-    await page.locator("#q-title").waitFor({ state: "visible" });
+    await page.getByRole("textbox", { name: "Question", exact: true }).waitFor({ state: "visible" });
     blockingViolations = blockingViolations.concat(
       await audit(page, "graphical question editor")
     );
@@ -342,7 +342,7 @@ async function main() {
       await audit(page, "question YAML editor")
     );
     await page.locator('[data-question-mode="preview"]').first().click();
-    await page.locator("#q-title").waitFor({ state: "visible" });
+    await page.getByRole("textbox", { name: "Question", exact: true }).waitFor({ state: "visible" });
     await page.locator("#question-preview-tab").click();
     await page.locator("#screen-preview-modal").waitFor({ state: "visible" });
     await page.locator("#screen-preview-frame").waitFor({ state: "visible" });
