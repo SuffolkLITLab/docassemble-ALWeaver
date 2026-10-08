@@ -11,7 +11,10 @@
         ' ',
       ),
     );
-    var opener = /\$\{|<\/?%(?=([a-z]+))|<%|^[ \t]*%[ \t]*([a-z]+)\b/gm;
+    var tags = new Set(
+      'def block call page include namespace inherit text doc'.split(' '),
+    );
+    var opener = /\$\{|<\/?%(?=([a-z]+)\b)|<%|^[ \t]*%[ \t]*([a-z]+)\b/gm;
     var match;
     while ((match = opener.exec(text))) {
       if (match[2] && !directives.has(match[2])) continue;
@@ -30,7 +33,7 @@
           else if (ch === '{') depth++;
           else if (ch === '}') depth--;
         }
-      } else if (match[1]) {
+      } else if (tags.has(match[1])) {
         // Tags like <%def name="x()">, </%def> and <%include file="a"/> end
         // at the first unquoted '>'.
         end = tagEnd(text, opener.lastIndex);

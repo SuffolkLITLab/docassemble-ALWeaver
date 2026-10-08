@@ -45,6 +45,12 @@ assert.deepEqual(tokens('<%text>${ literal }\n% if no:</%text> more ${ z }'), [
 ]);
 assert.deepEqual(tokens('<%text>${ unterminated'), ['<%text>']);
 assert.deepEqual(tokens('<%def name="x()"'), ['<%def name="x()"']);
+assert.deepEqual(tokens('<%answer = 2 > 1%> tail ${ answer }'), [
+  '<%answer = 2 > 1%>',
+  '${ answer }',
+]);
+assert.deepEqual(tokens('<%text_value = 2 > 1%>'), ['<%text_value = 2 > 1%>']);
+assert.deepEqual(tokens('<%answer = 2 >'), ['<%answer = 2 >']);
 // Python blocks still end at '%>'.
 assert.deepEqual(tokens('<%! import os %> and <%\nx = 1\n%>'), [
   '<%! import os %>',

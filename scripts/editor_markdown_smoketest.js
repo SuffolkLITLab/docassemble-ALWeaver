@@ -73,6 +73,34 @@ const nextFrames = (page) =>
   );
 
 const scenarios = {
+  // Real-server smoke checks edit the visible control and read the source.
+  async visibleControlEditing(browser) {
+    for (const cm6 of [true, false]) {
+      const page = await openPage(
+        browser,
+        '<label for="q-subquestion">Subquestion</label><textarea id="q-subquestion"></textarea>',
+        { cm6 },
+      );
+      await page.evaluate(() =>
+        WeaverMarkdown.enhance(document.querySelector('#q-subquestion')),
+      );
+      const control = page.getByRole('textbox', {
+        name: 'Subquestion',
+        exact: true,
+      });
+      await control.waitFor({ state: 'visible' });
+      await control.fill('Edited introduction.\n');
+      await control.press('Control+End');
+      await page.keyboard.insertText('Appended help');
+      assert.equal(
+        await page.locator('#q-subquestion').inputValue(),
+        'Edited introduction.\nAppended help',
+      );
+      assert.deepEqual(page.errors, []);
+      await page.close();
+    }
+  },
+
   async editingRoundTrip(browser) {
     const page = await openPage(
       browser,
