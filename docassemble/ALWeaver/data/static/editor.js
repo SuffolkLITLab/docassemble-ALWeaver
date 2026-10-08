@@ -12649,8 +12649,12 @@
       '<div class="form-text">Markdown and Mako expressions are preserved. You can also insert another text template here.</div>';
     html += '</div></div></div></div>';
     canvasContent.innerHTML = html;
-    _initAutoResize(document.getElementById('template-subject'), 64);
-    _initAutoResize(document.getElementById('template-content'), 220);
+    var subjectInput = document.getElementById('template-subject');
+    if (subjectInput && !window.WeaverMarkdown.enhance(subjectInput))
+      _initAutoResize(subjectInput, 64);
+    var contentInput = document.getElementById('template-content');
+    if (!window.WeaverMarkdown.enhance(contentInput))
+      _initAutoResize(contentInput, 220);
   }
 
   // -------------------------------------------------------------------------
@@ -21125,7 +21129,8 @@
         '<textarea class="form-control editor-form-control" id="template-subject" rows="2"></textarea>' +
         '<div class="form-text">Required only when this template is inserted as collapsible help.</div>';
       var subjectInput = document.getElementById('template-subject');
-      _initAutoResize(subjectInput, 64);
+      if (!window.WeaverMarkdown.enhance(subjectInput))
+        _initAutoResize(subjectInput, 64);
       subjectInput.focus();
       return;
     }

@@ -73,6 +73,53 @@ const nextFrames = (page) =>
   );
 
 const scenarios = {
+  async makoRangesStayWithinExpressions(browser) {
+    const prose =
+      "The bond ensures that ${ children[0] } will receive compensation for financial harm if a guardian mishandles their estate.\n\nFor example, if a guardian uses money from ${ children[0].familiar() }'s bank account to pay for their own personal expenses, ${ children[0].familiar() } can use the bond to get that money back.";
+    const page = await openPage(
+      browser,
+      '<label for="question">Question</label><textarea id="question"></textarea>',
+    );
+    await page.evaluate((text) => {
+      const input = document.querySelector('#question');
+      input.value = text;
+      WeaverMarkdown.enhance(input);
+    }, prose);
+    const expected = [
+      '${ children[0] }',
+      '${ children[0].familiar() }',
+      '${ children[0].familiar() }',
+    ];
+    const checkRanges = async () => {
+      await nextFrames(page);
+      assert.deepEqual(
+        await page.evaluate(() =>
+          Array.from(CSS.highlights.get('weaver-mako'), (range) =>
+            range.toString(),
+          ),
+        ),
+        expected,
+      );
+    };
+    await checkRanges();
+    for (let pos = 0; pos <= prose.length; pos++) {
+      await page.evaluate(
+        (anchor) => testView.dispatch({ selection: { anchor } }),
+        pos,
+      );
+      await checkRanges();
+    }
+    await page.locator('.cm-content').click();
+    await page.keyboard.press('Control+Home');
+    await page.keyboard.press('Control+Shift+End');
+    await checkRanges();
+    await page.keyboard.insertText(prose);
+    await checkRanges();
+    await page.waitForTimeout(500);
+    await checkRanges();
+    assert.deepEqual(page.errors, []);
+    await page.close();
+  },
   // Real-server smoke checks edit the visible control and read the source.
   async visibleControlEditing(browser) {
     for (const cm6 of [true, false]) {
@@ -386,7 +433,7 @@ const scenarios = {
     for (const colorScheme of ['light', 'dark']) {
       const page = await openPage(
         browser,
-        '<label for="question">Question</label><textarea id="question">Plain prose and ${ users[0].name }</textarea>',
+        '<label for="question">Question</label><textarea id="question">Plain prose and ${ users[0].first_name }</textarea>',
         { colorScheme },
       );
       await page.evaluate(() =>
@@ -395,6 +442,60 @@ const scenarios = {
       await page.waitForFunction(
         () => CSS.highlights.get('weaver-mako')?.size === 1,
       );
+      // Axe does not inspect CSS Highlight foregrounds. Measure the actual
+      // Mako color against both the editor and its drawn selection layer.
+      for (const state of ['unselected', 'selected', 'blurred']) {
+        await page.evaluate((state) => {
+          if (state === 'selected') {
+            testView.focus();
+            testView.dispatch({ selection: { anchor: 16, head: 38 } });
+          } else if (state === 'blurred') testView.contentDOM.blur();
+        }, state);
+        await nextFrames(page);
+        const result = await page.evaluate((state) => {
+          const content = testView.contentDOM;
+          const style = getComputedStyle(content, '::highlight(weaver-mako)');
+          const rgb = (color) => color.match(/[\d.]+/g).map(Number);
+          const luminance = (color) =>
+            rgb(color)
+              .slice(0, 3)
+              .reduce((sum, c, i) => {
+                c /= 255;
+                return (
+                  sum +
+                  (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4) *
+                    [0.2126, 0.7152, 0.0722][i]
+                );
+              }, 0);
+          let background = 'rgb(255, 255, 255)';
+          const layer =
+            state === 'unselected'
+              ? content
+              : testView.dom.querySelector('.cm-selectionBackground');
+          for (let node = layer; node; node = node.parentElement) {
+            const color = getComputedStyle(node).backgroundColor;
+            if (rgb(color)[3] === 0) continue;
+            background = color;
+            break;
+          }
+          const fg = luminance(style.color),
+            bg = luminance(background);
+          return {
+            ratio: (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05),
+            decoration: style.textDecorationStyle,
+            background: style.backgroundColor,
+          };
+        }, state);
+        assert.equal(result.decoration, 'dotted');
+        assert.equal(result.background, 'rgba(0, 0, 0, 0)');
+        assert.ok(
+          result.ratio >= 4.5,
+          `${colorScheme} ${state}: ${result.ratio}`,
+        );
+        console.log(
+          `Mako contrast ${colorScheme} ${state}: ${result.ratio.toFixed(2)}:1`,
+        );
+      }
       assert.deepEqual(await axeViolations(page), [], colorScheme);
       assert.deepEqual(page.errors, [], colorScheme);
       await page.close();
