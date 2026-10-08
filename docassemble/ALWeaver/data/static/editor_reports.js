@@ -46,15 +46,22 @@
         return (b.references || []).some(function (name) { return method ? name.endsWith(method) : name === entry.name; });
       }).map(function (b) { return b.scan_id; });
       var errors = definitions.flatMap(function (b) { return bridge.findings ? bridge.findings(b) : []; });
-      return {entry: entry, definitions: definitions, references: references, errors: errors, unused: !references.length, unreachable: definitions.some(function (b) { return b.possibly_unreachable; })};
+      if (entry.undefined) {
+        errors.unshift({message: 'Nothing in this interview or its includes defines ' + entry.name + ', and Docassemble does not provide it. The interview stops with "could not be looked up" when it reaches a use.'});
+      }
+      // An undefined name has no definition, so it belongs where it is used.
+      var located = entry.undefined ? references.map(function (id) { return blocks[id]; }).filter(Boolean) : definitions;
+      return {entry: entry, definitions: definitions, located: located, references: references, errors: errors, unused: !references.length, unreachable: definitions.some(function (b) { return b.possibly_unreachable; })};
     }).filter(function (item) {
-      return (item.entry.name + ' ' + item.definitions.map(function (b) { return b.sourceFile; }).join(' ')).toLowerCase().includes(filter) &&
-        (el('variable-report-scope').value === 'all' || item.definitions.some(function (b) { return !b.sourceFile.includes(':'); })) &&
+      return (item.entry.name + ' ' + item.located.map(function (b) { return b.sourceFile; }).join(' ')).toLowerCase().includes(filter) &&
+        (el('variable-report-scope').value === 'all' || item.located.some(function (b) { return !b.sourceFile.includes(':'); })) &&
         (status === 'all' || status === 'used' && !item.unused || status === 'unused' && item.unused || status === 'unreachable' && item.unreachable || status === 'error' && item.errors.length);
     });
+    // Errors first; otherwise the scanner's alphabetical order.
+    matches.sort(function (a, b) { return (b.errors.length ? 1 : 0) - (a.errors.length ? 1 : 0); });
     var count = document.createElement('p');
     count.className = 'small text-muted';
-    count.textContent = matches.length + ' results' + (matches.length > 150 ? ' · Showing the first 150. Narrow your search to see more.' : '') + (report.warnings.length ? ' · ' + report.warnings.join(' ') : '');
+    count.textContent = matches.length + (matches.length === 1 ? ' result' : ' results') + (matches.length > 150 ? ' · Showing the first 150. Narrow your search to see more.' : '') + (report.warnings.length ? ' · ' + report.warnings.join(' ') : '');
     box.appendChild(count);
     matches.slice(0, 150).forEach(function (item) {
       var row = document.createElement('div');
@@ -65,10 +72,11 @@
       if (item.errors.length) name.className = 'text-danger';
       var detail = document.createElement('div');
       detail.className = 'small text-muted';
-      detail.textContent = (item.entry.origin ? item.entry.origin + ' · imported at ' : '') + item.definitions.map(function (b) { return b.sourceFile + ':' + b.line_start; }).join(', ');
+      detail.textContent = (item.entry.origin ? item.entry.origin + ' · imported at ' : item.entry.undefined ? 'Used at ' : '') + item.located.map(function (b) { return b.sourceFile + ':' + b.line_start; }).join(', ');
       var usage = document.createElement('div');
       usage.className = 'small';
-      usage.textContent = (item.errors.length ? 'Error · ' : '') + (item.unused ? 'Possibly unused' : 'Used') + (item.unreachable ? ' · Possibly unreachable' : '');
+      if (item.errors.length) usage.className += ' text-danger';
+      usage.textContent = item.entry.undefined ? 'Error · Not defined' : (item.errors.length ? 'Error · ' : '') + (item.unused ? 'Possibly unused' : 'Used') + (item.unreachable ? ' · Possibly unreachable' : '');
       info.append(name, detail, usage);
       var button = document.createElement('button');
       button.type = 'button';
