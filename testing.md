@@ -235,6 +235,50 @@ snapshot API can fail on unanswered address screens, leaving sidebar details
 behind the live interview. The regression verifies filling and submission;
 it does not assert complete step recording when that API fails.
 
+## Survey answer field filter end-to-end regression
+
+This regression generates a disposable interview with text and integer
+answers, a skipped field, and a code field. It installs the generated package
+on the configured Docassemble server, submits the primitive answers in a real
+browser, reaches the thank-you screen, then checks the matching JSON storage
+row. The database probe removes that row after checking its keys and types.
+
+Generate and install the fixture:
+
+```bash
+FIXTURE_DIR=/tmp/alweaver-survey-answer-filter
+uv run python scripts/generate_survey_answer_filter_fixture.py \
+  --output-dir "$FIXTURE_DIR"
+python -m zipfile -e \
+  "$FIXTURE_DIR/docassemble-SurveyAnswerFilterSmokeTest.zip" \
+  "$FIXTURE_DIR/unpacked"
+dainstall --server localhost \
+  "$FIXTURE_DIR/unpacked/docassemble-SurveyAnswerFilterSmokeTest"
+```
+
+Run the browser and database check. Install Playwright and Chromium first if
+they are not already available:
+
+```bash
+npm install --prefix /tmp/alweaver-e2e playwright
+/tmp/alweaver-e2e/node_modules/.bin/playwright install chromium
+NODE_PATH=/tmp/alweaver-e2e/node_modules \
+  SERVER_URL=http://localhost \
+  DOCASSEMBLE_CONTAINER=admiring_goldwasser \
+  DOCASSEMBLE_PYTHON=/usr/share/docassemble/local3.14/bin/python \
+  node scripts/survey_answer_filter_smoketest.js
+```
+
+Set `CHROMIUM_PATH` to use an existing Chromium executable and `STORAGE_STATE`
+to reuse an authenticated browser state when the server requires login. The
+database probe runs in the Docassemble container as `www-data`; set
+`DOCASSEMBLE_CONTAINER` if its name differs and `DOCASSEMBLE_PYTHON` if the
+container uses a different Python executable. The generated package name is
+`docassemble-SurveyAnswerFilterSmokeTest`; keep the extraction and install path
+in sync if you change the fixture title. The probe checks that the stored answer
+data includes only `survey_name` and `survey_count` (alongside storage metadata)
+and removes its matching row even when an assertion fails.
+
 ## Classroom editor load testing
 
 The bounded localhost harness is [scripts/editor_classroom_stress.py](scripts/editor_classroom_stress.py), with a loopback-only, eight-second model fixture in [scripts/editor_stress_model.py](scripts/editor_stress_model.py). It creates individual disposable developer accounts and owned projects, exercises debugger/editor traffic and queued AI drafts, records request latency and cgroup resources, and cleans up fixture accounts. It requires private local admin credentials and a correctly configured localhost web/Celery installation; it does not manage server configuration or the fixture process.

@@ -85,6 +85,90 @@ class TestGenerateInterviewFromPath(unittest.TestCase):
             self.assertTrue(result.package_zip_path)
             self.assertTrue(os.path.exists(result.package_zip_path))
 
+    def test_save_answers_only_omits_skipped_and_code_fields(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = os.path.join(tmpdir, "survey.pdf")
+            writer = PdfWriter()
+            writer.add_blank_page(width=612, height=792)
+            with open(pdf_path, "wb") as pdf_handle:
+                writer.write(pdf_handle)
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_download_screen=False,
+                include_next_steps=False,
+                field_definitions=[
+                    {
+                        "field": "survey_answer",
+                        "label": "Survey answer",
+                        "datatype": "text",
+                    },
+                    {
+                        "field": "signature_answer",
+                        "label": "Signature",
+                        "datatype": "signature",
+                    },
+                    {
+                        "field": "omitted_answer",
+                        "datatype": "skip",
+                        "value": "'internal'",
+                    },
+                    {
+                        "field": "computed_answer",
+                        "datatype": "code",
+                        "value": "'computed'",
+                    },
+                ],
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        input_fields_block = yaml_text.split("variable name: input_fields_dict", 1)[
+            1
+        ].split("---", 1)[0]
+        self.assertIn('"survey_answer": showifdef("survey_answer")', input_fields_block)
+        self.assertIn(
+            '"signature_answer": showifdef("signature_answer")', input_fields_block
+        )
+        self.assertNotIn("omitted_answer", input_fields_block)
+        self.assertNotIn("computed_answer", input_fields_block)
+
+    def test_save_answers_only_with_only_skipped_and_code_fields(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = os.path.join(tmpdir, "survey.pdf")
+            writer = PdfWriter()
+            writer.add_blank_page(width=612, height=792)
+            with open(pdf_path, "wb") as pdf_handle:
+                writer.write(pdf_handle)
+            result = generate_interview_from_path(
+                pdf_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_download_screen=False,
+                include_next_steps=False,
+                field_definitions=[
+                    {
+                        "field": "omitted_answer",
+                        "datatype": "skip",
+                        "value": "'internal'",
+                    },
+                    {
+                        "field": "computed_answer",
+                        "datatype": "code",
+                        "value": "'computed'",
+                    },
+                ],
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+            self._run_dayamlchecker(result.yaml_path)
+
+        input_fields_block = yaml_text.split("variable name: input_fields_dict", 1)[
+            1
+        ].split("---", 1)[0]
+        self.assertNotIn("omitted_answer", input_fields_block)
+        self.assertNotIn("computed_answer", input_fields_block)
+        self.assertIn("{}", input_fields_block)
+
     def test_a_choice_field_without_choices_is_written_as_text(self):
         pdf_path = (
             Path(__file__).parent / "test/test_petition_to_enforce_sanitary_code.pdf"

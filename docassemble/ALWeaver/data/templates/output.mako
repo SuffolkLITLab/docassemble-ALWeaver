@@ -542,9 +542,15 @@ progress: 100
 ---
 variable name: input_fields_dict
 data from code:
+  % if not any(field.field_type not in ["skip this field", "code"] for field in interview.all_fields.elements):
+  {}
+  % else:
   % for field in interview.all_fields.elements:
+  % if field.field_type not in ["skip this field", "code"]:
   "${ field.get_settable_var() }": showifdef("${ field.get_settable_var() }")
+  % endif
   % endfor
+  % endif
 ---
 code: |
   save_input_data(title = "${ interview.interview_label }", input_dict = input_fields_dict)
