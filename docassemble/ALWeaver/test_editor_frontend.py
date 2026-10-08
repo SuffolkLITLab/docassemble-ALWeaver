@@ -690,12 +690,21 @@ class TestEditorFrontend(unittest.TestCase):
         editor = (self.package_dir / "data/static/editor.js").read_text()
         # Without the CM6 bundle, enhance() declines and the textarea must
         # still grow with its text.
-        for target, minimum in (("qTitle", 36), ("qSub", 0), ("ta", 36)):
+        for target, minimum in (
+            ("qTitle", 36),
+            ("qSub", 0),
+            ("ta", 36),
+            ("subjectInput", 64),
+            ("contentInput", 220),
+        ):
             self.assertRegex(
                 editor,
                 rf"!window\.WeaverMarkdown\.enhance\({target}\)\)\s*"
                 rf"_initAutoResize\({target}, {minimum}\)",
             )
+        add_subject = editor.split("if (target.id === 'add-template-subject')", 1)[1]
+        add_subject = add_subject.split("\n      return;", 1)[0]
+        self.assertIn("WeaverMarkdown.enhance(subjectInput)", add_subject)
         # Focus and clicks inside an editor land on CodeMirror's content, so
         # symbol typeahead checks must resolve the textarea behind it.
         refresh = editor.split("  function refreshActiveSymbolPickers(", 1)[1]

@@ -5992,8 +5992,12 @@ body {
 .editor-markdown .cm-gutters { display: none; }
 ::highlight(weaver-mako) {
   color: #7136a3;
-  background-color: #f2eafa;
+  /* CodeMirror draws selections behind the text. An opaque highlight
+     background hides that range; dots keep syntax identifiable
+     even where the user has selected part of an expression. */
+  text-decoration: underline dotted;
+  text-decoration-color: #7136a3;
 }
 @media (prefers-color-scheme: dark) {
-  ::highlight(weaver-mako) { color: #eed5ff; background-color: #463051; }
+  ::highlight(weaver-mako) { color: #eed5ff; text-decoration-color: #eed5ff; }
 }

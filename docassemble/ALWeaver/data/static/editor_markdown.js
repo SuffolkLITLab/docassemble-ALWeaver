@@ -100,6 +100,7 @@
     var syncing = false;
     var frame;
     var painted = [];
+    var paintedBounds = new WeakMap();
     var tokenDoc;
     var tokens = [];
     var error = doc.createElement('div');
@@ -162,6 +163,7 @@
           range.setEnd(end.node, end.offset);
           highlight.add(range);
           painted.push(range);
+          paintedBounds.set(range, { from: from, to: to });
         });
       });
     }
@@ -183,7 +185,21 @@
         change.docChanged ||
         change.viewportChanged ||
         painted.some(function (range) {
-          return range.collapsed || !range.startContainer.isConnected;
+          if (
+            range.collapsed ||
+            !view.contentDOM.contains(range.startContainer) ||
+            !view.contentDOM.contains(range.endContainer)
+          )
+            return true;
+          // Markdown can replace inline nodes when the cursor moves. Live
+          // DOM ranges can then expand into prose without collapsing or
+          // detaching, so also check their original document boundaries.
+          var bounds = paintedBounds.get(range);
+          return (
+            view.posAtDOM(range.startContainer, range.startOffset) !==
+              bounds.from ||
+            view.posAtDOM(range.endContainer, range.endOffset) !== bounds.to
+          );
         })
       ) {
         root.cancelAnimationFrame(frame);
