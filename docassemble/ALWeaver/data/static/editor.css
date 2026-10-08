@@ -4982,7 +4982,8 @@ body {
   min-width: 0;
   width: 100%;
 }
-.expression-input-group > .form-control {
+.expression-input-group > .form-control,
+.expression-input-group > .editor-markdown {
   flex: 1 1 0;
   width: 0;
   min-width: 0;
@@ -5967,4 +5968,32 @@ body {
 .variable-browser [aria-pressed="true"] { background: var(--bs-secondary); color: white; }
 @media (min-width: 1000px) {
   .variable-browser-pinned { padding-right: 460px; }
+}
+
+/* Graphical Markdown fields grow with prose, with bounded scrolling for long text. */
+.editor-markdown-original[hidden] { display: none !important; }
+.editor-markdown {
+  min-width: 0;
+  width: 100%;
+  border: 1px solid var(--bs-border-color, #ced4da);
+  border-radius: .375rem;
+  overflow: hidden;
+}
+.editor-markdown:focus-within {
+  outline: 2px solid var(--bs-primary, #0d6efd);
+  outline-offset: 1px;
+}
+/* No background here: under a dark OS scheme cm6 applies oneDark, whose light
+   text needs oneDark's own dark background, as in the source editors. */
+/* Prose fields do not need the source editor's current-line shading. */
+.editor-markdown .cm-editor .cm-activeLine { background-color: transparent; }
+.editor-markdown .cm-scroller { max-height: 22rem; }
+.editor-markdown .cm-content { min-height: 2.25rem; }
+.editor-markdown .cm-gutters { display: none; }
+::highlight(weaver-mako) {
+  color: #7136a3;
+  background-color: #f2eafa;
+}
+@media (prefers-color-scheme: dark) {
+  ::highlight(weaver-mako) { color: #eed5ff; background-color: #463051; }
 }
