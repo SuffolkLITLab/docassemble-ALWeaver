@@ -113,6 +113,22 @@ editor accessibility workflow runs this regression and uploads the
 `editor-navigation-screenshots` artifact, including on failure. The existing
 `scripts/editor_route_smoketest.py` also supports the compact section menus.
 
+For the project interview default, `scripts/editor_default_file_smoketest.js`
+creates disposable projects through the authenticated editor API and removes
+them after the run. It checks the `main.yml` default, first-file fallback,
+selecting an existing interview, and opening a valid file-and-block deep link.
+With Playwright installed and Chromium available, run:
+
+```bash
+NODE_PATH=/tmp/alweaver-e2e/node_modules \
+  STORAGE_STATE=/tmp/developer-state.json \
+  CHROMIUM_PATH=/path/to/chromium \
+  node scripts/editor_default_file_smoketest.js
+```
+
+`SERVER_URL` can select a server instead of localhost. The storage state must
+belong to a user who can create editor projects.
+
 ## Reusable help template end-to-end regression
 
 `scripts/editor_help_templates_smoketest.js` creates a disposable Playground

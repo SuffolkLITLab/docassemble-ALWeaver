@@ -360,6 +360,23 @@ async function testProjectFileDefaultPrefersMainYaml() {
     'projects without main.yml keep the first-file fallback',
   );
   assert.equal(
+    (await openProject([], null)).filename,
+    null,
+    'empty projects keep the null selection',
+  );
+  assert.equal(
+    (await openProject(files, 'removed.yml')).filename,
+    'main.yml',
+    'a stale selection falls back to main.yml',
+  );
+  assert.equal(
+    (
+      await openProject([{ filename: 'helper.yml' }], 'removed.yml')
+    ).filename,
+    'helper.yml',
+    'a stale selection without main.yml uses the first file',
+  );
+  assert.equal(
     (await openProject(files, 'helper.yml')).filename,
     'helper.yml',
     'an existing selection is preserved',
