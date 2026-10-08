@@ -18,7 +18,7 @@
     "check:report-capture": "node scripts/build_report_capture.mjs --check"
   },
   "config": {
-    "jsFiles": "docassemble/ALWeaver/data/static/editor_api_client.js docassemble/ALWeaver/data/static/editor_agent_chat.js docassemble/ALWeaver/data/static/editor_module_restart.js docassemble/ALWeaver/data/static/editor_runtime_inspector.js docassemble/ALWeaver/data/static/editor_fake_filler.js docassemble/ALWeaver/data/static/editor_validation_source.js docassemble/ALWeaver/data/static/editor_dirty_state.js docassemble/ALWeaver/data/static/editor_html.js docassemble/ALWeaver/data/static/editor_expressions.js docassemble/ALWeaver/data/static/editor_router.js"
+    "jsFiles": "docassemble/ALWeaver/data/static/editor_api_client.js docassemble/ALWeaver/data/static/editor_agent_chat.js docassemble/ALWeaver/data/static/editor_module_restart.js docassemble/ALWeaver/data/static/editor_runtime_inspector.js docassemble/ALWeaver/data/static/editor_fake_filler.js docassemble/ALWeaver/data/static/editor_validation_source.js docassemble/ALWeaver/data/static/editor_dirty_state.js docassemble/ALWeaver/data/static/editor_html.js docassemble/ALWeaver/data/static/editor_expressions.js docassemble/ALWeaver/data/static/editor_router.js docassemble/ALWeaver/data/static/editor_markdown.js"
   },
   "devDependencies": {
     "@eslint/js": "^9.35.0",

@@ -9,6 +9,7 @@ import subprocess
 import unittest
 
 NODE_TESTS = (
+    "test_editor_markdown.js",
     "test_editor_controls.js",
     "test_editor_project_navigation.js",
     "test_editor_github_publish.js",
@@ -684,6 +685,69 @@ class TestEditorFrontend(unittest.TestCase):
         create = create.split("\n  function ", 1)[0]
         # axe's scrollable-region-focusable ignores bare contenteditable.
         self.assertIn("view.contentDOM.setAttribute('tabindex', '0')", create)
+
+    def test_markdown_fields_are_wired_like_their_textareas(self):
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+        # Without the CM6 bundle, enhance() declines and the textarea must
+        # still grow with its text.
+        for target, minimum in (("qTitle", 36), ("qSub", 0), ("ta", 36)):
+            self.assertRegex(
+                editor,
+                rf"!window\.WeaverMarkdown\.enhance\({target}\)\)\s*"
+                rf"_initAutoResize\({target}, {minimum}\)",
+            )
+        # Focus and clicks inside an editor land on CodeMirror's content, so
+        # symbol typeahead checks must resolve the textarea behind it.
+        refresh = editor.split("  function refreshActiveSymbolPickers(", 1)[1]
+        refresh = refresh.split("\n  }\n", 1)[0]
+        self.assertIn("WeaverMarkdown.source(document.activeElement)", refresh)
+        focusin = editor.split("document.addEventListener('focusin'", 1)[1]
+        self.assertIn("WeaverMarkdown.source(e.target)", focusin.split("});", 1)[0])
+        self.assertIn(
+            "!window.WeaverMarkdown.source(target).closest('[data-symbol-role]')",
+            editor,
+        )
+        annotate = editor.split("  function annotateExpressionInputs(", 1)[1]
+        annotate = annotate.split("\n  }\n", 1)[0]
+        self.assertIn("WeaverMarkdown.control(host)", annotate)
+
+    def test_markdown_editor_browser_scenarios(self):
+        # Real CodeMirror + axe-core coverage of the graphical Markdown fields:
+        # focus, validity, labels, contrast in both color schemes, disposal.
+        cm6 = Path(
+            os.environ.get(
+                "DOCASSEMBLE_CM6",
+                str(
+                    self.package_dir.parents[2]
+                    / "docassemble/docassemble_webapp/docassemble/webapp/static/app/cm6.js"
+                ),
+            )
+        )
+        if not cm6.is_file():
+            self.skipTest("Set DOCASSEMBLE_CM6 to Docassemble's static/app/cm6.js")
+        env = dict(os.environ, DOCASSEMBLE_CM6=str(cm6))
+        probe = subprocess.run(
+            ["node", "-e", "require.resolve('playwright');require.resolve('axe-core')"],
+            env=env,
+            check=False,
+            capture_output=True,
+        )
+        if probe.returncode:
+            self.skipTest(
+                "Set NODE_PATH to a node_modules with playwright and axe-core"
+            )
+        script = self.package_dir.parents[1] / "scripts/editor_markdown_smoketest.js"
+        completed = subprocess.run(
+            ["node", str(script)],
+            env=env,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+        self.assertEqual(
+            completed.returncode, 0, f"{completed.stdout}\n{completed.stderr}"
+        )
 
     def test_docassemble_codemirror_contract_on_supported_tags(self):
         checkout = Path(

@@ -191,12 +191,12 @@ async function main() {
     assert.ok(csrf);
 
     // Create at the current cursor while saving a dirty screen first.
-    await page.locator('#q-subquestion').fill('Edited introduction.\n');
     await page
-      .locator('#q-subquestion')
-      .evaluate((input) =>
-        input.setSelectionRange(input.value.length, input.value.length),
-      );
+      .getByRole('textbox', { name: 'Subquestion', exact: true })
+      .fill('Edited introduction.\n');
+    await page
+      .getByRole('textbox', { name: 'Subquestion', exact: true })
+      .press('Control+End');
     await openInsertion();
     await page.locator('#template-insert-name').fill('class');
     await page
@@ -344,7 +344,9 @@ async function main() {
     await page.locator('#template-insert-content').fill('Detalles en español.');
     await page.locator('#template-insert-create').click();
     await expect(page.locator('#template-insert-modal')).toBeHidden();
-    await page.locator('#q-subquestion').fill(originalSubquestion);
+    await page
+      .getByRole('textbox', { name: 'Subquestion', exact: true })
+      .fill(originalSubquestion);
     await save();
     model = await getFile();
     const variant = model.blocks.find(

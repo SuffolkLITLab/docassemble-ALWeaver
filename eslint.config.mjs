@@ -3,6 +3,7 @@ import globals from 'globals';
 import sonarjs from 'eslint-plugin-sonarjs';
 
 const endpointFiles = [
+  'docassemble/ALWeaver/data/static/editor_markdown.js',
   'docassemble/ALWeaver/data/static/editor_api_client.js',
   'docassemble/ALWeaver/data/static/editor_agent_chat.js',
   'docassemble/ALWeaver/data/static/editor_module_restart.js',

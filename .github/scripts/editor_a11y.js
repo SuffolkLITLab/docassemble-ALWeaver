@@ -31,10 +31,10 @@ async function signInIfNeeded(page) {
   });
 }
 
-async function audit(page, label) {
-  const result = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa"])
-    .analyze();
+async function audit(page, label, include) {
+  let builder = new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]);
+  if (include) builder = builder.include(include);
+  const result = await builder.analyze();
   const blocking = result.violations.filter((violation) =>
     blockingImpacts.has(violation.impact)
   );
@@ -291,10 +291,18 @@ async function main() {
     });
     await question.first().click();
     await page.locator('[data-question-tab="screen"]').click();
-    await page.locator("#q-title").waitFor({ state: "visible" });
+    await page.getByRole("textbox", { name: "Question", exact: true }).waitFor({ state: "visible" });
     blockingViolations = blockingViolations.concat(
       await audit(page, "graphical question editor")
     );
+    // Under a dark OS scheme cm6 restyles the question text editors with
+    // oneDark; their text must stay readable even though the page stays light.
+    await page.emulateMedia({ colorScheme: "dark" });
+    await page.waitForTimeout(250);
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "graphical question editor (dark scheme)", ".editor-markdown")
+    );
+    await page.emulateMedia({ colorScheme: "light" });
     // Add a field so this audit exercises the field authoring controls even
     // when the loaded screen has no editable field rows.
     await page.locator("#add-field-btn").click();
@@ -334,7 +342,7 @@ async function main() {
       await audit(page, "question YAML editor")
     );
     await page.locator('[data-question-mode="preview"]').first().click();
-    await page.locator("#q-title").waitFor({ state: "visible" });
+    await page.getByRole("textbox", { name: "Question", exact: true }).waitFor({ state: "visible" });
     await page.locator("#question-preview-tab").click();
     await page.locator("#screen-preview-modal").waitFor({ state: "visible" });
     await page.locator("#screen-preview-frame").waitFor({ state: "visible" });

@@ -67,7 +67,7 @@ jobs:
           mkdir -p /tmp/alweaver-a11y
           cd /tmp/alweaver-a11y
           npm init -y
-          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install playwright @playwright/test @axe-core/playwright
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install playwright @playwright/test @axe-core/playwright axe-core
           npx playwright install --with-deps chromium
       - name: Check editor navigation and capture screenshots
         env:
@@ -85,6 +85,16 @@ jobs:
           name: editor-navigation-screenshots
           path: /tmp/alweaver-navigation-screenshots
           if-no-files-found: ignore
+      - name: Check graphical Markdown fields
+        env:
+          SERVER_URL: "${{ steps.github_server.outputs.SERVER_URL }}"
+          NODE_PATH: /tmp/alweaver-a11y/node_modules
+          DOCASSEMBLE_CM6: /tmp/alweaver-a11y/cm6.min.js
+        run: |
+          # The same CodeMirror bundle /al/editor loads from this server.
+          curl --fail-with-body --silent --show-error \
+            -o "$DOCASSEMBLE_CM6" "$SERVER_URL/static/app/cm6.min.js"
+          node scripts/editor_markdown_smoketest.js
       - name: Check /al/editor accessibility
         env:
           SERVER_URL: "${{ steps.github_server.outputs.SERVER_URL }}"

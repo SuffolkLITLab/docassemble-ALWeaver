@@ -204,7 +204,7 @@ async function main() {
     );
 
     // Switching projects must preserve the existing unsaved-changes guard.
-    await page.locator('#q-title').fill('An unsaved question');
+    await page.getByRole('textbox', { name: 'Question', exact: true }).fill('An unsaved question');
     await page.locator('#editor-project-menu').click();
     await page.locator(`#editor-recent-projects [data-project-card="${secondary}"]`).click();
     await expect(page.locator('#unsaved-changes-modal')).toBeVisible();

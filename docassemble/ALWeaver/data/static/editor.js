@@ -1079,7 +1079,11 @@
           var group = document.createElement('div');
           group.className = 'expression-input-group';
           host.insertAdjacentElement('beforebegin', group);
-          group.append(host, action);
+          // A graphical editor is the visible control, so it moves too.
+          var control = window.WeaverMarkdown.control(host);
+          group.append(host);
+          if (control !== host) group.append(control);
+          group.append(action);
         } else {
           var menuItem = document.createElement('li');
           menuItem.appendChild(action);
@@ -5978,7 +5982,7 @@
       var search = document.getElementById('symbol-insert-search');
       refreshSymbolInsertModalList(search ? search.value || '' : '');
     }
-    var activeEl = document.activeElement;
+    var activeEl = window.WeaverMarkdown.source(document.activeElement);
     if (
       activeEl &&
       activeEl.matches &&
@@ -7076,7 +7080,7 @@
     }
     list.innerHTML = html;
 
-    var rect = inputEl.getBoundingClientRect();
+    var rect = window.WeaverMarkdown.control(inputEl).getBoundingClientRect();
     menu.style.left = window.scrollX + rect.left + 'px';
     menu.style.top = window.scrollY + rect.bottom + 4 + 'px';
     menu.style.width = Math.max(rect.width, 260) + 'px';
@@ -12438,6 +12442,7 @@
   function renderCanvas() {
     scheduleEditorRoute();
     disposeSourceEditors();
+    window.WeaverMarkdown.dispose(canvasContent);
     // Runtime observations finish asynchronously. Every non-debugger render
     // must first invalidate the debugger's canvas ownership so a late response
     // cannot paint it back over the new view.
@@ -13938,6 +13943,8 @@
               html +=
                 '<textarea class="form-control editor-form-control editor-field-content font-monospace" data-field-prop="label" data-label-field="true" placeholder="' +
                 esc(_fieldStandalonePlaceholder(dtype)) +
+                '" aria-label="' +
+                esc(_fieldStandalonePlaceholder(dtype)) +
                 '" title="Right-click for insert tools" rows="' +
                 _fieldStandaloneRows(dtype) +
                 '">' +
@@ -14143,11 +14150,14 @@
         });
       });
     } else {
-      // Auto-resize editable textareas
+      // Enhance graphical strings without changing the form serialization.
       var qTitle = document.getElementById('q-title');
-      if (qTitle) _initAutoResize(qTitle, 36);
+      // Plain textareas (no CM6 bundle) keep growing with their text.
+      if (qTitle && !window.WeaverMarkdown.enhance(qTitle))
+        _initAutoResize(qTitle, 36);
       var qSub = document.getElementById('q-subquestion');
-      if (qSub) _initAutoResize(qSub, 0);
+      if (qSub && !window.WeaverMarkdown.enhance(qSub))
+        _initAutoResize(qSub, 0);
       var helpInput = document.getElementById('adv-help');
       if (helpInput && data.help && typeof data.help === 'object') {
         helpInput.value = JSON.stringify(data.help, null, 2);
@@ -14157,7 +14167,7 @@
       document
         .querySelectorAll('[data-field-prop="label"]')
         .forEach(function (ta) {
-          _initAutoResize(ta, 36);
+          if (!window.WeaverMarkdown.enhance(ta)) _initAutoResize(ta, 36);
         });
       // Live uniqueness hint on the block ID field
       var idInput = document.getElementById('adv-id');
@@ -19085,7 +19095,10 @@
     attachmentMappingsModal.addEventListener('hide.bs.modal', function (event) {
       if (attachmentMappingContext && attachmentMappingContext.saving)
         event.preventDefault();
-      else attachmentMappingContext = null;
+      else {
+        attachmentMappingContext = null;
+        window.WeaverMarkdown.dispose(attachmentMappingsModal);
+      }
       hideTypeaheadMenu();
     });
 
@@ -19100,6 +19113,7 @@
     attachmentMappingContext = context;
     var body = document.getElementById('attachment-mappings-body');
     var save = document.getElementById('save-attachment-mappings');
+    window.WeaverMarkdown.dispose(body);
     body.textContent = 'Reading template fields…';
     save.disabled = true;
     document.getElementById('attachment-mappings-status').textContent = '';
@@ -19182,6 +19196,11 @@
           html += '</tbody></table></section>';
         });
         body.innerHTML = html;
+        body
+          .querySelectorAll('[data-attachment-field]')
+          .forEach(function (input) {
+            window.WeaverMarkdown.enhance(input);
+          });
         save.disabled = false;
       })
       .catch(function (error) {
@@ -20588,7 +20607,7 @@
 
     if (
       !target.closest('#editor-symbol-typeahead') &&
-      !target.closest('[data-symbol-role]')
+      !window.WeaverMarkdown.source(target).closest('[data-symbol-role]')
     ) {
       hideTypeaheadMenu();
     }
@@ -23689,7 +23708,7 @@
   });
 
   document.addEventListener('focusin', function (e) {
-    var target = e.target;
+    var target = window.WeaverMarkdown.source(e.target);
     if (target.matches('[data-symbol-role]')) {
       showTypeaheadForInput(target);
     }
