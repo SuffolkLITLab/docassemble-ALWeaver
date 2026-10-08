@@ -10107,7 +10107,14 @@
           return;
         }
         if (!currentStillExists) {
-          state.filename = state.files.length ? state.files[0].filename : null;
+          var mainInterview = state.files.find(function (file) {
+            return file.filename === 'main.yml';
+          });
+          state.filename = mainInterview
+            ? mainInterview.filename
+            : state.files.length
+              ? state.files[0].filename
+              : null;
           state.selectedBlockId = null;
         }
         populateFiles();

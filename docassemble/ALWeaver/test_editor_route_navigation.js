@@ -308,6 +308,91 @@ async function flushMicrotasks() {
   await Promise.resolve();
 }
 
+async function testProjectFileDefaultPrefersMainYaml() {
+  async function openProject(files, filename, requestedRoute) {
+    const loaded = [];
+    let context;
+    context = vm.createContext({
+      state: {
+        project: 'P',
+        files: [],
+        filename: filename || null,
+        selectedBlockId: 'old-block',
+      },
+      routeSequence: 0,
+      loadingFilesProject: null,
+      cancelRouteHydration() {},
+      apiGet: async () => ({ success: true, data: { files } }),
+      rememberRecentProject() {},
+      populateProjects() {},
+      populateFiles() {},
+      refreshGithubSyncAction() {},
+      moduleRestart: { refresh() {} },
+      loadFile(route) {
+        loaded.push({ filename: context.state.filename, route });
+        return Promise.resolve();
+      },
+      loadSectionFiles() {},
+      renderOutline() {},
+      renderCanvas() {},
+      routeFailure(message) {
+        throw new Error(message);
+      },
+      isSupersededRequest() {
+        return false;
+      },
+      swallowNavigationLoadError() {},
+    });
+    vm.runInContext(extractFunction('loadFiles'), context);
+    await context.loadFiles(requestedRoute);
+    return { filename: context.state.filename, loaded };
+  }
+
+  const files = [{ filename: 'helper.yml' }, { filename: 'main.yml' }];
+  assert.equal(
+    (await openProject(files, null)).filename,
+    'main.yml',
+    'main.yml is the default even when another interview sorts first',
+  );
+  assert.equal(
+    (await openProject([{ filename: 'helper.yml' }], null)).filename,
+    'helper.yml',
+    'projects without main.yml keep the first-file fallback',
+  );
+  assert.equal(
+    (await openProject([], null)).filename,
+    null,
+    'empty projects keep the null selection',
+  );
+  assert.equal(
+    (await openProject(files, 'removed.yml')).filename,
+    'main.yml',
+    'a stale selection falls back to main.yml',
+  );
+  assert.equal(
+    (
+      await openProject([{ filename: 'helper.yml' }], 'removed.yml')
+    ).filename,
+    'helper.yml',
+    'a stale selection without main.yml uses the first file',
+  );
+  assert.equal(
+    (await openProject(files, 'helper.yml')).filename,
+    'helper.yml',
+    'an existing selection is preserved',
+  );
+  assert.equal(
+    (
+      await openProject(files, 'helper.yml', {
+        filename: 'helper.yml',
+        blockId: 'target',
+      })
+    ).filename,
+    'helper.yml',
+    'a valid explicit route is preserved',
+  );
+}
+
 async function testCleanBackForward() {
   const h = makeHarness();
   h.state.canvasMode = 'question';
@@ -514,6 +599,7 @@ function testLoadingAndOtherPanelsPreserveQuestionFields() {
 
 (async () => {
   testLoadingAndOtherPanelsPreserveQuestionFields();
+  await testProjectFileDefaultPrefersMainYaml();
   await testCleanBackForward();
   testDirtyStayRestoresHistoryPointer();
   await testSaveAndDiscardCanAcceptTraversal();
