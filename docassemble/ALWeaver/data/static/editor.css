@@ -3472,6 +3472,12 @@ body {
 }
 
 .editor-validation-item {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
   display: flex;
   align-items: flex-start;
   gap: 8px;
@@ -3489,7 +3495,12 @@ body {
   background: #f8f9fb;
 }
 
-.editor-validation-item:last-child {
+.editor-validation-item:focus-visible {
+  outline: 2px solid #0d6efd;
+  outline-offset: 1px;
+}
+
+.editor-validation-list > li:last-child .editor-validation-item {
   border-bottom: none;
 }
 

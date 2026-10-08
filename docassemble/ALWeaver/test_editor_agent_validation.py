@@ -10,6 +10,7 @@ from .editor_agent_validation import (
     annotate_lint_findings,
     dayamlchecker_findings,
     resolve_lint_block_id,
+    validate_source_text,
 )
 from .editor_ai_utils import validate_yaml_with_dayamlchecker
 
@@ -108,6 +109,27 @@ class TestLintFindingBlockResolution(unittest.TestCase):
         }
 
         self.assertEqual(resolve_lint_block_id(finding, self.blocks), "second")
+
+
+class TestYamlParserLineEndings(unittest.TestCase):
+    def test_crlf_syntax_error_uses_absolute_offset_in_original_source(self):
+        source = "id: intro\r\nquestion: Hello\r\nfields: [unfinished\r\n"
+
+        finding = validate_source_text(source, "main.yml")[0]
+
+        self.assertEqual(finding["source"], "yaml-parser")
+        self.assertEqual(finding["filename"], "main.yml")
+        line = finding["source_range"]["start"]["line"]
+        column = finding["source_range"]["start"]["column"]
+        self.assertEqual(line, finding["line_number"])
+        lines = source.splitlines(keepends=True)
+        if line == len(lines) + 1:
+            expected_offset = len(source)
+        else:
+            expected_offset = sum(len(item) for item in lines[: line - 1]) + min(
+                column - 1, len(lines[line - 1].rstrip("\r\n"))
+            )
+        self.assertEqual(finding["source_range"]["start"]["offset"], expected_offset)
 
 
 if __name__ == "__main__":

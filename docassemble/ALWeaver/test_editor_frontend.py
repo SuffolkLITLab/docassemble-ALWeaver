@@ -34,6 +34,7 @@ NODE_TESTS = (
     "test_editor_fake_filler.js",
     "test_editor_router.js",
     "test_editor_route_navigation.js",
+    "test_editor_validation_navigation.js",
 )
 
 
@@ -103,6 +104,17 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn(
             "expandNamedOrders(scan.order_steps, scan.named_order_steps)", controls
         )
+
+    def test_validation_findings_are_keyboard_navigable_and_keep_file_context(self):
+        source = (self.package_dir / "data/static/editor.js").read_text()
+        css = (self.package_dir / "data/static/editor.css").read_text()
+        self.assertIn('<li><button type="button" class="editor-validation-item', source)
+        self.assertIn("Open full YAML: ", source)
+        self.assertIn("data-source-filename=", source)
+        self.assertIn("target.closest('.editor-validation-item')", source)
+        self.assertIn("sourceFilename !== state.filename", source)
+        self.assertIn("getValidationSourceSnapshot()", source)
+        self.assertIn(".editor-validation-item:focus-visible", css)
 
     def test_variable_report_has_persistent_rail_and_navigation(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
