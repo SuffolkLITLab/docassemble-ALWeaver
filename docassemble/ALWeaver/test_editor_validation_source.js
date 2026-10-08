@@ -50,6 +50,18 @@ assert.strictEqual(
 );
 assert.ok(!/(^|[^\r])\n/.test(crlfBlockResult), 'validation snapshot contains mixed LF line endings');
 
+const crlfCombinedResult = validationSource.buildValidationSource({
+  rawYaml: crlfOriginal,
+  blocks,
+  blockReplacements: {
+    intro: '# keep this comment\nid: intro\nquestion: Unsaved question',
+  },
+  metadataSource: "metadata:\n  title: 'Unsaved metadata'",
+});
+assert.ok(crlfCombinedResult.includes('question: Unsaved question'));
+assert.ok(crlfCombinedResult.includes("title: 'Unsaved metadata'"));
+assert.ok(!/(^|[^\r])\n/.test(crlfCombinedResult));
+
 const metadataResult = validationSource.buildValidationSource({
   rawYaml: original,
   blocks,

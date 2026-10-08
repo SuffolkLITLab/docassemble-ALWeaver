@@ -96,6 +96,7 @@
     insertAfterBlockId: null,
     fullYamlStash: {},
     validationErrors: [],
+    validationFilename: null,
     validationOpen: false,
     validationBusy: false,
     //: 'bottom' | 'tall' | 'side' | 'full' -- where the findings panel sits
@@ -10157,6 +10158,12 @@
   function loadFile(requestedRoute) {
     if (!requestedRoute) cancelRouteHydration();
     if (!state.filename) return Promise.resolve();
+    _validationRequestSequence += 1;
+    _validationInFlight = false;
+    state.validationBusy = false;
+    state.validationErrors = [];
+    state.validationFilename = null;
+    renderValidationDrawer();
     var project = state.project;
     var filename = state.filename;
     var sequence = routeSequence;
@@ -11484,6 +11491,15 @@
   // Validation / Error drawer
   // -------------------------------------------------------------------------
   var _validationInFlight = false;
+  var _validationRequestSequence = 0;
+
+  function isCurrentValidationRequest(sequence, project, filename) {
+    return (
+      sequence === _validationRequestSequence &&
+      project === state.project &&
+      filename === state.filename
+    );
+  }
 
   function readValidationDock() {
     try {
@@ -11649,6 +11665,10 @@
     if (!state.project || !state.filename || _validationInFlight) return;
     discardResultsFromTheOtherCheck('validation');
     state.validationMode = 'validation';
+    var requestSequence = ++_validationRequestSequence;
+    var requestProject = state.project;
+    var requestFilename = state.filename;
+    state.validationFilename = requestFilename;
     state.validationBaseRevisionMatches = null;
     var validationSnapshot;
     try {
@@ -11675,12 +11695,20 @@
     state.validationBusy = true;
     renderValidationDrawer();
     apiPost('/api/validate-source', {
-      project: state.project,
-      filename: state.filename,
+      project: requestProject,
+      filename: requestFilename,
       raw_yaml: validationSource,
       revision: state.revision,
     })
       .then(function (res) {
+        if (
+          !isCurrentValidationRequest(
+            requestSequence,
+            requestProject,
+            requestFilename,
+          )
+        )
+          return;
         _validationInFlight = false;
         state.validationBusy = false;
         if (res.success && res.data) {
@@ -11694,6 +11722,14 @@
         renderOutline();
       })
       .catch(function (error) {
+        if (
+          !isCurrentValidationRequest(
+            requestSequence,
+            requestProject,
+            requestFilename,
+          )
+        )
+          return;
         _validationInFlight = false;
         state.validationBusy = false;
         if (isSupersededRequest(error)) {
@@ -11717,6 +11753,10 @@
     var wantsLlm = Boolean(includeLlm);
     discardResultsFromTheOtherCheck('style');
     state.validationMode = 'style';
+    var requestSequence = ++_validationRequestSequence;
+    var requestProject = state.project;
+    var requestFilename = state.filename;
+    state.validationFilename = requestFilename;
     state.styleCheckIncludeLlm = wantsLlm;
     state.validationSourceScope = 'saved_source';
     state.validationBaseRevisionMatches = null;
@@ -11729,14 +11769,22 @@
     var awaitStyleResult = aiJobResultGuard(null, true);
     apiGet(
       '/api/weaver/style-check?project=' +
-        encodeURIComponent(state.project) +
+        encodeURIComponent(requestProject) +
         '&filename=' +
-        encodeURIComponent(state.filename) +
+        encodeURIComponent(requestFilename) +
         '&include_llm=' +
         (wantsLlm ? '1' : '0'),
     )
       .then(awaitStyleResult)
       .then(function (res) {
+        if (
+          !isCurrentValidationRequest(
+            requestSequence,
+            requestProject,
+            requestFilename,
+          )
+        )
+          return;
         _validationInFlight = false;
         state.validationBusy = false;
         if (res.success && res.data) {
@@ -11748,6 +11796,14 @@
         renderOutline();
       })
       .catch(function (error) {
+        if (
+          !isCurrentValidationRequest(
+            requestSequence,
+            requestProject,
+            requestFilename,
+          )
+        )
+          return;
         _validationInFlight = false;
         state.validationBusy = false;
         if (isSupersededRequest(error)) {
@@ -11760,6 +11816,38 @@
         renderValidationDrawer();
         renderOutline();
       });
+  }
+
+  function openUnmappedValidationFinding() {
+    // Compose the exact working source first so changing views cannot expose
+    // an older saved YAML buffer in place of unsaved block or metadata edits.
+    var snapshot;
+    try {
+      snapshot = getValidationSourceSnapshot();
+    } catch (error) {
+      window.alert(
+        error && error.message
+          ? error.message
+          : 'Could not prepare the unsaved source for review.',
+      );
+      return;
+    }
+    state.fullYamlStash.full = snapshot.rawYaml;
+    if (snapshot.scope === 'unsaved_source') {
+      dirtyState.markSourceDirty('open-validation-source');
+      updateTopbarSaveState();
+    }
+    state.currentView = 'interview';
+    state.validationOpen = true;
+    if (state.validationDock === 'full') setValidationDock('side');
+    state.canvasMode = 'full-yaml';
+    state.fullYamlTab = 'full';
+    var interviewTab = document.querySelector(
+      '.editor-top-tab[data-view="interview"]',
+    );
+    if (interviewTab) setActiveTopTab(interviewTab);
+    renderCanvas();
+    renderValidationDrawer();
   }
 
   function _validationLevelRank(level) {
@@ -11929,17 +12017,25 @@
       var icon = 'fa-circle-info';
       if (level === 'warning') icon = 'fa-triangle-exclamation';
       if (level === 'error') icon = 'fa-circle-xmark';
-      var lineText = err.line_number ? 'Line ' + Number(err.line_number) : '';
+      var lineText =
+        err.block_id && err.line_number
+          ? 'Line ' + Number(err.line_number)
+          : '';
       if (lineText && err.filename) lineText += ' - ';
       if (err.filename) lineText += String(err.filename).split('/').pop();
+      var findingLabel = err.block_id
+        ? 'Open interview block ' + String(err.block_id) + ': '
+        : 'Open full YAML: ';
       html +=
-        '<li class="editor-validation-item' +
-        (err.block_id ? ' editor-validation-item-linked' : '') +
-        '"' +
+        '<li><button type="button" class="editor-validation-item editor-validation-item-linked"' +
         (err.block_id
           ? ' data-block-id="' + esc(String(err.block_id)) + '"'
           : '') +
-        '>';
+        ' data-source-filename="' +
+        esc(String(err.filename || state.validationFilename || '')) +
+        '" aria-label="' +
+        esc(findingLabel + String(err.message || 'Unknown issue')) +
+        '">';
       html +=
         '<i class="fa-solid ' +
         icon +
@@ -11959,7 +12055,7 @@
           esc(err.variable) +
           '</span>';
       html += '</div>';
-      html += '</li>';
+      html += '</button></li>';
     });
     html += '</ul>';
     body.innerHTML = html;
@@ -16534,7 +16630,12 @@
 
     // Use stashed content if available, otherwise build from state
     var content = '';
-    if (state.fullYamlStash[state.fullYamlTab]) {
+    if (
+      Object.prototype.hasOwnProperty.call(
+        state.fullYamlStash,
+        state.fullYamlTab,
+      )
+    ) {
       content = state.fullYamlStash[state.fullYamlTab];
     } else if (state.fullYamlTab === 'full') {
       content = state.rawYaml;
@@ -20682,14 +20783,18 @@
       return;
     }
 
-    var validationItem = target.closest(
-      '.editor-validation-item[data-block-id]',
-    );
+    var validationItem = target.closest('.editor-validation-item');
     if (validationItem) {
+      var sourceFilename = validationItem.getAttribute('data-source-filename');
+      if (sourceFilename && sourceFilename !== state.filename) return;
       var validationBlockId = validationItem.getAttribute('data-block-id');
       if (validationBlockId) {
+        var validationBlock = getBlockById(validationBlockId);
+        if (!validationBlock) {
+          openUnmappedValidationFinding();
+          return;
+        }
         function openValidationBlock() {
-          var validationBlock = getBlockById(validationBlockId);
           if (validationBlock && !isBlockVisibleInOutline(validationBlock)) {
             state.jumpTarget = 'all';
             syncJumpSelect();
@@ -20720,6 +20825,8 @@
         )
           return;
         openValidationBlock();
+      } else {
+        openUnmappedValidationFinding();
       }
       return;
     }

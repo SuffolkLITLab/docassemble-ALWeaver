@@ -151,6 +151,19 @@ NODE_PATH=/tmp/alweaver-e2e/node_modules \
   node scripts/editor_help_templates_smoketest.js
 ```
 
+`scripts/editor_unmapped_validation_smoketest.js` creates and deletes a
+disposable project, makes a graphical edit to a CRLF interview, opens an
+unmapped validation finding with the keyboard, and saves and reloads the
+composed source. Run it against an authenticated local editor session with
+Playwright available:
+
+```sh
+STORAGE_STATE=/path/to/storage-state.json \
+NODE_PATH=/path/to/playwright/node_modules \
+CHROMIUM_PATH=/path/to/chromium \
+node scripts/editor_unmapped_validation_smoketest.js
+```
+
 The output contains editor and live interview screenshots plus `results.json`.
 Template insertion and reference checks are scoped to the active YAML file;
 advanced templates remain editable in YAML mode.
