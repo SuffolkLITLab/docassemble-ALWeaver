@@ -193,6 +193,12 @@
       var requestId = requestIdFactory();
       var headers = Object.assign({}, requestOptions.headers || {});
       headers['X-Request-ID'] = requestId;
+      if (
+        options.playgroundUserId !== undefined &&
+        options.playgroundUserId !== null
+      ) {
+        headers['X-Weaver-Playground-User'] = String(options.playgroundUserId);
+      }
       var csrfToken = options.csrfToken || discoverCsrfToken();
       if (method !== 'GET' && method !== 'HEAD' && csrfToken) {
         headers['X-CSRF-Token'] = csrfToken;

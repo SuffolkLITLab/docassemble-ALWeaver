@@ -684,6 +684,39 @@ class TestSessionOwnership(AgentApiTestCase):
                     response.get_json()["error"]["code"], "agent_session_not_found"
                 )
 
+    def test_collaborators_in_a_shared_playground_keep_separate_sessions(self):
+        session = self._stored_session(owner=8)
+        session.playground_user_id = 7
+        store_agent_session(self.redis, session)
+        for actor, expected in ((9, 404), (8, 200)):
+            with (
+                self.subTest(actor=actor),
+                patch.object(api_editor, "_actor_user_id", return_value=actor),
+            ):
+                response = self._request(
+                    api_editor.editor_api_agent_session,
+                    "/api/agent/sessions/agent-1",
+                    method="GET",
+                    args=("agent-1",),
+                    user_id=7,
+                )
+                self.assertEqual(response.status_code, expected)
+
+    def test_a_session_stays_with_the_playground_it_edits(self):
+        session = self._stored_session(owner=8)
+        session.playground_user_id = 7
+        store_agent_session(self.redis, session)
+        # The same developer, back in their own Playground.
+        with patch.object(api_editor, "_actor_user_id", return_value=8):
+            response = self._request(
+                api_editor.editor_api_agent_session,
+                "/api/agent/sessions/agent-1",
+                method="GET",
+                args=("agent-1",),
+                user_id=8,
+            )
+        self.assertEqual(response.status_code, 404)
+
 
 class TestTurn(AgentApiTestCase):
     def _run_turn(

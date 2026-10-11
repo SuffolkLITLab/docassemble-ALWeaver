@@ -30,6 +30,10 @@
           <button type="button" class="dropdown-item" data-action="create-project"><i class="fa-solid fa-plus fa-fw me-2" aria-hidden="true"></i>Create project</button>
           <button type="button" class="dropdown-item" data-action="open-github-import"><i class="fa-brands fa-github fa-fw me-2" aria-hidden="true"></i>Create project from GitHub</button>
           <button type="button" class="dropdown-item" data-action="open-project-selector"><i class="fa-solid fa-folder-open fa-fw me-2" aria-hidden="true"></i>Browse projects</button>
+          <hr class="dropdown-divider d-none" id="playground-menu-divider">
+          <div class="dropdown-item-text small text-muted d-none" id="playground-menu-owner"></div>
+          <button type="button" class="dropdown-item d-none" data-action="open-playground-selector"><i class="fa-solid fa-users fa-fw me-2" aria-hidden="true"></i>Switch Playground</button>
+          <button type="button" class="dropdown-item d-none" data-action="return-own-playground"><i class="fa-solid fa-house fa-fw me-2" aria-hidden="true"></i>Return to my Playground</button>
         </div>
       </div>
       <div class="dropdown editor-section-switcher">
@@ -138,6 +142,11 @@
     </div>
   </nav>
   <span id="editor-error-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true">0 errors</span>
+
+  <div class="alert alert-info rounded-0 border-start-0 border-end-0 mb-0 d-none d-flex flex-wrap align-items-center gap-2" id="playground-owner-banner" role="status">
+    <span class="flex-grow-1" id="playground-owner-label"></span>
+    <button type="button" class="btn btn-sm btn-outline-primary" data-action="return-own-playground">Return to my Playground</button>
+  </div>
 
   <div class="alert alert-warning alert-dismissible rounded-0 border-start-0 border-end-0 mb-0 d-none"
        id="editor-celery-warning" role="status" aria-live="polite">
@@ -454,6 +463,27 @@
       </div>
     </div>
   </div>
+</div>
+
+<div class="modal fade" id="playground-selector-modal" tabindex="-1" aria-labelledby="playground-selector-title">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header">
+      <h5 class="modal-title" id="playground-selector-title">Switch Playground</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+    </div>
+    <form id="playground-selector-form">
+      <div class="modal-body">
+        <label for="playground-owner-select" class="form-label">Playground owner</label>
+        <select class="form-select" id="playground-owner-select" aria-describedby="playground-selector-help" disabled></select>
+        <div class="form-text" id="playground-selector-help">You can edit the Playground of another active developer or administrator.</div>
+        <div class="small mt-3" id="playground-selector-status" role="status" aria-live="polite"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="playground-selector-submit" disabled>Open Playground</button>
+      </div>
+    </form>
+  </div></div>
 </div>
 
 <!-- Pull a branch of the project's GitHub repository -->
