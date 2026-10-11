@@ -591,6 +591,13 @@ def _editor_playground_context() -> Dict[str, Any]:
                 }
     if owner is None or owner["id"] == uid:
         # A revoked or deleted account cannot remain a storage identity.
+        if selected is not None and selected != uid:
+            # Return home the way an explicit switch does, so Docassemble's own
+            # Playground does not reopen on the former owner's project.
+            try:
+                select_playground_user(uid)
+            except Exception as exc:
+                log(f"ALWeaver editor: Playground reset failed: {exc!r}", "error")
         session.pop("playground_user", None)
         session.pop("alweaver_playground_owner", None)
         owner = {
@@ -7913,6 +7920,7 @@ def editor_api_agent_create_session() -> Response:
         return _agent_disabled(request_id)
     try:
         uid = _current_user_id()
+        actor = _actor_user_id()
         post_data = request.get_json(silent=True)
         if not isinstance(post_data, dict):
             raise ValueError("Request body must be a JSON object")
@@ -7972,7 +7980,7 @@ def editor_api_agent_create_session() -> Response:
                 )
                 _log_agent_event(
                     request_id=request_id,
-                    user=_actor_user_id(),
+                    user=actor,
                     project=project,
                     filename=filename,
                     event="working_source_repaired",
@@ -8003,8 +8011,8 @@ def editor_api_agent_create_session() -> Response:
 
         session = WeaverAgentSession(
             session_id=str(uuid.uuid4()),
-            owner_user_id=_actor_user_id(),
-            playground_user_id=None if _actor_user_id() == uid else uid,
+            owner_user_id=actor,
+            playground_user_id=None if actor == uid else uid,
             project=project,
             filename=filename,
             base_saved_revision=current_revision,
@@ -8020,7 +8028,7 @@ def editor_api_agent_create_session() -> Response:
         _log_agent_event(
             request_id=request_id,
             agent_session=session.session_id,
-            user=uid,
+            user=actor,
             project=project,
             filename=filename,
             event="session_created",

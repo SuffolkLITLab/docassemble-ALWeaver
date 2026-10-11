@@ -226,6 +226,8 @@ def test_revoked_selection_blocks_old_tab_and_returns_storage_home(
     )
     assert response.status_code == 409
     playground.projects.assert_not_called()
+    # Docassemble's own navigation is reset too, not just the session key.
+    playground.selecting.assert_called_once_with(7)
     with playground.client.session_transaction() as cookie:
         assert "playground_user" not in cookie
     assert (
