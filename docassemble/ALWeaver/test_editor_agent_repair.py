@@ -8,6 +8,7 @@ that wording ever drifts these tests are what catches it.
 """
 
 import unittest
+from unittest.mock import patch
 
 from .editor_agent_models import WeaverAgentSession
 from .editor_agent_repair import (
@@ -162,12 +163,17 @@ class TestAutoHeal(unittest.TestCase):
         )
 
     def test_a_checker_that_cannot_run_is_reported_but_does_not_block(self):
-        # DAYamlChecker raises on this construct. A checker that fails to run is
-        # not a file that failed a check, so editing continues under Weaver's
-        # own structural validation with the gap stated plainly.
-        validation = validate_candidate_source(
-            filename="main.yml", raw_yaml=WITH_UNSUPPORTED
-        )
+        # A checker that fails to run is not a file that failed a check, so
+        # editing continues under Weaver's own structural validation with the
+        # gap stated plainly. The crash is forced: DAYamlChecker 1.7 stopped
+        # raising on custom tags, so no input reliably crashes every release.
+        with patch(
+            "dayamlchecker.yaml_structure.find_errors_from_string",
+            side_effect=ValueError("checker crashed"),
+        ):
+            validation = validate_candidate_source(
+                filename="main.yml", raw_yaml=WITH_UNSUPPORTED
+            )
         self.assertFalse(validation.blocking)
         messages = [str(item.get("message")) for item in validation.diagnostics]
         self.assertTrue(
