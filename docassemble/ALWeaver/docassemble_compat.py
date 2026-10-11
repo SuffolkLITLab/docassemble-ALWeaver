@@ -926,6 +926,39 @@ def get_native_github_integration(user_id: int) -> Dict[str, Any]:
     }
 
 
+def list_playground_users() -> List[Dict[str, Any]]:
+    """Use Docassemble's active admin/developer and disabled-account filters."""
+    getter = _first_webapp_attr(
+        (
+            ("docassemble.webapp.develop.views", "get_list_of_playgrounds"),
+            ("docassemble.webapp.server", "get_list_of_playgrounds"),
+        ),
+        "its Playground user list",
+    )
+    # Older releases can return a user twice when they have both roles.
+    return list({int(user["id"]): dict(user) for user in getter()}.values())
+
+
+def select_playground_user(user_id: int) -> None:
+    """Share the native Playground selection and reset its file navigation."""
+    clear = _first_webapp_attr(
+        (
+            ("docassemble.webapp.develop.views", "clear_current_playground_info"),
+            ("docassemble.webapp.server", "clear_current_playground_info"),
+        ),
+        "its Playground navigation reset",
+    )
+    setter = _first_webapp_attr(
+        (
+            ("docassemble.webapp.develop.helpers", "set_playground_user"),
+            ("docassemble.webapp.server", "set_playground_user"),
+        ),
+        "its Playground user selection",
+    )
+    clear()
+    setter(user_id)
+
+
 def _github_authorized_http(*, user_id: Optional[int] = None) -> Any:
     """Return Docassemble's authorized GitHub HTTP client.
 
@@ -2031,6 +2064,7 @@ def publish_github_package(
     managed_paths: Collection[str] = (),
     expected_remote_sha: Optional[str] = None,
     expected_source_revision: Optional[str] = None,
+    credential_user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Commit a generated Playground package through GitHub's Git API.
 
@@ -2052,6 +2086,10 @@ def publish_github_package(
     commit unless they are in ``managed_paths``, which this publish decides
     for itself: a workflow someone added on GitHub is kept, while a standard
     workflow the author turned off is removed.
+
+    ``user_id`` owns the Playground files. ``credential_user_id`` identifies
+    the signed-in publisher when editing someone else's Playground; omitting
+    it preserves the single-account behavior of existing callers and jobs.
     """
 
     def report(message: str, percent: int) -> None:
@@ -2094,7 +2132,9 @@ def publish_github_package(
             )
         display_name = str(author_name or "Account").strip() or "Account"
 
-        http = _github_authorized_http(user_id=user_id)
+        http = _github_authorized_http(
+            user_id=user_id if credential_user_id is None else credential_user_id
+        )
         repository_path = (
             f"https://api.github.com/repos/{quote(str(owner), safe='')}/"
             f"{quote(str(repository), safe='')}"

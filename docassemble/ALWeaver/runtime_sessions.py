@@ -45,6 +45,18 @@ class WeaverTargetSession:
     seeded_variables: List[str] = field(default_factory=list)
     last_progress_at: Optional[datetime] = None
     progress_revision: Optional[int] = None
+    # ``owner_user_id`` is the developer who started the session. In a shared
+    # Playground the interview files belong to someone else; None means the
+    # developer's own Playground, as in records from before sharing.
+    playground_user_id: Optional[int] = None
+
+    @property
+    def storage_user_id(self) -> int:
+        return (
+            self.owner_user_id
+            if self.playground_user_id is None
+            else self.playground_user_id
+        )
 
     def target(self, secret: Optional[str] = None) -> TargetSession:
         """Address the Docassemble session, decrypting it with ``secret``.
@@ -98,6 +110,7 @@ def create_runtime_record(
     target: TargetSession,
     purpose: str = "test",
     persist_secret: bool = True,
+    playground_user_id: Optional[int] = None,
 ) -> WeaverTargetSession:
     """Build the server-side record for one target session.
 
@@ -119,6 +132,9 @@ def create_runtime_record(
         purpose=purpose,
         last_progress_at=timestamp,
         history=[{"event": "session_created", "at": timestamp.isoformat()}],
+        playground_user_id=(
+            None if playground_user_id == owner_user_id else playground_user_id
+        ),
     )
 
 
@@ -218,7 +234,7 @@ def runtime_session_lock(redis_client: Any, identity: str) -> Iterator[None]:
 
 def validate_runtime_record(record: WeaverTargetSession) -> None:
     if record.yaml_filename != playground_yaml_filename(
-        record.owner_user_id, record.project, record.filename
+        record.storage_user_id, record.project, record.filename
     ) or record.purpose not in {"test", "scenario", "inspection"}:
         raise ValueError("Refusing to clean up an unrecognized debug interview")
 

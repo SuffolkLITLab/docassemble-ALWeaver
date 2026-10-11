@@ -12,6 +12,7 @@ NODE_TESTS = (
     "test_editor_markdown.js",
     "test_editor_controls.js",
     "test_editor_project_navigation.js",
+    "test_editor_playground.js",
     "test_editor_github_publish.js",
     "test_editor_expressions.js",
     "test_editor_attachments.js",
@@ -53,6 +54,17 @@ class _TemplateCollector(HTMLParser):
 
 
 class TestEditorFrontend(unittest.TestCase):
+    def test_playground_selector_has_accessible_controls_and_hidden_default(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        self.assertIn('aria-labelledby="playground-selector-title"', template)
+        self.assertIn('for="playground-owner-select"', template)
+        self.assertIn('id="playground-selector-status" role="status"', template)
+        self.assertIn(
+            'class="dropdown-item d-none" data-action="open-playground-selector"',
+            template,
+        )
+        self.assertIn('data-action="return-own-playground"', template)
+
     def test_variable_browser_docking_filters_and_menu_icons(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
         for dock in ("bottom", "tall", "side", "full"):

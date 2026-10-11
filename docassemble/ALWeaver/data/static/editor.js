@@ -14,6 +14,7 @@
   var BOOT = window.__EDITOR_BOOTSTRAP__ || {};
   var API = BOOT.apiBasePath || '/al/editor';
   var authState = BOOT.auth || {};
+  var playgroundState = BOOT.playground || {};
   var LOGIN_URL = authState.loginUrl || BOOT.login_url || '/user/sign-in';
   var dirtyState = window.ALWeaverDirtyState.createDirtyState();
 
@@ -407,7 +408,13 @@
     applyEditorRoute(route);
   });
 
-  var RECENT_PROJECTS_STORAGE_KEY = 'alweaver_recent_projects';
+  var RECENT_PROJECTS_STORAGE_KEY =
+    // One's own Playground keeps the key recent lists were saved under before
+    // shared Playgrounds, so upgrading does not empty them.
+    'alweaver_recent_projects' +
+    (playgroundState.user_id && playgroundState.own === false
+      ? ':' + playgroundState.user_id
+      : '');
   var VALIDATION_DOCK_STORAGE_KEY = 'alweaver_validation_dock';
   var VALIDATION_DOCKS = ['bottom', 'tall', 'side', 'full'];
   var MAX_RECENT_PROJECTS = 8;
@@ -3125,6 +3132,7 @@
   var apiClient = window.ALWeaverApiClient.createClient({
     baseUrl: API,
     csrfToken: BOOT.csrfToken || null,
+    playgroundUserId: playgroundState.user_id,
     onError: showApiError,
   });
 
@@ -3135,6 +3143,7 @@
   var runtimeApiClient = window.ALWeaverApiClient.createClient({
     baseUrl: API,
     csrfToken: BOOT.csrfToken || null,
+    playgroundUserId: playgroundState.user_id,
   });
 
   // Block-scoped drafts also go stale when the user navigates to another
@@ -9972,6 +9981,105 @@
     });
   }
 
+  function renderPlaygroundContext() {
+    var enabled = Boolean(playgroundState.enabled);
+    var shared = playgroundState.own === false;
+    var owner = playgroundState.email || playgroundState.name || 'another user';
+    document
+      .querySelectorAll('[data-action="open-playground-selector"]')
+      .forEach(function (control) {
+        control.classList.toggle('d-none', !enabled);
+      });
+    document
+      .querySelectorAll('[data-action="return-own-playground"]')
+      .forEach(function (control) {
+        control.classList.toggle('d-none', !shared);
+      });
+    var divider = document.getElementById('playground-menu-divider');
+    if (divider) divider.classList.toggle('d-none', !enabled && !shared);
+    var menuOwner = document.getElementById('playground-menu-owner');
+    if (menuOwner) {
+      menuOwner.classList.toggle('d-none', !enabled && !shared);
+      menuOwner.textContent = shared ? 'Playground: ' + owner : 'My Playground';
+    }
+    var banner = document.getElementById('playground-owner-banner');
+    if (banner) banner.classList.toggle('d-none', !shared);
+    var label = document.getElementById('playground-owner-label');
+    if (label) label.textContent = 'Editing the Playground of ' + owner + '.';
+  }
+
+  function switchPlayground(userId) {
+    function performSwitch() {
+      if (stashCurrentEditorState() === false) return;
+      var submit = document.getElementById('playground-selector-submit');
+      var status = document.getElementById('playground-selector-status');
+      if (submit) submit.disabled = true;
+      if (status) status.textContent = 'Opening Playground…';
+      apiPost('/api/playground', { user_id: Number(userId) })
+        .then(function (res) {
+          if (res.success) window.location.assign(API + '/projects');
+        })
+        .catch(function (error) {
+          if (status) status.textContent = error.message;
+          if (submit) submit.disabled = false;
+        });
+    }
+    var modal = getOrCreateBootstrapModal('playground-selector-modal');
+    if (modal) modal.hide();
+    if (deferNavigationForUnsavedChanges('switch Playgrounds', performSwitch))
+      return;
+    performSwitch();
+  }
+
+  function openPlaygroundSelector() {
+    var modal = getOrCreateBootstrapModal('playground-selector-modal');
+    if (!modal || !playgroundState.enabled) return;
+    var select = document.getElementById('playground-owner-select');
+    var submit = document.getElementById('playground-selector-submit');
+    var status = document.getElementById('playground-selector-status');
+    select.replaceChildren();
+    select.disabled = true;
+    submit.disabled = true;
+    status.textContent = 'Loading Playgrounds…';
+    modal.show();
+    apiGet('/api/playground')
+      .then(function (res) {
+        if (!res.success) {
+          status.textContent =
+            (res.error && res.error.message) ||
+            'Playgrounds could not be loaded. Try again.';
+          return;
+        }
+        var data = res.data || {};
+        (data.users || []).forEach(function (user) {
+          var option = document.createElement('option');
+          option.value = String(user.id);
+          option.textContent =
+            (user.name ? user.name.trim() + ' — ' : '') +
+            (user.email || 'User ' + user.id) +
+            (user.id === playgroundState.own_user_id ? ' (my Playground)' : '');
+          option.selected = user.id === playgroundState.user_id;
+          select.appendChild(option);
+        });
+        select.disabled = !select.options.length;
+        submit.disabled = select.disabled;
+        status.textContent = select.disabled
+          ? 'No Playgrounds are available.'
+          : '';
+      })
+      .catch(function (error) {
+        status.textContent = error.message;
+      });
+  }
+
+  function playgroundRawUrl(url) {
+    return playgroundState.user_id
+      ? url +
+          '&playground_user_id=' +
+          encodeURIComponent(playgroundState.user_id)
+      : url;
+  }
+
   function populateFiles() {
     fileSelect.innerHTML = '';
     if (state.files.length === 0) {
@@ -10881,14 +10989,15 @@
     filtered.forEach(function (file) {
       var active = selected === file.filename;
       var tag = sectionTypeTag(file);
-      var rawUrl =
+      var rawUrl = playgroundRawUrl(
         API +
-        '/api/section-file/raw?project=' +
-        encodeURIComponent(state.project) +
-        '&section=' +
-        encodeURIComponent(getSectionFromView(view)) +
-        '&filename=' +
-        encodeURIComponent(file.filename);
+          '/api/section-file/raw?project=' +
+          encodeURIComponent(state.project) +
+          '&section=' +
+          encodeURIComponent(getSectionFromView(view)) +
+          '&filename=' +
+          encodeURIComponent(file.filename),
+      );
       html +=
         '<div class="editor-outline-item' +
         (active ? ' active' : '') +
@@ -18845,14 +18954,15 @@
     if (!fileMeta) {
       return '<div class="editor-card"><div class="editor-card-body text-muted">No file selected.</div></div>';
     }
-    var rawUrl =
+    var rawUrl = playgroundRawUrl(
       API +
-      '/api/section-file/raw?project=' +
-      encodeURIComponent(state.project) +
-      '&section=' +
-      encodeURIComponent(getSectionFromView(state.currentView)) +
-      '&filename=' +
-      encodeURIComponent(fileMeta.filename);
+        '/api/section-file/raw?project=' +
+        encodeURIComponent(state.project) +
+        '&section=' +
+        encodeURIComponent(getSectionFromView(state.currentView)) +
+        '&filename=' +
+        encodeURIComponent(fileMeta.filename),
+    );
     if (fileMeta.preview_kind === 'pdf') {
       return (
         '<div class="editor-card"><div class="editor-card-body"><iframe class="editor-file-preview-frame" src="' +
@@ -20261,14 +20371,15 @@
       '</h2></div>';
     html += '<div class="d-flex gap-2 flex-wrap">';
     if (fileMeta) {
-      var sectionRawUrl =
+      var sectionRawUrl = playgroundRawUrl(
         API +
-        '/api/section-file/raw?project=' +
-        encodeURIComponent(state.project) +
-        '&section=' +
-        encodeURIComponent(section) +
-        '&filename=' +
-        encodeURIComponent(fileMeta.filename);
+          '/api/section-file/raw?project=' +
+          encodeURIComponent(state.project) +
+          '&section=' +
+          encodeURIComponent(section) +
+          '&filename=' +
+          encodeURIComponent(fileMeta.filename),
+      );
       html +=
         '<a class="btn btn-sm btn-outline-secondary" href="' +
         esc(sectionRawUrl) +
@@ -21400,6 +21511,14 @@
     }
 
     // Top action buttons
+    if (uiAction === 'open-playground-selector') {
+      openPlaygroundSelector();
+      return;
+    }
+    if (uiAction === 'return-own-playground') {
+      switchPlayground(playgroundState.own_user_id);
+      return;
+    }
     if (uiAction === 'open-project-selector') {
       function showProjectSelector() {
         if (stashCurrentEditorState() === false) return;
@@ -24342,6 +24461,14 @@
       renderLoginRequired();
       return;
     }
+    renderPlaygroundContext();
+    var playgroundForm = document.getElementById('playground-selector-form');
+    if (playgroundForm)
+      playgroundForm.addEventListener('submit', function (event) {
+        event.preventDefault();
+        var select = document.getElementById('playground-owner-select');
+        if (select && !select.disabled) switchPlayground(select.value);
+      });
     initProjectSearch();
     initGithubPublishing();
     initGithubPull();

@@ -94,7 +94,7 @@ from typing import (
 )
 
 import yaml
-from flask import Response, current_app, jsonify, redirect, request, url_for
+from flask import Response, current_app, g, jsonify, redirect, request, session, url_for
 from flask_wtf.csrf import generate_csrf
 from flask_login import current_user
 
@@ -140,6 +140,8 @@ from .docassemble_compat import (
     github_authorization_url,
     normalize_github_repository_url,
     get_native_github_integration,
+    list_playground_users,
+    select_playground_user,
     get_redis_client,
     get_worker_app,
     json_response as jsonify_with_status,
@@ -522,10 +524,153 @@ def _auth_fail(request_id: str):
 
 
 def _current_user_id() -> int:
+    """Return the validated storage owner of the selected Playground.
+
+    Keep authentication and administrator checks on ``current_user``. This
+    identity also scopes queued jobs and editor sessions to their Playground.
+    """
     uid = getattr(current_user, "id", None)
     if uid is None:
         raise RuntimeError("No authenticated user")
+    if session.get("playground_user") is not None:
+        return int(_editor_playground_context()["user_id"])
     return int(uid)
+
+
+def _actor_user_id() -> int:
+    """The signed-in account owns OAuth credentials, even in a shared Playground."""
+    if session.get("playground_user") is not None:
+        return int(current_user.id)
+    return _current_user_id()
+
+
+def _sharing_playgrounds_enabled() -> bool:
+    return bool(
+        _editor_auth_check()
+        and app.config.get("ENABLE_PLAYGROUND")
+        and app.config.get("ENABLE_SHARING_PLAYGROUNDS")
+    )
+
+
+# How long a verified shared-Playground owner is trusted before the role and
+# account check runs again. Autosave and polling would otherwise run Docassemble's
+# full user/role query on every request.
+PLAYGROUND_OWNER_RECHECK_SECONDS = 30
+
+
+def _editor_playground_context() -> Dict[str, Any]:
+    """Validate a native selection, including role/config changes."""
+    if "editor_playground_context" in g:
+        return g.editor_playground_context
+    uid = int(current_user.id)
+    enabled = _sharing_playgrounds_enabled()
+    owner = None
+    selected = session.get("playground_user")
+    if enabled and selected is not None:
+        cached = session.get("alweaver_playground_owner")
+        if (
+            isinstance(cached, dict)
+            and cached.get("id") == selected
+            and cached.get("viewer") == uid
+            and time.time() - float(cached.get("checked_at") or 0)
+            < PLAYGROUND_OWNER_RECHECK_SECONDS
+        ):
+            owner = cached
+        else:
+            owner = next(
+                (user for user in list_playground_users() if user["id"] == selected),
+                None,
+            )
+            if owner is not None:
+                session["alweaver_playground_owner"] = {
+                    "id": owner["id"],
+                    "name": owner.get("name"),
+                    "email": owner.get("email"),
+                    "viewer": uid,
+                    "checked_at": time.time(),
+                }
+    if owner is None or owner["id"] == uid:
+        # A revoked or deleted account cannot remain a storage identity.
+        if selected is not None and selected != uid:
+            # Return home the way an explicit switch does, so Docassemble's own
+            # Playground does not reopen on the former owner's project.
+            try:
+                select_playground_user(uid)
+            except Exception as exc:
+                log(f"ALWeaver editor: Playground reset failed: {exc!r}", "error")
+        session.pop("playground_user", None)
+        session.pop("alweaver_playground_owner", None)
+        owner = {
+            "id": uid,
+            "name": _editor_user_designator(),
+            "email": getattr(current_user, "email", ""),
+        }
+    g.editor_playground_context = {
+        "enabled": enabled,
+        "user_id": int(owner["id"]),
+        "name": str(owner.get("name") or "").strip(),
+        "email": str(owner.get("email") or ""),
+        "own": owner["id"] == uid,
+        "own_user_id": uid,
+    }
+    return g.editor_playground_context
+
+
+@app.before_request
+def _editor_playground_request_guard() -> Optional[Response]:
+    """Prevent an old tab from editing another owner after a session switch."""
+    if not request.path.startswith(f"{EDITOR_BASE_PATH}/api/"):
+        return None
+    if not _editor_auth_check():
+        return None  # Each view supplies the normal authentication response.
+    # Returning home must remain possible after a selection is revoked.
+    if request.path == f"{EDITOR_BASE_PATH}/api/playground":
+        return None
+    expected = request.headers.get("X-Weaver-Playground-User")
+    if expected is None and request.method == "GET":
+        expected = request.args.get("playground_user_id")
+    selected = session.get("playground_user")
+    if expected is None and selected is None:
+        return None  # Existing callers of one's own Playground stay compatible.
+    if expected is None:
+        # Callers that predate sharing (a cached editor.js, scripts) only ever
+        # meant the signed-in developer's own Playground. They keep working
+        # there, and are stopped only when another Playground is selected.
+        expected = str(int(current_user.id))
+    try:
+        actual = _current_user_id()
+    except Exception as exc:
+        log(f"ALWeaver editor: Playground access check failed: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "error": {
+                    "type": "playground_unavailable",
+                    "message": "Playground access could not be checked. Try again.",
+                },
+            },
+            503,
+        )
+    if expected != str(actual):
+        return jsonify_with_status(
+            {
+                "success": False,
+                "error": {
+                    "type": "playground_changed",
+                    "message": "The selected Playground changed. Reload this tab before continuing; your unsaved changes are still here.",
+                },
+            },
+            409,
+        )
+    return None
+
+
+@app.after_request
+def _editor_playground_cache_control(response: Response) -> Response:
+    """Owner-dependent content must not outlive a Playground session switch."""
+    if request.path.startswith(f"{EDITOR_BASE_PATH}/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 def _editor_auth_return_target() -> str:
@@ -1938,25 +2083,30 @@ def _render_editor_page() -> str:
         },
     }
     try:
-        if _editor_auth_check():
+        authenticated = _editor_auth_check()
+        if authenticated:
+            bootstrap["auth"]["email"] = getattr(current_user, "email", None)
+            bootstrap["auth"]["designator"] = _editor_user_designator()
+            bootstrap["auth"]["menuItems"] = _editor_account_menu_items(logout_url)
+    except Exception as exc:
+        log(f"ALWeaver editor: sign-in check failed: {exc!r}", "error")
+        authenticated = False
+    bootstrap["authenticated"] = authenticated
+    bootstrap["auth"]["authenticated"] = authenticated
+    if authenticated:
+        # A Playground lookup failure is not a sign-out. The page still loads
+        # signed in, and its API calls report the failure so it can be retried.
+        try:
+            bootstrap["playground"] = _editor_playground_context()
             uid = _current_user_id()
             projects = playground_list_projects(uid)
             bootstrap["projects"] = projects
             bootstrap["projectSyncs"] = _project_github_sync_summaries(uid, projects)
-            bootstrap["authenticated"] = True
-            bootstrap["auth"]["authenticated"] = True
-            bootstrap["auth"]["email"] = getattr(current_user, "email", None)
-            bootstrap["auth"]["designator"] = _editor_user_designator()
-            bootstrap["auth"]["menuItems"] = _editor_account_menu_items(logout_url)
-        else:
-            bootstrap["authenticated"] = False
-            bootstrap["auth"]["authenticated"] = False
-    except Exception:
-        bootstrap["authenticated"] = False
-        bootstrap["auth"]["authenticated"] = False
+        except Exception as exc:
+            log(f"ALWeaver editor: Playground data failed to load: {exc!r}", "error")
     return html.replace(
         "__EDITOR_BOOTSTRAP_JSON__",
-        json.dumps(bootstrap, sort_keys=True),
+        json.dumps(bootstrap, sort_keys=True).replace("<", "\\u003c"),
     )
 
 
@@ -2358,7 +2508,7 @@ def editor_page() -> Response:
     if not html:
         log("ALWeaver: editor template not found", "error")
         return Response("Editor template not found.", status=500, mimetype="text/plain")
-    return Response(html, mimetype="text/html")
+    return Response(html, mimetype="text/html", headers={"Cache-Control": "no-store"})
 
 
 def _editor_spa_route(**_route_values: str) -> Response:
@@ -2425,6 +2575,92 @@ def editor_static(filename: str) -> Response:
 # ---------------------------------------------------------------------------
 # API routes
 # ---------------------------------------------------------------------------
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/playground", methods=["GET", "POST"])
+def editor_api_playground() -> Response:
+    """List eligible Playground owners or change the native session selection."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        own_uid = int(current_user.id)
+        enabled = _sharing_playgrounds_enabled()
+
+        def sharing_disabled() -> Response:
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "request_id": request_id,
+                    "error": {
+                        "type": "not_found",
+                        "message": "Playground sharing is not enabled.",
+                    },
+                },
+                404,
+            )
+
+        users: List[Dict[str, Any]] = []
+        if request.method == "POST":
+            payload = request.get_json(silent=True) or {}
+            if not isinstance(payload, dict):
+                raise ValueError("Request body must be a JSON object")
+            target = payload.get("user_id")
+            if type(target) is not int or target < 1:
+                raise ValueError("Choose a Playground owner")
+            if target != own_uid:
+                if not enabled:
+                    return sharing_disabled()
+                users = list_playground_users()
+                if not any(user["id"] == target for user in users):
+                    return jsonify_with_status(
+                        {
+                            "success": False,
+                            "request_id": request_id,
+                            "error": {
+                                "type": "authorization_error",
+                                "message": "This Playground is not available.",
+                            },
+                        },
+                        403,
+                    )
+            select_playground_user(target)
+            g.pop("editor_playground_context", None)
+        else:
+            if not enabled:
+                return sharing_disabled()
+            users = list_playground_users()
+        response = jsonify(
+            {
+                "success": True,
+                "request_id": request_id,
+                "data": {"playground": _editor_playground_context(), "users": users},
+            }
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return response
+    except ValueError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: Playground selection failed: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "playground_unavailable",
+                    "message": "Playground access could not be checked. Try again.",
+                },
+            },
+            503,
+        )
 
 
 def _github_sync_summary(sync: Dict[str, Any]) -> Dict[str, Any]:
@@ -2534,7 +2770,7 @@ def editor_api_github_owners() -> Response:
     if not _editor_auth_check():
         return _auth_fail(request_id)
     try:
-        owners = get_github_publish_owners(user_id=_current_user_id())
+        owners = get_github_publish_owners(user_id=_actor_user_id())
     except GithubCredentialError:
         owners = []
     except Exception as exc:
@@ -2593,7 +2829,7 @@ def editor_api_github_status() -> Response:
                     "data": {"project": project, "sync": sync_data},
                 }
             )
-        status = get_native_github_integration(uid)
+        status = get_native_github_integration(_actor_user_id())
         if status.get("enabled"):
             status["configure_url"] = url_for("editor_github_authorize")
         owners: List[Dict[str, Any]] = []
@@ -2607,7 +2843,7 @@ def editor_api_github_status() -> Response:
                             or status.get("organizations_enabled")
                         ),
                     }
-                    for owner in get_github_publish_owners(user_id=uid)
+                    for owner in get_github_publish_owners(user_id=_actor_user_id())
                 ]
             except GithubCredentialError as exc:
                 # The Redis integration flag can outlive the OAuth record.
@@ -2620,7 +2856,7 @@ def editor_api_github_status() -> Response:
                 )
                 status.update({"connected": False, "organizations_enabled": False})
         if owners:
-            _attach_workflow_access(uid, owners)
+            _attach_workflow_access(_actor_user_id(), owners)
         status["owners"] = owners
         status.update(
             {
@@ -2673,7 +2909,7 @@ def editor_api_github_branches() -> Response:
             branches = get_github_repository_branches(
                 owner=repository["owner"],
                 repository=repository["repository"],
-                user_id=uid,
+                user_id=_actor_user_id(),
                 allow_anonymous=True,
             )
             return jsonify(
@@ -2688,7 +2924,7 @@ def editor_api_github_branches() -> Response:
         owner = str(request.args.get("owner") or "").strip()
         if not re.fullmatch(r"[A-Za-z0-9-]{1,39}", owner):
             raise ValueError("Choose a GitHub account or organization")
-        integration = get_native_github_integration(uid)
+        integration = get_native_github_integration(_actor_user_id())
         if not integration.get("enabled") or not integration.get("connected"):
             return jsonify_with_status(
                 {
@@ -2702,7 +2938,7 @@ def editor_api_github_branches() -> Response:
                 409,
             )
         branches = get_github_repository_branches(
-            owner=owner, repository=f"docassemble-{package}", user_id=uid
+            owner=owner, repository=f"docassemble-{package}", user_id=_actor_user_id()
         )
         return jsonify(
             {
@@ -2978,7 +3214,7 @@ def editor_api_github_publish() -> Response:
                 },
                 503,
             )
-        integration = get_native_github_integration(uid)
+        integration = get_native_github_integration(_actor_user_id())
         if not integration.get("enabled"):
             raise RuntimeError(
                 "Docassemble's GitHub integration is not enabled on this server"
@@ -2999,7 +3235,7 @@ def editor_api_github_publish() -> Response:
 
         author_name = _editor_user_designator()
         author_email = str(getattr(current_user, "email", "") or "").strip()
-        owners = get_github_publish_owners(user_id=uid)
+        owners = get_github_publish_owners(user_id=_actor_user_id())
         selected_owner = next(
             (
                 candidate
@@ -3090,6 +3326,7 @@ def editor_api_github_publish() -> Response:
             repository_url=repository_url,
             expected_remote_sha=reviewed.get("remote_sha") or None,
             expected_source_revision=reviewed.get("source_revision"),
+            credential_user_id=_actor_user_id(),
         )
         return jsonify_with_status(
             {
@@ -3222,7 +3459,7 @@ def editor_api_github_pull() -> Response:
             else sync["branch"]
         )
         remote = get_github_repository_snapshot(
-            repository_url=sync["repository_url"], user_id=uid, ref=branch
+            repository_url=sync["repository_url"], user_id=_actor_user_id(), ref=branch
         )
         # Older manifests did not record the published commit. Establishing the
         # current head as the base is safe and makes all later pulls mergeable.
@@ -3232,7 +3469,7 @@ def editor_api_github_pull() -> Response:
                 repository_url=sync["repository_url"],
                 base=sync["commit"],
                 head=remote["sha"],
-                user_id=uid,
+                user_id=_actor_user_id(),
             )
             if not base_ref:
                 raise ValueError(
@@ -3243,7 +3480,9 @@ def editor_api_github_pull() -> Response:
             remote
             if base_ref == remote["sha"]
             else get_github_repository_snapshot(
-                repository_url=sync["repository_url"], user_id=uid, ref=base_ref
+                repository_url=sync["repository_url"],
+                user_id=_actor_user_id(),
+                ref=base_ref,
             )
         )
         result = merge_github_snapshot(
@@ -6861,7 +7100,12 @@ def _runtime_target_url(record: Any) -> str:
 
 
 def _load_owned_runtime_session(weaver_session_id: str) -> Any:
-    return get_live_runtime_record(r, weaver_session_id, _current_user_id())
+    # Debug sessions belong to the developer running them, not the Playground
+    # owner, so collaborators in one shared Playground cannot reach each other's.
+    record = get_live_runtime_record(r, weaver_session_id, _actor_user_id())
+    if record is not None and record.storage_user_id != _current_user_id():
+        return None
+    return record
 
 
 def _schedule_runtime_cleanup(record: Any) -> None:
@@ -6889,9 +7133,9 @@ def editor_api_runtime_cleanup_sessions() -> Response:
     if not _runtime_inspector_enabled():
         return _runtime_disabled(request_id)
     try:
-        uid = _current_user_id()
-        with runtime_session_lock(r, f"owner:{uid}"):
-            result = cleanup_owned_runtime_sessions(r, uid)
+        actor = _actor_user_id()
+        with runtime_session_lock(r, f"owner:{actor}"):
+            result = cleanup_owned_runtime_sessions(r, actor)
         return jsonify(
             {
                 "success": True,
@@ -6929,15 +7173,17 @@ def editor_api_runtime_create_session() -> Response:
         if url_args is not None and not isinstance(url_args, dict):
             raise ValueError("url_args must be an object or null")
 
-        # Confirms this developer owns the requested Playground file.
+        # Confirms the selected Playground has the requested file.
         playground_read_yaml(uid, project, filename)
-        with runtime_session_lock(r, f"owner:{uid}"):
-            current = cleanup_owned_runtime_sessions(r, uid)["session"]
+        actor = _actor_user_id()
+        with runtime_session_lock(r, f"owner:{actor}"):
+            current = cleanup_owned_runtime_sessions(r, actor)["session"]
             if request.method == "GET":
                 if current:
                     _schedule_runtime_cleanup(current)
                 matching = (
                     current
+                    and current.storage_user_id == uid
                     and current.project == project
                     and current.filename == filename
                 )
@@ -6956,9 +7202,9 @@ def editor_api_runtime_create_session() -> Response:
                 )
             # Starting a replacement ends every previous debug interview for
             # this developer. Normal saved interviews are never selected here.
-            cleanup_owned_runtime_sessions(r, uid, keep_latest=False)
+            cleanup_owned_runtime_sessions(r, actor, keep_latest=False)
             return _create_runtime_session_response(
-                uid, project, filename, purpose, url_args, request_id
+                uid, project, filename, purpose, url_args, request_id, actor
             )
     except (ValueError, FileNotFoundError) as exc:
         status = 404 if isinstance(exc, FileNotFoundError) else 400
@@ -6979,7 +7225,13 @@ def editor_api_runtime_create_session() -> Response:
 
 
 def _create_runtime_session_response(
-    uid: int, project: str, filename: str, purpose: str, url_args: Any, request_id: str
+    uid: int,
+    project: str,
+    filename: str,
+    purpose: str,
+    url_args: Any,
+    request_id: str,
+    actor: int,
 ) -> Response:
     try:
         yaml_filename = playground_yaml_filename(uid, project, filename)
@@ -6996,18 +7248,19 @@ def _create_runtime_session_response(
         )
         record = create_runtime_record(
             weaver_session_id=str(uuid.uuid4()),
-            owner_user_id=uid,
+            owner_user_id=actor,
             project=project,
             filename=filename,
             yaml_filename=yaml_filename,
             target=target,
             purpose=purpose,
             persist_secret=browser_secret is None,
+            playground_user_id=uid,
         )
         store_runtime_record(r, record)
         refresh_runtime_progress(r, record)
         r.set(
-            "da:alweaver:editor:runtime-session:owner:" + str(uid),
+            "da:alweaver:editor:runtime-session:owner:" + str(actor),
             record.weaver_session_id,
         )
         _schedule_runtime_cleanup(record)
@@ -7529,8 +7782,9 @@ class _AgentRuntimeBridge:
     ever runs allowlisted ``al_weaver.inspect_*`` actions.
     """
 
-    def __init__(self, user_id: int, project: str, filename: str):
+    def __init__(self, user_id: int, project: str, filename: str, actor_user_id: int):
         self._user_id = user_id
+        self._actor_user_id = actor_user_id
         self._project = project
         self._filename = filename
         self._record: Any = None
@@ -7551,13 +7805,14 @@ class _AgentRuntimeBridge:
         )
         record = create_runtime_record(
             weaver_session_id=str(uuid.uuid4()),
-            owner_user_id=self._user_id,
+            owner_user_id=self._actor_user_id,
             project=self._project,
             filename=self._filename,
             yaml_filename=yaml_filename,
             target=target,
             purpose="inspection",
             persist_secret=browser_secret is None,
+            playground_user_id=self._user_id,
         )
         store_runtime_record(r, record)
         self._record = record
@@ -7636,7 +7891,12 @@ class _AgentRuntimeBridge:
 
 
 def _load_owned_agent_session(session_id: str) -> Any:
-    return load_agent_session(r, session_id, _current_user_id())
+    # Assistant conversations are private to the developer having them, even
+    # in a shared Playground; the Playground only decides which file they edit.
+    session = load_agent_session(r, session_id, _actor_user_id())
+    if session is not None and session.storage_user_id != _current_user_id():
+        return None
+    return session
 
 
 def _agent_session_payload(
@@ -7660,6 +7920,7 @@ def editor_api_agent_create_session() -> Response:
         return _agent_disabled(request_id)
     try:
         uid = _current_user_id()
+        actor = _actor_user_id()
         post_data = request.get_json(silent=True)
         if not isinstance(post_data, dict):
             raise ValueError("Request body must be a JSON object")
@@ -7719,7 +7980,7 @@ def editor_api_agent_create_session() -> Response:
                 )
                 _log_agent_event(
                     request_id=request_id,
-                    user=uid,
+                    user=actor,
                     project=project,
                     filename=filename,
                     event="working_source_repaired",
@@ -7750,7 +8011,8 @@ def editor_api_agent_create_session() -> Response:
 
         session = WeaverAgentSession(
             session_id=str(uuid.uuid4()),
-            owner_user_id=uid,
+            owner_user_id=actor,
+            playground_user_id=None if actor == uid else uid,
             project=project,
             filename=filename,
             base_saved_revision=current_revision,
@@ -7766,7 +8028,7 @@ def editor_api_agent_create_session() -> Response:
         _log_agent_event(
             request_id=request_id,
             agent_session=session.session_id,
-            user=uid,
+            user=actor,
             project=project,
             filename=filename,
             event="session_created",
@@ -7813,7 +8075,7 @@ def editor_api_agent_session(session_id: str) -> Response:
     if session is None:
         return _agent_not_found(request_id)
     if request.method == "DELETE":
-        delete_agent_session(r, session_id, _current_user_id())
+        delete_agent_session(r, session_id, _actor_user_id())
         clear_progress(r, session_id)
         return jsonify(
             {"success": True, "request_id": request_id, "data": {"deleted": True}}
@@ -7821,7 +8083,7 @@ def editor_api_agent_session(session_id: str) -> Response:
     try:
         current_revision = source_revision(
             playground_read_yaml(
-                session.owner_user_id, session.project, session.filename
+                session.storage_user_id, session.project, session.filename
             )
         )
     except (ValueError, FileNotFoundError):
@@ -7892,7 +8154,10 @@ def _run_agent_turn_in_background(
         model_name = pick_agent_model_name(llms, _weaver_text("assistant model"))
         runtime = (
             _AgentRuntimeBridge(
-                session.owner_user_id, session.project, session.filename
+                session.storage_user_id,
+                session.project,
+                session.filename,
+                session.owner_user_id,
             )
             if runtime_enabled
             else None
@@ -8154,10 +8419,10 @@ def editor_api_agent_progress(session_id: str) -> Response:
         return _auth_fail(request_id)
     if not _agent_editor_available():
         return _agent_disabled(request_id)
-    uid = _current_user_id()
-    if load_agent_session(r, session_id, uid) is None:
+    session = _load_owned_agent_session(session_id)
+    if session is None:
         return _agent_not_found(request_id)
-    progress = load_progress(r, session_id, uid) or {
+    progress = load_progress(r, session_id, session.owner_user_id) or {
         "running": False,
         "events": [],
         "started_at": None,
@@ -8235,7 +8500,7 @@ def editor_api_agent_apply(session_id: str) -> Response:
         return _agent_not_found(request_id)
     try:
         saved_yaml = playground_read_yaml(
-            session.owner_user_id, session.project, session.filename
+            session.storage_user_id, session.project, session.filename
         )
         current_revision = source_revision(saved_yaml)
         if current_revision != session.base_saved_revision:
@@ -11678,7 +11943,7 @@ def editor_api_github_publish_preview() -> Response:
         if not owner:
             raise ValueError("GitHub owner is required")
         branch = _normalize_git_branch(post_data.get("branch"))
-        integration = get_native_github_integration(uid)
+        integration = get_native_github_integration(_actor_user_id())
         if not integration.get("enabled") or not integration.get("connected"):
             return jsonify_with_status(
                 {
@@ -11694,7 +11959,7 @@ def editor_api_github_publish_preview() -> Response:
         selected_owner = next(
             (
                 candidate
-                for candidate in get_github_publish_owners(user_id=uid)
+                for candidate in get_github_publish_owners(user_id=_actor_user_id())
                 if str(candidate.get("login") or "").casefold() == owner.casefold()
             ),
             None,
@@ -11736,7 +12001,7 @@ def editor_api_github_publish_preview() -> Response:
         )
         remote = get_github_repository_snapshot(
             repository_url=repository_url,
-            user_id=uid,
+            user_id=_actor_user_id(),
             ref=branch,
             allow_missing=True,
             include_all_files=True,
@@ -11747,7 +12012,7 @@ def editor_api_github_publish_preview() -> Response:
             default_branch = str(remote.get("default_branch") or "main")
             base = get_github_repository_snapshot(
                 repository_url=repository_url,
-                user_id=uid,
+                user_id=_actor_user_id(),
                 ref=default_branch,
                 allow_missing=True,
                 include_all_files=True,
@@ -11884,11 +12149,14 @@ def _assert_github_publish_branch_is_current(
     repository_url: str,
     branch: str,
     expected_remote_sha: Optional[str] = None,
+    credential_user_id: Optional[int] = None,
 ) -> None:
     """Refuse a publish that would revert commits the project does not have,
     or, after a preview, one whose branch moved since it was reviewed."""
     remote = get_github_branch_head(
-        repository_url=repository_url, ref=branch, user_id=uid
+        repository_url=repository_url,
+        ref=branch,
+        user_id=uid if credential_user_id is None else credential_user_id,
     )
     message = _github_branch_unpulled_message(
         find_project_github_sync(user_id=uid, project_name=project),
@@ -11906,7 +12174,7 @@ def _assert_github_publish_branch_is_current(
         parent = get_github_branch_head(
             repository_url=repository_url,
             ref=str(remote.get("default_branch") or "main"),
-            user_id=uid,
+            user_id=uid if credential_user_id is None else credential_user_id,
         )
     if str(parent.get("sha") or "") != expected_remote_sha:
         raise ValueError(
@@ -11931,6 +12199,7 @@ def _complete_github_publish_job(
     repository_url: str,
     expected_remote_sha: Optional[str] = None,
     expected_source_revision: Optional[str] = None,
+    credential_user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Create the repository if needed and commit the prepared package.
 
@@ -11964,13 +12233,14 @@ def _complete_github_publish_job(
             repository_url=repository_url,
             branch=branch,
             expected_remote_sha=expected_remote_sha,
+            credential_user_id=credential_user_id,
         )
         github_repository = ensure_github_repository(
             owner=owner,
             repository=repository,
             description=f"A docassemble project for {project}.",
             owner_type=owner_type or None,
-            user_id=uid,
+            user_id=uid if credential_user_id is None else credential_user_id,
         )
         canonical_url = str(github_repository.get("html_url") or repository_url).rstrip(
             "/"
@@ -12017,6 +12287,7 @@ def _complete_github_publish_job(
             managed_paths=repository_files["managed_paths"],
             expected_remote_sha=expected_remote_sha,
             expected_source_revision=expected_source_revision,
+            credential_user_id=credential_user_id,
         )
         record_project_github_sync(
             user_id=uid,
@@ -12098,6 +12369,7 @@ def _start_github_publish_job(
     repository_url: str,
     expected_remote_sha: Optional[str] = None,
     expected_source_revision: Optional[str] = None,
+    credential_user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     job_id = str(uuid.uuid4())
     initial_state: Dict[str, Any] = {
@@ -12143,6 +12415,13 @@ def _start_github_publish_job(
                 "repository_url": repository_url,
                 "expected_remote_sha": expected_remote_sha,
                 "expected_source_revision": expected_source_revision,
+                # Omitted in one's own Playground, so a worker still running a
+                # release without this argument keeps publishing during deploys.
+                **(
+                    {}
+                    if credential_user_id in (None, uid)
+                    else {"credential_user_id": credential_user_id}
+                ),
             },
         )
     except Exception as exc:
@@ -12221,7 +12500,7 @@ def _new_project_from_template(uid: int, request_id: str) -> Response:
         # empty project behind.
         snapshot = get_github_repository_snapshot(
             repository_url=github_url,
-            user_id=uid,
+            user_id=_actor_user_id(),
             ref=str(post_data.get("github_branch") or "").strip() or None,
         )
         if not str(raw_name or "").strip():
@@ -12516,7 +12795,7 @@ def _new_project_from_uploads(
                 github_user.strip()
                 if github_user is not None
                 else get_default_github_owner(
-                    user_id=uid, server_owner=_server_github_owner()
+                    user_id=_actor_user_id(), server_owner=_server_github_owner()
                 )
             ),
         }

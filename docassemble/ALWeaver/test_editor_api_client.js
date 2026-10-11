@@ -127,6 +127,7 @@ async function run() {
   const client = api.createClient({
     baseUrl: '/al/editor',
     csrfToken: 'csrf-value',
+    playgroundUserId: 12,
     fetchImpl: async (url, options) => {
       requests.push({ url, options });
       return jsonResponse({ success: true, data: { raw_yaml: '' } });
@@ -141,14 +142,20 @@ async function run() {
     'request-123',
   );
   assert.strictEqual(requests[0].options.credentials, 'same-origin');
+  assert.strictEqual(requests[0].options.headers['X-Weaver-Playground-User'], '12');
+
+  await client.get('/api/projects');
+  assert.strictEqual(requests[1].options.headers['X-Weaver-Playground-User'], '12');
 
   await client.delete('/api/runtime/sessions/test-session');
-  assert.strictEqual(requests[1].options.method, 'DELETE');
-  assert.strictEqual(requests[1].options.headers['X-CSRF-Token'], 'csrf-value');
+  assert.strictEqual(requests[2].options.method, 'DELETE');
+  assert.strictEqual(requests[2].options.headers['X-CSRF-Token'], 'csrf-value');
+  assert.strictEqual(requests[2].options.headers['X-Weaver-Playground-User'], '12');
 
   const uploadRequests = [];
   const uploadClient = api.createClient({
     csrfToken: 'upload-csrf',
+    playgroundUserId: 12,
     fetchImpl: async (url, options) => {
       uploadRequests.push({ url, options });
       return jsonResponse({

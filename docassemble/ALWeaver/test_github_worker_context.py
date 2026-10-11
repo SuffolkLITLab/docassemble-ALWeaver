@@ -88,7 +88,7 @@ def publish_worker(request):
     assert app.blueprints == {"flask_user": blueprint}
 
 
-def publish(worker, uid=1):
+def publish(worker, uid=1, credential_user_id=None):
     return worker.weaver_editor_github_publish_task(
         job_id=f"job-{uid}",
         uid=uid,
@@ -102,7 +102,16 @@ def publish(worker, uid=1):
         branch="main",
         commit_message="Test",
         repository_url="https://github.com/test/docassemble-Test",
+        credential_user_id=credential_user_id,
     )
+
+
+def test_publish_worker_preserves_shared_owner_and_actor(publish_worker):
+    worker, app, editor, native, functions = publish_worker
+    assert publish(worker, uid=12, credential_user_id=7) == {"sha": "commit"}
+    call = editor._complete_github_publish_job.call_args.kwargs
+    assert call["uid"] == 12
+    assert call["credential_user_id"] == 7
 
 
 def test_publish_avoids_poisoned_native_startup(publish_worker):

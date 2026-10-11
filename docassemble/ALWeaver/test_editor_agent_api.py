@@ -478,6 +478,33 @@ class TestSessionCreation(AgentApiTestCase):
         stored = load_agent_session(self.redis, data["agent_session_id"], 7)
         self.assertEqual(stored.candidate_source, INTERVIEW)
 
+    def test_a_shared_playground_session_is_owned_and_logged_by_the_actor(self):
+        with (
+            patch.object(api_editor, "_actor_user_id", return_value=8),
+            patch.object(api_editor, "_log_agent_event") as logged,
+        ):
+            response = self._request(
+                api_editor.editor_api_agent_create_session,
+                "/api/agent/sessions",
+                json_body={
+                    "project": "default",
+                    "filename": "main.yml",
+                    "raw_yaml": INTERVIEW,
+                    "base_revision": self.saved_revision,
+                },
+                user_id=7,
+            )
+        self.assertEqual(response.status_code, 201, response.get_json())
+        session_id = response.get_json()["data"]["agent_session_id"]
+        stored = load_agent_session(self.redis, session_id, 8)
+        self.assertEqual(stored.storage_user_id, 7)
+        created = [
+            call.kwargs
+            for call in logged.call_args_list
+            if call.kwargs.get("event") == "session_created"
+        ]
+        self.assertEqual([event["user"] for event in created], [8])
+
     def test_a_stale_base_revision_is_refused(self):
         response = self._request(
             api_editor.editor_api_agent_create_session,
@@ -683,6 +710,39 @@ class TestSessionOwnership(AgentApiTestCase):
                 self.assertEqual(
                     response.get_json()["error"]["code"], "agent_session_not_found"
                 )
+
+    def test_collaborators_in_a_shared_playground_keep_separate_sessions(self):
+        session = self._stored_session(owner=8)
+        session.playground_user_id = 7
+        store_agent_session(self.redis, session)
+        for actor, expected in ((9, 404), (8, 200)):
+            with (
+                self.subTest(actor=actor),
+                patch.object(api_editor, "_actor_user_id", return_value=actor),
+            ):
+                response = self._request(
+                    api_editor.editor_api_agent_session,
+                    "/api/agent/sessions/agent-1",
+                    method="GET",
+                    args=("agent-1",),
+                    user_id=7,
+                )
+                self.assertEqual(response.status_code, expected)
+
+    def test_a_session_stays_with_the_playground_it_edits(self):
+        session = self._stored_session(owner=8)
+        session.playground_user_id = 7
+        store_agent_session(self.redis, session)
+        # The same developer, back in their own Playground.
+        with patch.object(api_editor, "_actor_user_id", return_value=8):
+            response = self._request(
+                api_editor.editor_api_agent_session,
+                "/api/agent/sessions/agent-1",
+                method="GET",
+                args=("agent-1",),
+                user_id=8,
+            )
+        self.assertEqual(response.status_code, 404)
 
 
 class TestTurn(AgentApiTestCase):

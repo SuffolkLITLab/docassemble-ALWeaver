@@ -147,6 +147,27 @@ A flat `weaver assistant:` key works too, and the older `WEAVER_ENABLE_*`
 spellings — plus the matching environment variables — are still honoured so
 existing installs keep working.
 
+The Projects menu offers “Switch Playground” when Docassemble's `enable
+playground` and `enable sharing playgrounds` settings are both enabled. It uses
+Docassemble's own list of active administrators and developers, excluding
+disabled accounts, and its native `playground_user` session selection. Switching
+in either interface therefore applies to the other. Weaver rechecks the owner
+against that list at least every 30 seconds, labels the shared workspace, and
+offers “Return to my Playground.” Unsaved changes use the normal save/discard
+prompt before switching. Project files, locks, previews and queued work use the
+selected owner; login privileges, server administration, GitHub OAuth
+credentials, debug interviews and assistant conversations stay with the
+signed-in account, so two developers in one shared Playground never see or end
+each other's sessions. A debug or assistant session also stays bound to the
+Playground it was started in. Requests pin the displayed owner with
+`X-Weaver-Playground-User` (or `playground_user_id` for browser preview/download
+URLs), so a session switch in another tab returns HTTP 409 before accessing a
+different owner's files. A request without that header is treated as asking for
+the signed-in user's own Playground. Revoked selections return to the signed-in user's
+Playground, and stale requests remain blocked until the tab reloads. A queued
+job retains the Playground and, for GitHub publishing, the account credentials
+chosen at submission.
+
 The general patch beta ("source patch api") is implemented at
 `POST /al/editor/api/file/patch` and is disabled by default. A request supplies the
 expected SHA-256 source revision and one or more non-overlapping

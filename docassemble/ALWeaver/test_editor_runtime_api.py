@@ -179,6 +179,29 @@ class TestEditorRuntimeApi(unittest.TestCase):
             stack.enter_context(patcher)
         return stack
 
+    def test_shared_playground_sessions_belong_to_the_developer_running_them(self):
+        target = TargetSession("docassemble.playground7:main.yml", "target")
+        record = create_runtime_record(
+            weaver_session_id="shared",
+            owner_user_id=8,
+            project="default",
+            filename="main.yml",
+            yaml_filename=target.yaml_filename,
+            target=target,
+            playground_user_id=7,
+        )
+        store_runtime_record(self.redis, record)
+        runtime_sessions.validate_runtime_record(record)
+        for actor, playground, visible in ((8, 7, True), (9, 7, False), (8, 8, False)):
+            with (
+                self.subTest(actor=actor, playground=playground),
+                patch.object(api_editor, "_actor_user_id", return_value=actor),
+                patch.object(api_editor, "_current_user_id", return_value=playground),
+                patch.object(api_editor, "r", self.redis),
+            ):
+                loaded = api_editor._load_owned_runtime_session("shared")
+                self.assertEqual(loaded is not None, visible)
+
     def test_end_deletes_docassemble_data_and_cleanup_indexes(self):
         record = self._record()
         self.redis.set(

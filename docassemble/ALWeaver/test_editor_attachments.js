@@ -123,6 +123,7 @@ assert.strictEqual(templateScope.renderUnimportedTemplatesCard(), '');
 
 Object.assign(templateScope, {
   API: '/al/editor',
+  playgroundState: {user_id: 12},
   outlineList: {innerHTML: ''},
   getSectionFiles: () => [{filename: 'form.pdf'}],
   getSectionFromView: () => 'template',
@@ -135,12 +136,15 @@ Object.assign(templateScope.state, {
   currentView: 'templates', searchQuery: '', sectionSelectedFile: {},
 });
 const outlineStart = source.indexOf('  function renderSectionOutline(');
+const rawUrlStart = source.indexOf('  function playgroundRawUrl(');
+vm.runInContext(source.slice(rawUrlStart, source.indexOf('\n  }', rawUrlStart) + 4), templateScope);
 vm.runInContext(source.slice(outlineStart, source.indexOf('\n  }', outlineStart) + 4), templateScope);
 templateScope.renderSectionOutline();
 const outlineHtml = templateScope.outlineList.innerHTML;
 assert.ok(outlineHtml.indexOf('change-template-interview') < outlineHtml.indexOf('data-section-filename'));
 assert.ok(outlineHtml.includes('form.pdf</div><span class="editor-outline-status"'));
 assert.ok(outlineHtml.includes('title="Not imported into first.yml">Not imported</span>'));
+assert.ok(outlineHtml.includes('playground_user_id=12'));
 templateScope.state.searchQuery = 'no match';
 templateScope.renderSectionOutline();
 assert.ok(templateScope.outlineList.innerHTML.includes('change-template-interview'));

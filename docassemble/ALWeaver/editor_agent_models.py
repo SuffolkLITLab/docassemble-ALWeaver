@@ -245,6 +245,17 @@ class WeaverAgentSession:
     # validator would reject.
     repaired_working_source: Optional[str] = None
     repairs: List[Dict[str, Any]] = field(default_factory=list)
+    # ``owner_user_id`` is the developer having the conversation. In a shared
+    # Playground the file belongs to someone else; None means their own.
+    playground_user_id: Optional[int] = None
+
+    @property
+    def storage_user_id(self) -> int:
+        return (
+            self.owner_user_id
+            if self.playground_user_id is None
+            else self.playground_user_id
+        )
 
     def candidate(self) -> AgentCandidate:
         candidate = AgentCandidate(
