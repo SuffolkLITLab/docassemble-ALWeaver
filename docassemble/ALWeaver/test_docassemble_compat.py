@@ -395,7 +395,7 @@ class TestWebappAccessors(unittest.TestCase):
         finally:
             sys.modules.update(removed)
 
-    def test_project_zip_supports_both_layouts_and_closes_native_archive(self):
+    def test_project_zip_supports_both_layouts_and_returns_rewound_archive(self):
         for module in (
             "docassemble.webapp.files",
             "docassemble.webapp.files.savedfile",
@@ -418,14 +418,35 @@ class TestWebappAccessors(unittest.TestCase):
                         author_name="Author",
                         author_email="author@example.org",
                     )
-                self.assertEqual(result, b"native zip bytes")
-                self.assertTrue(archive.closed)
+                # Returned open so the route can stream it, not read into memory.
+                self.assertIs(result, archive)
+                self.assertFalse(archive.closed)
+                self.assertEqual(result.read(), b"native zip bytes")
                 self.assertEqual(calls[0][0], "Housing")
                 self.assertEqual(
                     calls[0][1]["interview_files"], ["main.yml", "extra.yml"]
                 )
                 self.assertEqual(calls[0][2]["id"], 12)
                 self.assertEqual(calls[0][3:], ("UTC", "HousingBranch"))
+
+    def test_project_zip_closes_native_archive_when_rewind_fails(self):
+        class BrokenArchive(io.BytesIO):
+            def seek(self, *args):
+                raise OSError("bad seek")
+
+        archive = BrokenArchive(b"zip")
+        builder = lambda *args, **kwargs: archive
+        with self._layout({"docassemble.webapp.files": {"make_package_zip": builder}}):
+            with self.assertRaises(OSError):
+                docassemble_compat.build_project_zip(
+                    package="Housing",
+                    project="HousingBranch",
+                    user_id=12,
+                    package_info={},
+                    author_name="Author",
+                    author_email="author@example.org",
+                )
+        self.assertTrue(archive.closed)
 
     def _resolve_all(self):
         return {

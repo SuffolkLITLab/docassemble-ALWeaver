@@ -94,7 +94,17 @@ from typing import (
 )
 
 import yaml
-from flask import Response, current_app, g, jsonify, redirect, request, session, url_for
+from flask import (
+    Response,
+    current_app,
+    g,
+    jsonify,
+    redirect,
+    request,
+    send_file,
+    session,
+    url_for,
+)
 from flask_wtf.csrf import generate_csrf
 from flask_login import current_user
 
@@ -4903,7 +4913,7 @@ def editor_api_project_download() -> Response:
             persist_manifest=False,
             require_interview=False,
         )
-        payload = build_project_zip(
+        archive = build_project_zip(
             package=package,
             project=project,
             user_id=uid,
@@ -4911,10 +4921,21 @@ def editor_api_project_download() -> Response:
             author_name=owner["name"],
             author_email=owner["email"],
         )
-        response = Response(payload, mimetype="application/zip")
-        response.headers["Content-Disposition"] = (
-            f'attachment; filename="docassemble-{package}.zip"'
-        )
+        # Stream the temp file; closing the response closes (and deletes) it.
+        try:
+            response = send_file(
+                archive,
+                mimetype="application/zip",
+                as_attachment=True,
+                download_name=f"docassemble-{package}.zip",
+                conditional=False,
+                etag=False,
+            )
+            # send_file only sizes paths and BytesIO; keep a length for progress.
+            response.content_length = os.fstat(archive.fileno()).st_size
+        except BaseException:
+            archive.close()
+            raise
         response.headers["Cache-Control"] = "no-store"
         return response
     except ValueError as exc:

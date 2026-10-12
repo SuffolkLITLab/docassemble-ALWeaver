@@ -3,6 +3,8 @@
 """Exercise shared Playground access through the real editor request boundary."""
 
 import json
+import os
+import tempfile
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -384,9 +386,19 @@ def test_native_helpers_resolve_both_docassemble_versions_and_deduplicate():
     setter.assert_called_once_with(12)
 
 
+@pytest.fixture
+def zip_archive():
+    """A self-deleting temp ZIP like the native builder's, closed even on failure."""
+    archive = tempfile.NamedTemporaryFile(suffix=".zip")
+    archive.write(b"zip-bytes")
+    archive.seek(0)
+    yield archive
+    archive.close()
+
+
 @pytest.mark.parametrize("owner", [7, 12])
 def test_download_uses_selected_project_and_owner_without_writing_manifest(
-    playground, monkeypatch, owner
+    playground, monkeypatch, owner, zip_archive
 ):
     if owner != 7:
         with playground.client.session_transaction() as selected:
@@ -394,7 +406,8 @@ def test_download_uses_selected_project_and_owner_without_writing_manifest(
     prepare = Mock(
         return_value={"manifest": {"interview_files": ["main.yml", "extra.yml"]}}
     )
-    build = Mock(return_value=b"zip-bytes")
+    archive = zip_archive
+    build = Mock(return_value=archive)
     dependencies = Mock(return_value=["docassemble.AssemblyLine", "requests"])
     monkeypatch.setattr(api_editor, "repository_dependency_names", dependencies)
     monkeypatch.setattr(api_editor, "find_project_github_sync", lambda **kw: None)
@@ -405,10 +418,15 @@ def test_download_uses_selected_project_and_owner_without_writing_manifest(
     )
     assert response.status_code == 200
     assert response.data == b"zip-bytes"
+    assert response.content_length == len(b"zip-bytes")
+    response.close()
+    # Streamed from the native temp file, which is deleted once the response closes.
+    assert archive.closed
+    assert not os.path.exists(archive.name)
     assert response.mimetype == "application/zip"
     assert (
         response.headers["Content-Disposition"]
-        == 'attachment; filename="docassemble-Housing.zip"'
+        == "attachment; filename=docassemble-Housing.zip"
     )
     assert response.headers["Cache-Control"] == "no-store"
     assert prepare.call_args.kwargs == dict(
@@ -425,6 +443,26 @@ def test_download_uses_selected_project_and_owner_without_writing_manifest(
     assert build.call_args.kwargs["user_id"] == owner
     assert build.call_args.kwargs["project"] == "Housing"
     assert build.call_args.kwargs["package_info"] == prepare.return_value["manifest"]
+
+
+def test_download_closes_archive_when_response_cannot_be_built(
+    playground, monkeypatch, zip_archive
+):
+    monkeypatch.setattr(
+        api_editor, "repository_dependency_names", Mock(return_value=[])
+    )
+    monkeypatch.setattr(api_editor, "find_project_github_sync", lambda **kw: None)
+    monkeypatch.setattr(
+        api_editor,
+        "prepare_project_github_package",
+        Mock(return_value={"manifest": {}}),
+    )
+    monkeypatch.setattr(api_editor, "build_project_zip", Mock(return_value=zip_archive))
+    monkeypatch.setattr(api_editor, "send_file", Mock(side_effect=ValueError("bad")))
+    response = playground.client.get("/al/editor/api/project/download?project=Housing")
+    assert response.status_code == 400
+    assert zip_archive.closed
+    assert not os.path.exists(zip_archive.name)
 
 
 def test_download_rejects_missing_project_and_unauthenticated_user(

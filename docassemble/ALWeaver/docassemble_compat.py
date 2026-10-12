@@ -22,6 +22,7 @@ import pathlib
 import threading
 import time
 from typing import (
+    IO,
     Any,
     Callable,
     Collection,
@@ -1938,8 +1939,12 @@ def build_project_zip(
     package_info: Dict[str, Any],
     author_name: str,
     author_email: str,
-) -> bytes:
-    """Use the native Playground ZIP builder on both 1.9 and 1.10."""
+) -> IO[bytes]:
+    """Use the native Playground ZIP builder on both 1.9 and 1.10.
+
+    Returns the builder's open temporary file, rewound, so the caller can stream
+    it. Closing it deletes the file; the caller owns that.
+    """
     builder = _first_webapp_attr(
         (
             ("docassemble.webapp.files", "make_package_zip"),
@@ -1955,9 +1960,13 @@ def build_project_zip(
         "author email": author_email,
         "author name and email": f"{author_name} <{author_email}>",
     }
-    with builder(package, info, author, "UTC", current_project=project) as archive:
+    archive = builder(package, info, author, "UTC", current_project=project)
+    try:
         archive.seek(0)
-        return archive.read()
+    except BaseException:
+        archive.close()
+        raise
+    return archive
 
 
 def build_github_package_snapshot(
