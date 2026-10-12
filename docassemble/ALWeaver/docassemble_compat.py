@@ -1930,6 +1930,36 @@ def _github_tree_blobs(
     ]
 
 
+def build_project_zip(
+    *,
+    package: str,
+    project: str,
+    user_id: int,
+    package_info: Dict[str, Any],
+    author_name: str,
+    author_email: str,
+) -> bytes:
+    """Use the native Playground ZIP builder on both 1.9 and 1.10."""
+    builder = _first_webapp_attr(
+        (
+            ("docassemble.webapp.files", "make_package_zip"),
+            ("docassemble.webapp.files.savedfile", "make_package_zip"),
+        ),
+        "its Playground ZIP builder",
+    )
+    info = dict(package_info)
+    info.setdefault("modtime", time.time())
+    author = {
+        "id": user_id,
+        "author name": author_name,
+        "author email": author_email,
+        "author name and email": f"{author_name} <{author_email}>",
+    }
+    with builder(package, info, author, "UTC", current_project=project) as archive:
+        archive.seek(0)
+        return archive.read()
+
+
 def build_github_package_snapshot(
     *,
     package: str,

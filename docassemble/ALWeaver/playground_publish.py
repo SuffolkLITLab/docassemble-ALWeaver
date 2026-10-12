@@ -149,6 +149,7 @@ def prepare_project_github_package(
     github_url: Optional[str] = None,
     dependencies: Optional[Sequence[str]] = None,
     persist_manifest: bool = True,
+    require_interview: bool = True,
 ) -> Dict[str, Any]:
     """Create/update the package manifest consumed by Docassemble's publisher.
 
@@ -170,7 +171,7 @@ def prepare_project_github_package(
         area = create_saved_file(user_id, fix=True, section=section)
         files[field_name] = _visible_section_files(area, project_name)
 
-    if not files["interview_files"]:
+    if require_interview and not files["interview_files"]:
         raise ValueError("The project must contain at least one interview file")
 
     packages_area = create_saved_file(user_id, fix=True, section="playgroundpackages")

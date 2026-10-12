@@ -395,6 +395,38 @@ class TestWebappAccessors(unittest.TestCase):
         finally:
             sys.modules.update(removed)
 
+    def test_project_zip_supports_both_layouts_and_closes_native_archive(self):
+        for module in (
+            "docassemble.webapp.files",
+            "docassemble.webapp.files.savedfile",
+        ):
+            with self.subTest(module=module):
+                archive = io.BytesIO(b"native zip bytes")
+                archive.seek(0, 2)  # The native writer leaves its cursor at EOF.
+                calls = []
+
+                def builder(package, info, author, timezone, current_project="default"):
+                    calls.append((package, info, author, timezone, current_project))
+                    return archive
+
+                with self._layout({module: {"make_package_zip": builder}}):
+                    result = docassemble_compat.build_project_zip(
+                        package="Housing",
+                        project="HousingBranch",
+                        user_id=12,
+                        package_info={"interview_files": ["main.yml", "extra.yml"]},
+                        author_name="Author",
+                        author_email="author@example.org",
+                    )
+                self.assertEqual(result, b"native zip bytes")
+                self.assertTrue(archive.closed)
+                self.assertEqual(calls[0][0], "Housing")
+                self.assertEqual(
+                    calls[0][1]["interview_files"], ["main.yml", "extra.yml"]
+                )
+                self.assertEqual(calls[0][2]["id"], 12)
+                self.assertEqual(calls[0][3:], ("UTC", "HousingBranch"))
+
     def _resolve_all(self):
         return {
             "app": docassemble_compat.get_flask_app(),

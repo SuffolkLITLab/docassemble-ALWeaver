@@ -136,6 +136,7 @@ from .docassemble_compat import (
     get_github_repository_snapshot,
     is_github_package_path,
     build_github_package_snapshot,
+    build_project_zip,
     github_package_snapshot_revision,
     github_authorization_url,
     normalize_github_repository_url,
@@ -4867,6 +4868,63 @@ def editor_api_upload_section_file() -> Response:
                 "error": {"type": "server_error", "message": str(exc)},
             },
             500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/project/download", methods=["GET"])
+def editor_api_project_download() -> Response:
+    """Download every saved project file using the native package ZIP builder."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        project = _normalize_project(request.args.get("project"))
+        if project not in playground_list_projects(uid):
+            raise ValueError("Project not found")
+        sync = find_project_github_sync(user_id=uid, project_name=project)
+        package = (sync or {}).get("package")
+        if not package:
+            package = re.sub(r"[^A-Za-z0-9_]", "", project)
+            if (
+                not package
+                or not package[0].isalpha()
+                or package.lower() in {"base", "webapp", "demo"}
+            ):
+                package = "Project" + package
+        owner = _editor_playground_context()
+        prepared = prepare_project_github_package(
+            user_id=uid,
+            project_name=project,
+            package_name=package,
+            author_name=owner["name"],
+            author_email=owner["email"],
+            dependencies=repository_dependency_names(uid, project, package),
+            persist_manifest=False,
+            require_interview=False,
+        )
+        payload = build_project_zip(
+            package=package,
+            project=project,
+            user_id=uid,
+            package_info=prepared["manifest"],
+            author_name=owner["name"],
+            author_email=owner["email"],
+        )
+        response = Response(payload, mimetype="application/zip")
+        response.headers["Content-Disposition"] = (
+            f'attachment; filename="docassemble-{package}.zip"'
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return response
+    except ValueError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
         )
 
 
