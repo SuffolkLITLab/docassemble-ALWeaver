@@ -362,6 +362,85 @@ question: |
         self.assertNotIn("inspector_information.name", yaml_text)
         self._run_dayamlchecker_text(yaml_text)
 
+    def test_docx_list_attributes_get_a_complete_attribute_block(self):
+        import docx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docx_path = os.path.join(tmpdir, "children_summary.docx")
+            document = docx.Document()
+            document.add_paragraph("{%p for child in children %}")
+            document.add_paragraph("{{ child.name.full() }}")
+            document.add_paragraph("{{ child.birthdate }}")
+            document.add_paragraph("{{ child.school }}")
+            document.add_paragraph("{%p endfor %}")
+            document.save(docx_path)
+
+            result = generate_interview_from_path(
+                docx_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "- children: ALPeopleList.using(ask_number=True,"
+            "complete_attribute='complete')",
+            yaml_text,
+        )
+        self.assertIn('  - "School": children[i].school', yaml_text)
+        self.assertIn(
+            "id: children item is complete\ncode: |\n"
+            "  children[i].name.first\n"
+            "  children[i].birthdate\n"
+            "  children[i].school\n"
+            "  children[i].complete = True",
+            yaml_text,
+        )
+        self._run_dayamlchecker_text(yaml_text)
+
+    def test_position_specific_docx_attributes_do_not_apply_to_every_item(self):
+        import docx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docx_path = os.path.join(tmpdir, "different_child_fields.docx")
+            document = docx.Document()
+            document.add_paragraph("{{ children[0].school }}")
+            document.add_paragraph("{{ children[1].name.first }}")
+            document.save(docx_path)
+
+            result = generate_interview_from_path(
+                docx_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        self.assertNotIn("id: children item is complete", yaml_text)
+        self.assertNotIn("children[i].school", yaml_text)
+        self.assertNotIn("complete_attribute='complete'", yaml_text)
+
+    def test_one_docx_list_attribute_keeps_the_standard_completion_rule(self):
+        import docx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docx_path = os.path.join(tmpdir, "children_names.docx")
+            document = docx.Document()
+            document.add_paragraph("{{ children[0].name.full() }}")
+            document.save(docx_path)
+
+            result = generate_interview_from_path(
+                docx_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        self.assertNotIn("id: children item is complete", yaml_text)
+        self.assertNotIn("complete_attribute='complete'", yaml_text)
+
     def _run_dayamlchecker_text(self, yaml_text: str) -> None:
         from dayamlchecker.yaml_structure import find_errors_from_string
 

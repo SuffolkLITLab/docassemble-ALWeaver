@@ -398,6 +398,9 @@ ${ baseline_question_yaml(baseline_question) }\
 % for family, datatypes in row_families:
 ${ row_family_yaml(family, datatypes) }\
 % endfor
+% for completion in list_completions:
+${ docx_list_completion_yaml(completion) }\
+% endfor
 % if court_attributes:
 ---
 id: court details
