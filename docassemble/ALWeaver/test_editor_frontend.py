@@ -54,6 +54,25 @@ class _TemplateCollector(HTMLParser):
 
 
 class TestEditorFrontend(unittest.TestCase):
+    def test_project_download_is_in_its_own_interview_menu_section(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        menu = template.split('aria-labelledby="interview-menu">', 1)[1].split(
+            "</ul>", 1
+        )[0]
+        self.assertRegex(
+            menu,
+            r'dropdown-divider.*?</li>\s*<li><button[^>]*data-action="download-project"',
+        )
+        self.assertIn("Download project (.zip)", menu)
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+        action = editor.split("if (uiAction === 'download-project')", 1)[1].split(
+            "if (uiAction ===", 1
+        )[0]
+        self.assertIn("/api/project/download?project=", action)
+        self.assertIn("encodeURIComponent(state.project)", action)
+        self.assertIn("playgroundRawUrl(", action)
+        self.assertNotRegex(action, r"(?i)prompt|confirm|modal|save")
+
     def test_playground_selector_has_accessible_controls_and_hidden_default(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
         self.assertIn('aria-labelledby="playground-selector-title"', template)

@@ -22,6 +22,7 @@ import pathlib
 import threading
 import time
 from typing import (
+    IO,
     Any,
     Callable,
     Collection,
@@ -1928,6 +1929,44 @@ def _github_tree_blobs(
         and entry.get("type") == "blob"
         and all(key in entry for key in ("path", "mode", "type", "sha"))
     ]
+
+
+def build_project_zip(
+    *,
+    package: str,
+    project: str,
+    user_id: int,
+    package_info: Dict[str, Any],
+    author_name: str,
+    author_email: str,
+) -> IO[bytes]:
+    """Use the native Playground ZIP builder on both 1.9 and 1.10.
+
+    Returns the builder's open temporary file, rewound, so the caller can stream
+    it. Closing it deletes the file; the caller owns that.
+    """
+    builder = _first_webapp_attr(
+        (
+            ("docassemble.webapp.files", "make_package_zip"),
+            ("docassemble.webapp.files.savedfile", "make_package_zip"),
+        ),
+        "its Playground ZIP builder",
+    )
+    info = dict(package_info)
+    info.setdefault("modtime", time.time())
+    author = {
+        "id": user_id,
+        "author name": author_name,
+        "author email": author_email,
+        "author name and email": f"{author_name} <{author_email}>",
+    }
+    archive = builder(package, info, author, "UTC", current_project=project)
+    try:
+        archive.seek(0)
+    except BaseException:
+        archive.close()
+        raise
+    return archive
 
 
 def build_github_package_snapshot(

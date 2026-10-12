@@ -94,7 +94,17 @@ from typing import (
 )
 
 import yaml
-from flask import Response, current_app, g, jsonify, redirect, request, session, url_for
+from flask import (
+    Response,
+    current_app,
+    g,
+    jsonify,
+    redirect,
+    request,
+    send_file,
+    session,
+    url_for,
+)
 from flask_wtf.csrf import generate_csrf
 from flask_login import current_user
 
@@ -136,6 +146,7 @@ from .docassemble_compat import (
     get_github_repository_snapshot,
     is_github_package_path,
     build_github_package_snapshot,
+    build_project_zip,
     github_package_snapshot_revision,
     github_authorization_url,
     normalize_github_repository_url,
@@ -4867,6 +4878,74 @@ def editor_api_upload_section_file() -> Response:
                 "error": {"type": "server_error", "message": str(exc)},
             },
             500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/project/download", methods=["GET"])
+def editor_api_project_download() -> Response:
+    """Download every saved project file using the native package ZIP builder."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        project = _normalize_project(request.args.get("project"))
+        if project not in playground_list_projects(uid):
+            raise ValueError("Project not found")
+        sync = find_project_github_sync(user_id=uid, project_name=project)
+        package = (sync or {}).get("package")
+        if not package:
+            package = re.sub(r"[^A-Za-z0-9_]", "", project)
+            if (
+                not package
+                or not package[0].isalpha()
+                or package.lower() in {"base", "webapp", "demo"}
+            ):
+                package = "Project" + package
+        owner = _editor_playground_context()
+        prepared = prepare_project_github_package(
+            user_id=uid,
+            project_name=project,
+            package_name=package,
+            author_name=owner["name"],
+            author_email=owner["email"],
+            dependencies=repository_dependency_names(uid, project, package),
+            persist_manifest=False,
+            require_interview=False,
+        )
+        archive = build_project_zip(
+            package=package,
+            project=project,
+            user_id=uid,
+            package_info=prepared["manifest"],
+            author_name=owner["name"],
+            author_email=owner["email"],
+        )
+        # Stream the temp file; closing the response closes (and deletes) it.
+        try:
+            response = send_file(
+                archive,
+                mimetype="application/zip",
+                as_attachment=True,
+                download_name=f"docassemble-{package}.zip",
+                conditional=False,
+                etag=False,
+            )
+            # send_file only sizes paths and BytesIO; keep a length for progress.
+            response.content_length = os.fstat(archive.fileno()).st_size
+        except BaseException:
+            archive.close()
+            raise
+        response.headers["Cache-Control"] = "no-store"
+        return response
+    except ValueError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
         )
 
 

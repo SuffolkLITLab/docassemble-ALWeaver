@@ -21849,6 +21849,20 @@
       return;
     }
 
+    if (uiAction === 'download-project') {
+      if (state.project) {
+        window.open(
+          playgroundRawUrl(
+            API +
+              '/api/project/download?project=' +
+              encodeURIComponent(state.project),
+          ),
+          '_blank',
+        );
+      }
+      return;
+    }
+
     if (uiAction === 'open-standard-playground') {
       var standardPlaygroundUrl = buildStandardPlaygroundUrl();
       if (standardPlaygroundUrl) {

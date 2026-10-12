@@ -440,6 +440,33 @@ class test_playground_publish(unittest.TestCase):
             self.assertNotIn(".placeholder", str(manifest))
             self.assertTrue(areas["playgroundpackages"].finalized)
 
+            # A download refreshes all file lists without changing the saved
+            # package manifest, and also works before an interview is created.
+            original_manifest = Path(result["manifest_path"]).read_bytes()
+            (root / "playground" / "Housing" / "main.yml").unlink()
+            (root / "playgroundtemplate" / "Housing" / "extra.pdf").write_bytes(b"pdf")
+            areas["playgroundpackages"].finalized = False
+            with patch.object(
+                playground_publish,
+                "create_saved_file",
+                side_effect=lambda _uid, fix, section: areas[section],
+            ):
+                download = prepare_project_github_package(
+                    user_id=7,
+                    project_name="Housing",
+                    package_name="HousingForms",
+                    persist_manifest=False,
+                    require_interview=False,
+                )
+            self.assertEqual(download["manifest"]["interview_files"], [])
+            self.assertEqual(
+                download["manifest"]["template_files"], ["extra.pdf", "form.docx"]
+            )
+            self.assertEqual(
+                Path(result["manifest_path"]).read_bytes(), original_manifest
+            )
+            self.assertFalse(areas["playgroundpackages"].finalized)
+
             # The publishing worker reads the manifest back through the saved
             # file area, which may be a different host than wrote it.
             fetched = []
