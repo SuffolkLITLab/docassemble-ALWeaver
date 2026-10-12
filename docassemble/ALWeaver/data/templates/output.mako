@@ -400,6 +400,20 @@ ${ row_family_yaml(family, datatypes) }\
 % endfor
 % for completion in list_completions:
 ${ docx_list_completion_yaml(completion) }\
+  % if completion.item_fields:
+<%doc>
+    The first item is asked about on its own screen above; this question asks
+    the same thing about every other item while the list is gathered.
+</%doc>\
+---
+id: ${ fix_id(completion.name + " item details") }
+question: |
+  About the <%text>${</%text> ordinal(i) } ${ singular_label(completion.name) }
+fields:
+    % for field in completion.item_fields:
+${ field_entry_yaml(field, variable=list_item_variable(completion, field.get_settable_var()), label=list_item_label(field)) }\
+    % endfor
+  % endif
 % endfor
 % if court_attributes:
 ---

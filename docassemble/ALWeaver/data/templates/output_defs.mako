@@ -7,8 +7,12 @@
     import json
     from more_itertools import unique_everseen
 %>\
-<%def name="field_entry_yaml(field)">\
-  - "${ escape_double_quoted_yaml(field.label) if field.has_label else "no label" }": ${ field.get_settable_var() }
+<%def name="field_entry_yaml(field, variable=None, label=None)">\
+<%
+    if label is None:
+        label = field.label if field.has_label else None
+%>\
+  - "${ escape_double_quoted_yaml(label) if label is not None else "no label" }": ${ variable or field.get_settable_var() }
   % if hasattr(field, "default"):
     default: ${ repr(field.default) }
   % endif

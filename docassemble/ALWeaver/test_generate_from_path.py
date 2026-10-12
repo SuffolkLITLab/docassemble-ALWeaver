@@ -372,7 +372,9 @@ question: |
             document.add_paragraph("{{ child.name.full() }}")
             document.add_paragraph("{{ child.birthdate }}")
             document.add_paragraph("{{ child.school }}")
+            document.add_paragraph("{{ child.signature }}")
             document.add_paragraph("{%p endfor %}")
+            document.add_paragraph("{{ favorite_color }}")
             document.save(docx_path)
 
             result = generate_interview_from_path(
@@ -388,7 +390,6 @@ question: |
             "complete_attribute='complete')",
             yaml_text,
         )
-        self.assertIn('  - "School": children[i].school', yaml_text)
         self.assertIn(
             "id: children item is complete\ncode: |\n"
             "  children[i].name.first\n"
@@ -397,7 +398,79 @@ question: |
             "  children[i].complete = True",
             yaml_text,
         )
+        self.assertIn(
+            "question: |\n  About the ${ ordinal(i) } child\nfields:\n"
+            '  - "School": children[i].school\n',
+            yaml_text,
+        )
+        # `i` only exists while a list item is being asked about. Anywhere else
+        # it is a NameError when the interview runs.
+        blocks = yaml_text.split("\n---\n")
+        index_blocks = [block for block in blocks if "[i]" in block]
+        self.assertFalse(
+            [
+                block
+                for block in index_blocks
+                if "mandatory: True" in block
+                or "signature_fields" in block
+                or "favorite_color" in block
+            ]
+        )
+        self.assertIn("children[0].signature", yaml_text)
         self._run_dayamlchecker_text(yaml_text)
+
+    def test_an_existing_complete_attribute_stays_part_of_the_rule(self):
+        from .interview_generator import (
+            _ListCompletionSpec,
+            _PersonObjectSpec,
+            _configure_list_completions,
+        )
+
+        objects, active = _configure_list_completions(
+            [
+                _PersonObjectSpec(
+                    "children", "ALPeopleList", {"complete_attribute": "name.first"}
+                )
+            ],
+            [_ListCompletionSpec("children", ("birthdate", "school"))],
+        )
+
+        self.assertEqual(objects[0].params["complete_attribute"], "complete")
+        self.assertEqual(active[0].attributes, ("name.first", "birthdate", "school"))
+
+    def test_loop_hints_skip_nested_collections(self):
+        from .interview_generator import get_docx_loop_attribute_hints
+
+        hints = get_docx_loop_attribute_hints(
+            "{%p for child in children %}{{ child.school }}"
+            "{%p for grade in child.grades %}{{ grade }}{%p endfor %}"
+            "{{ children[0].nickname }}{%p endfor %}"
+        )
+
+        self.assertEqual(hints, {"children": ["school"]})
+
+    def test_looped_list_that_is_not_people_keeps_its_first_item(self):
+        import docx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docx_path = os.path.join(tmpdir, "assets.docx")
+            document = docx.Document()
+            document.add_paragraph("{%p for asset in assets %}")
+            document.add_paragraph("{{ asset.description }}")
+            document.add_paragraph("{{ asset.value }}")
+            document.add_paragraph("{%p endfor %}")
+            document.save(docx_path)
+
+            result = generate_interview_from_path(
+                docx_path,
+                output_dir=tmpdir,
+                create_package_zip=False,
+                include_next_steps=False,
+            )
+            yaml_text = Path(result.yaml_path).read_text(encoding="utf-8")
+
+        self.assertNotIn("assets[i]", yaml_text)
+        self.assertNotIn("id: assets item is complete", yaml_text)
 
     def test_position_specific_docx_attributes_do_not_apply_to_every_item(self):
         import docx
