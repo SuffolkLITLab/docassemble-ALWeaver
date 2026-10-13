@@ -106,3 +106,8 @@ assert.deepEqual(tokens('<%text>${ lit }</%text > ${ live }'), [
   '</%text >',
   '${ live }',
 ]);
+assert.deepEqual(tokens('% def hello(name):\nHello ${ name }\n% enddef'), [
+  '% def hello(name):',
+  '${ name }',
+  '% enddef',
+]);

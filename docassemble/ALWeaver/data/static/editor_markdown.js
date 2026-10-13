@@ -36,7 +36,7 @@
         ranges.push(substitution);
         opener.lastIndex = substitution.to;
         continue;
-      } else if (tags.has(name)) {
+      } else if (!match[1] && tags.has(name)) {
         // Tags like <%def name="x()">, </%def> and <%include file="a"/> end
         // at the first unquoted '>'.
         end = tagEnd(text, opener.lastIndex);
