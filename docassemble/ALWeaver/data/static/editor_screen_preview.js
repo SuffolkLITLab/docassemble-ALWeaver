@@ -1279,7 +1279,11 @@
     }
 
     if (keys.length === 0) return { fields: [], notes: [] };
-    var firstKey = keys[0];
+    // The editor's API sorts keys, so find the label rather than take the first.
+    var serializers = globalThis.ALWeaverSerializers;
+    var firstKey = serializers
+      ? serializers.fieldLabelKey(raw, STANDALONE_TYPES)
+      : keys[0];
     var firstValue = raw[firstKey];
 
     if (STANDALONE_TYPES.indexOf(firstKey) !== -1) {

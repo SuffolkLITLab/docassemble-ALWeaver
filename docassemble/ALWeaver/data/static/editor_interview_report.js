@@ -858,6 +858,12 @@
     function expand(items, active) {
       var result = [];
       (items || []).forEach(function (step) {
+        // The order builder's AI step is two screens: the question, then its
+        // review screen.
+        if (step.kind === 'ai') {
+          result.push.apply(result, expand(step.children, active));
+          return;
+        }
         var name = step.kind === STEP_SCREEN ? String(step.invoke || '').trim() : '';
         if (name && Object.prototype.hasOwnProperty.call(orders, name) &&
             Array.isArray(orders[name]) && active.indexOf(name) === -1 && active.length < 40) {

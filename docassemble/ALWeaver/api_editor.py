@@ -18,6 +18,7 @@ Provides:
     GET  /al/editor/api/question-library — AssemblyLine questions for this file's objects
     POST /al/editor/api/question-library/insert — copy chosen library questions in
     POST /al/editor/api/question-library/object — declare a new list of people
+    POST /al/editor/api/ai-assist — add, change or remove AI help on a field
     GET  /al/editor/api/package-file — parse a YAML file from an installed package
     GET  /al/editor/api/variables — extract variable names from a file
     POST /al/editor/api/order    — save order-builder steps as code
@@ -211,6 +212,7 @@ from .question_library import (
     PERSON_LIST_CLASSES,
 )
 from .generator_constants import generator_constants
+from .editor_ai_assist import apply_ai_assist, remove_ai_assist
 
 try:
     from .editor_utils import (
@@ -10243,6 +10245,75 @@ def editor_api_question_library_object() -> Response:
         )
     except Exception as exc:
         log(f"ALWeaver editor: question library object error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/ai-assist", methods=["POST"])
+def editor_api_ai_assist() -> Response:
+    """Add, change or remove AI help on a field.
+
+    The browser sends the settings from the AI help dialog; the declaration,
+    include, review question and order line are written here, as ordinary
+    source, by `editor_ai_assist`.
+    """
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        action = str(post_data.get("action") or "save").strip()
+        name = str(post_data.get("name") or "").strip() or None
+        content = playground_read_yaml(uid, project, filename)
+        summary: Dict[str, Any] = {}
+        if action == "remove":
+            if not name:
+                raise ValueError("Say which AI help to remove")
+            updated_content = remove_ai_assist(content, name)
+        elif action == "save":
+            config = post_data.get("config")
+            if not isinstance(config, dict):
+                raise ValueError("config must be an object")
+            question_raw = post_data.get("question_block_id")
+            updated_content, summary = apply_ai_assist(
+                content,
+                config,
+                name=name,
+                question_block_id=str(question_raw).strip() if question_raw else None,
+                add_to_order=post_data.get("add_to_order") is not False,
+            )
+        else:
+            raise ValueError("action must be save or remove")
+        if updated_content != content:
+            conflict = _write_source_content(
+                uid, project, filename, updated_content, post_data, request_id
+            )
+            if conflict is not None:
+                return conflict
+        data = _build_file_response_data(updated_content, project, filename)
+        data["ai_assist"] = summary
+        return jsonify({"success": True, "request_id": request_id, "data": data})
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: AI assist error: {exc!r}", "error")
         return jsonify_with_status(
             {
                 "success": False,

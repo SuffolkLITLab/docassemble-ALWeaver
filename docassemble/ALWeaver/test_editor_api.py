@@ -4879,6 +4879,101 @@ class TestEditorQuestionLibraryApi(unittest.TestCase):
                 self.assertEqual(status, 401)
 
 
+class TestEditorAIAssistApi(unittest.TestCase):
+    """POST /api/ai-assist writes AI help as ordinary source, or rejects it."""
+
+    SOURCE = (
+        "id: interview order\n"
+        "mandatory: True\n"
+        "code: |\n"
+        "  story\n"
+        "---\n"
+        "id: story question\n"
+        "question: |\n"
+        "  Tell us what happened\n"
+        "fields:\n"
+        "  - no label: story\n"
+        "    datatype: area\n"
+    )
+
+    def _post(self, body, source=None):
+        from . import editor_utils as real_editor_utils
+
+        written = {}
+
+        def record_write(uid, project, filename, content):
+            written["content"] = content
+
+        payload = {"project": "default", "filename": "test.yml"}
+        payload.update(body)
+        with ExitStack() as stack:
+            for patcher in (
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "_current_user_id", return_value=7),
+                patch.object(
+                    api_editor,
+                    "playground_read_yaml",
+                    return_value=source if source is not None else self.SOURCE,
+                ),
+                patch.object(
+                    api_editor,
+                    "parse_interview_yaml",
+                    side_effect=real_editor_utils.parse_interview_yaml,
+                ),
+                patch.object(
+                    api_editor,
+                    "source_revision",
+                    side_effect=real_editor_utils.source_revision,
+                ),
+                patch.object(
+                    api_editor, "playground_write_yaml", side_effect=record_write
+                ),
+                api_editor.app.test_request_context(
+                    "/al/editor/api/ai-assist", method="POST", json=payload
+                ),
+            ):
+                stack.enter_context(patcher)
+            response = api_editor.editor_api_ai_assist()
+        return response, written.get("content")
+
+    def test_save_writes_the_ai_help_and_returns_the_file(self):
+        response, written = self._post(
+            {
+                "question_block_id": "story question",
+                "config": {
+                    "task": "summarize",
+                    "source": "story",
+                    "output": "story_summary",
+                    "review_question": "Review the summary",
+                },
+            }
+        )
+        payload = response.get_json()
+        self.assertTrue(payload["success"], payload)
+        self.assertEqual(payload["data"]["ai_assist"]["name"], "story_ai")
+        self.assertTrue(payload["data"]["ai_assist"]["added_to_order"])
+        self.assertIn("docassemble.ALToolbox:ai_assist.yml", written)
+        self.assertIn("  story\n  story_summary\n", written)
+        described = [
+            assist["name"]
+            for block in payload["data"]["blocks"]
+            for assist in block.get("ai_assists", [])
+        ]
+        self.assertEqual(described, ["story_ai"])
+
+    def test_invalid_settings_write_nothing(self):
+        response, written = self._post(
+            {"config": {"task": "rewrite", "source": "story", "output": "story"}}
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNone(written)
+
+    def test_remove_needs_a_name(self):
+        response, written = self._post({"action": "remove"})
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNone(written)
+
+
 class TestEditorBlockPayloadValidation(unittest.TestCase):
     """What the "Add a block" modal hands the API has to be accepted."""
 

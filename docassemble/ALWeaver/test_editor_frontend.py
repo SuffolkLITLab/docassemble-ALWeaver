@@ -36,6 +36,7 @@ NODE_TESTS = (
     "test_editor_router.js",
     "test_editor_route_navigation.js",
     "test_editor_validation_navigation.js",
+    "test_editor_ai_assist.js",
 )
 
 
@@ -508,6 +509,7 @@ class TestEditorFrontend(unittest.TestCase):
             "editor_serializers.js",
             "editor_validation_source.js",
             "editor_agent_chat.js",
+            "editor_ai_assist.js",
         ):
             self.assertLess(template.index(module), template.index("editor.js"))
         self.assertNotIn("monaco", editor.lower())
@@ -702,6 +704,11 @@ class TestEditorFrontend(unittest.TestCase):
             "ai-screen",
             "ai-generate-screen",
             "ai-generate-fields",
+            # AI help on a field runs AI when the interview does.
+            "ai-assist",
+            "data-ai-task",
+            "editor-field-ai",
+            "add-ai-field",
         )
         for relative_path in (
             "data/templates/editor.html",

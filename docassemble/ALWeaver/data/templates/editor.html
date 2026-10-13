@@ -1254,6 +1254,7 @@
             <option value="progress">Progress</option>
             <option value="function">Function</option>
             <option value="raw">Raw Python</option>
+            <option value="ai">AI help (ask, then review)</option>
           </select>
         </div>
         <div id="order-add-body"></div>
@@ -1261,6 +1262,27 @@
       <div class="modal-footer">
         <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
         <button type="button" class="btn btn-sm btn-primary" id="order-add-save">Add step</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- AI help on a field: settings for its AIAssist and review screen -->
+<div class="modal fade" id="ai-assist-modal" tabindex="-1" aria-labelledby="ai-assist-title">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <div class="editor-tiny" id="ai-assist-kicker">AI help</div>
+          <h5 class="modal-title mt-1" id="ai-assist-title">AI help for this field</h5>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="ai-assist-body"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-link text-danger me-auto d-none" id="ai-assist-remove">Remove AI help</button>
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-sm btn-primary" id="ai-assist-save">Save AI help</button>
       </div>
     </div>
   </div>
@@ -1368,6 +1390,7 @@
 <script src="/al/editor/static/editor_html.js"></script>
 <script src="/al/editor/static/editor_expressions.js"></script>
 <script src="/al/editor/static/editor_serializers.js"></script>
+<script src="/al/editor/static/editor_ai_assist.js"></script>
 <script src="/al/editor/static/editor_api_client.js"></script>
 <script src="/al/editor/static/editor_dirty_state.js"></script>
 <script src="/al/editor/static/editor_validation_source.js"></script>
