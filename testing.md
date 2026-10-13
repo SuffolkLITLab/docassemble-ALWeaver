@@ -1,5 +1,39 @@
 # Testing instructions
 
+## Contextual Mako editing regression
+
+`scripts/editor_markdown_smoketest.js` exercises the real Docassemble CodeMirror
+bundle and shared expression dialog, using the Python AST parser without
+evaluation. It covers contextual discovery, keyboard/touch emulation, exact
+occurrences, Cancel/no-op, undo/redo, stale sources, errors and Axe checks.
+
+```sh
+NODE_PATH=/path/to/browser/node_modules \
+DOCASSEMBLE_CM6=/path/to/docassemble/webapp/static/app/cm6.js \
+BROWSER_PATH=/path/to/chromium \
+node scripts/editor_markdown_smoketest.js
+```
+
+Set `BROWSER=firefox` or `BROWSER=webkit` and the corresponding `BROWSER_PATH`
+(or omit the path for a Playwright-managed browser). Pass a scenario name as the
+first argument to run a single scenario.
+
+`scripts/editor_mako_context_smoketest.js` checks the real editor's Question and
+Subquestion, Apply versus Save, exact-occurrence edits, persistence, validation,
+and narrow/touch layouts. It creates and deletes its own Playground project.
+
+```sh
+NODE_PATH=/path/to/browser/node_modules \
+STORAGE_STATE=/path/to/authenticated-state.json \
+CHROMIUM_PATH=/path/to/chromium \
+SCREENSHOT_DIR=/tmp/weaver-1195-evidence \
+node scripts/editor_mako_context_smoketest.js
+```
+
+`SERVER_URL` defaults to localhost. The output includes PNG screenshots and
+`results.json`. Touch emulation does not replace real iPad Safari, VoiceOver,
+orientation, selection-handle, zoom, and on-screen keyboard checks.
+
 ## Developing Tests
 
 To write and run the tests, you'll need to set up your testing environment in Python.

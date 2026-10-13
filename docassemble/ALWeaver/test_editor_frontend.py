@@ -765,7 +765,8 @@ class TestEditorFrontend(unittest.TestCase):
 
     def test_markdown_editor_browser_scenarios(self):
         # Real CodeMirror + axe-core coverage of the graphical Markdown fields:
-        # focus, validity, labels, contrast in both color schemes, disposal.
+        # focus, validity, labels, contrast in both color schemes, disposal,
+        # contextual Mako Apply/Cancel, keyboard/touch, stale source and undo.
         cm6 = Path(
             os.environ.get(
                 "DOCASSEMBLE_CM6",

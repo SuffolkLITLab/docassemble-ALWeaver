@@ -24462,6 +24462,7 @@
         alert(message);
       },
     });
+    window.WeaverMarkdown.setExpressionEditor(expressionEditor);
     var isAuthenticated = Boolean(
       authState.authenticated || BOOT.authenticated,
     );

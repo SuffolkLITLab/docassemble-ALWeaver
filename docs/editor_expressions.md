@@ -77,6 +77,31 @@ the normal field change events, so existing save/revision/dirty-state handling
 continues to own persistence. Source selections and input values are checked
 for intervening edits before applying. Parser failures leave CodeMirror usable.
 
+## Editing underlined Mako in text fields
+
+In Question, Subquestion, and other editable Markdown fields (including text
+template subject/content), hover over an underlined `${ expression }` or tap
+it once to reveal **Edit expression**. Moving the caret into the expression
+with the arrow keys also exposes the action; press Tab, then Enter or Space.
+Typing remains ordinary text editing. Hovering never moves the caret or opens
+the dialog. Escape or a click outside dismisses the contextual action.
+
+The shared dialog edits only the Python inside that occurrence, using the
+existing variable/function catalog. Valid advanced Python opens in Python mode.
+Apply changes the field and supports undo/redo; **Save** still owns persistence.
+Cancel, Close, and Escape discard the dialog draft. Escape dismisses autocomplete
+suggestions first. An unchanged Apply preserves the exact original field string
+and dirty state, but still checks syntax at this entry point: empty or invalid
+expressions cannot be applied. Parser failures retain the draft; cancel to edit
+the original text directly if the service remains unavailable.
+
+Filters (`${ value | h }`), directives, code blocks, and incomplete or ambiguous
+substitutions offer **Edit in text**, which selects the source in the original
+field. Incomplete substitutions select only `${`, without guessing where they
+end. Literal/comment regions do not expose live substitutions. If the source
+changes or its editor is replaced while the dialog is open, Apply is blocked;
+copy the draft, cancel, and reopen against the current text.
+
 ## Verification
 
 `test_editor_expressions.py` and `test_editor_expressions.js` cover the subset,
@@ -89,3 +114,6 @@ validation, and frontend contracts.
 
 The executed Luna browser matrix is recorded in
 [editor_expression_browser_tests.md](editor_expression_browser_tests.md).
+
+The contextual Mako browser results and remaining device checks are recorded in
+[editor_mako_context_browser_tests.md](editor_mako_context_browser_tests.md).

@@ -21,7 +21,7 @@ assert.deepEqual(tokens('  % for x in items:\n${ x }\n  % endfor'), [
 ]);
 assert.deepEqual(tokens('<%\nx = "hello"\n%>\ntext'), ['<%\nx = "hello"\n%>']);
 assert.deepEqual(tokens('100% ordinary\n%% if escaped\n# Markdown'), []);
-assert.deepEqual(tokens('${ incomplete'), ['${ incomplete']);
+assert.deepEqual(tokens('${ incomplete'), ['${']);
 assert.deepEqual(tokens('<% incomplete'), ['<% incomplete']);
 assert.deepEqual(tokens('😀 ${ "escaped \\\" }" }'), ['${ "escaped \\\" }" }']);
 // Mako tags close with '>' or '/>', not '%>'.
@@ -57,3 +57,52 @@ assert.deepEqual(tokens('<%! import os %> and <%\nx = 1\n%>'), [
   '<%\nx = 1\n%>',
 ]);
 console.log('Markdown editor Mako range detection passed');
+
+function expression(text, index = 0) {
+  const token = makoRanges(text)[index];
+  return token.editable
+    ? text.slice(token.expressionFrom, token.expressionTo)
+    : null;
+}
+assert.deepEqual(tokens('😀 ${ x }${ x }'), ['${ x }', '${ x }']);
+assert.equal(makoRanges('😀 ${ x }')[0].from, 3);
+assert.equal(
+  expression('${ currency(monthly_income) }'),
+  'currency(monthly_income)',
+);
+assert.equal(
+  expression('${ {"a": ["}", {"b": 2}]} }'),
+  '{"a": ["}", {"b": 2}]}',
+);
+assert.equal(expression('${ (\n  x + y\n) }'), '(\n  x + y\n)');
+assert.equal(expression('${ """a } b""" }'), '"""a } b"""');
+assert.equal(expression('${ (x # } comment\n) }'), '(x # } comment\n)');
+assert.equal(expression('${ value | h }'), null);
+assert.equal(expression('${ value | trim, h }'), null);
+assert.equal(expression('${ (a | b) }'), '(a | b)');
+assert.equal(expression('${ "|" }'), '"|"');
+assert.equal(expression('${ [x for x in items] }'), '[x for x in items]');
+assert.equal(expression('${ }'), '');
+assert.deepEqual(tokens('  ## ${ ignored }\n${ live }'), ['${ live }']);
+assert.deepEqual(tokens('<%doc>${ hidden }\n% if no:\n</%doc>${ live }'), [
+  '${ live }',
+]);
+assert.deepEqual(tokens('<%doc>${ incomplete'), []);
+assert.deepEqual(tokens('${ (broken } prose ${ next }'), ['${', '${ next }']);
+assert.deepEqual(tokens('${ unclosed ${ next }'), ['${', '${ next }']);
+assert.equal(expression('${ "unclosed }'), null);
+assert.equal(expression('% if ready:'), null);
+assert.equal(expression('<% x = 2 %>'), null);
+assert.deepEqual(tokens('<% doc = 1 %>\n${ live }'), [
+  '<% doc = 1 %>',
+  '${ live }',
+]);
+assert.deepEqual(tokens('<% text = "a" %>\n${ live }'), [
+  '<% text = "a" %>',
+  '${ live }',
+]);
+assert.deepEqual(tokens('<%text>${ lit }</%text > ${ live }'), [
+  '<%text>',
+  '</%text >',
+  '${ live }',
+]);
