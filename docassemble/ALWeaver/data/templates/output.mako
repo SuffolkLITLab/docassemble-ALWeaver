@@ -352,7 +352,7 @@ ${ indent(interview.can_I_use_this_form, by=2)}
 <%doc>
     Main question loop
 </%doc>\
-% for question in interview.questions:
+% for question in rendered_questions:
 ---
 id: ${ fix_id(question.question_text) }
 question: |
@@ -397,6 +397,22 @@ ${ baseline_question_yaml(baseline_question) }\
 % endif
 % for family, datatypes in row_families:
 ${ row_family_yaml(family, datatypes) }\
+% endfor
+% for completion in list_completions:
+${ docx_list_completion_yaml(completion) }\
+  % if completion.item_fields:
+<%doc>
+    Asked about every item, the first one included, while the list is gathered.
+</%doc>\
+---
+id: ${ fix_id(completion.name + " item details") }
+question: |
+  About the <%text>${</%text> ordinal(i) } ${ singular_label(completion.name) }
+fields:
+    % for field in completion.item_fields:
+${ field_entry_yaml(field, variable=list_item_variable(completion, field.get_settable_var()), label=list_item_label(field)) }\
+    % endfor
+  % endif
 % endfor
 % if court_attributes:
 ---

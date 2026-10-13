@@ -6,7 +6,7 @@ from .custom_values import (
     get_yml_deps_from_choices,
 )
 from .generator_constants import generator_constants
-from .question_library import baseline_question_specs
+from .question_library import baseline_question_specs, singular_label
 from .field_grouping import (
     FILLER_NAME_WORDS,
     group_fields_into_screens,
@@ -27,7 +27,7 @@ from .review_screen import build_review_entries, table_edit_attributes
 from .project_filenames import safe_project_filename, unique_project_filenames
 from .validate_template_files import matching_reserved_names, has_fields
 from collections import defaultdict
-from dataclasses import field
+from dataclasses import field, replace
 from docassemble.base.util import (
     bold,
     comma_list,
@@ -209,6 +209,16 @@ class _PersonObjectSpec:
     name: str
     type: str = "ALPeopleList"
     params: dict = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class _ListCompletionSpec:
+    """The DOCX attributes that make one item in a generated list complete."""
+
+    name: str
+    attributes: Tuple[str, ...]
+    # DOCX fields with no AssemblyLine question, asked again for every item
+    item_fields: Tuple[Any, ...] = ()
 
 
 # Per-person default params that match AssemblyLine's ql_baseline.yml.
@@ -1990,6 +2000,170 @@ confirm: True
         return substitute_suffix(parent_var)
 
 
+def _docx_list_completion_specs(interview: "DAInterview") -> List[_ListCompletionSpec]:
+    """Find lists whose DOCX references require more than one item attribute.
+
+    ``ALPeopleList`` normally considers an item complete after its name is
+    gathered.  A DOCX can also print attributes such as birthdate, email, or a
+    custom value.  In that case the generated interview needs an explicit
+    completion rule so gathering the list reaches every value the template
+    uses.
+    """
+    loop_attributes = getattr(interview.all_fields, "docx_loop_attributes", {})
+    specs: List[_ListCompletionSpec] = []
+    for collection in interview.all_fields.find_parent_collections():
+        if collection.var_type != "list" or not collection.var_name.isidentifier():
+            continue
+        supported: Set[str] = set()
+        first_item_fields: Dict[str, DAField] = {}
+        for item in collection.fields:
+            if getattr(item, "source_document_type", "") != "docx":
+                continue
+            if getattr(item, "field_type", None) in {"code", "skip", "skip this field"}:
+                continue
+            _plain, _display, settable = item._get_attributes()
+            # Signatures belong to the signing step at the end, not to
+            # gathering the list.  The group can't tell: people's signatures
+            # are moved to the built-ins along with their names.
+            if not settable or settable.split(".")[-1] == "signature":
+                continue
+            supported.add(settable)
+            if (
+                getattr(item, "group", None) == DAFieldGroup.CUSTOM
+                and item.get_settable_var() == f"{collection.var_name}[0].{settable}"
+            ):
+                first_item_fields.setdefault(settable, item)
+        # Only loop-derived references have a generic question for every item.
+        # Explicit positions such as ``children[0].school`` must not turn into
+        # ``children[i].school``: a different position may never define it.
+        attributes = tuple(
+            attribute
+            for attribute in loop_attributes.get(collection.var_name, [])
+            if attribute in supported
+        )
+        if len(attributes) > 1:
+            specs.append(
+                _ListCompletionSpec(
+                    collection.var_name,
+                    attributes,
+                    tuple(
+                        first_item_fields[attribute]
+                        for attribute in attributes
+                        if attribute in first_item_fields
+                    ),
+                )
+            )
+    return specs
+
+
+def _configure_list_completions(
+    objects: Sequence[_PersonObjectSpec],
+    completions: Sequence[_ListCompletionSpec],
+) -> Tuple[List[_PersonObjectSpec], List[_ListCompletionSpec]]:
+    """Add ``complete_attribute`` to matching lists and return active rules.
+
+    A list that already names another ``complete_attribute`` keeps it as the
+    first step of the generated rule, so nothing it used to gather is lost.
+    """
+    by_name = {completion.name: completion for completion in completions}
+    configured: List[_PersonObjectSpec] = []
+    active: List[_ListCompletionSpec] = []
+    for obj in objects:
+        params = dict(obj.params)
+        completion = by_name.get(obj.name)
+        if completion and obj.type.endswith("List"):
+            existing = params.get("complete_attribute")
+            if isinstance(existing, str) and existing not in (
+                "complete",
+                *completion.attributes,
+            ):
+                completion = replace(
+                    completion, attributes=(existing, *completion.attributes)
+                )
+            params["complete_attribute"] = "complete"
+            active.append(completion)
+        configured.append(_PersonObjectSpec(obj.name, obj.type, params))
+    return configured, active
+
+
+def docx_list_completion_yaml(completion: _ListCompletionSpec) -> str:
+    """Render the code block that gathers every DOCX-used item attribute."""
+    lines = [
+        "---",
+        f"id: {completion.name} item is complete",
+        "code: |",
+    ]
+    lines.extend(
+        f"  {completion.name}[i].{attribute}" for attribute in completion.attributes
+    )
+    lines.append(f"  {completion.name}[i].complete = True")
+    return "\n".join(lines) + "\n"
+
+
+def _without_list_item_fields(
+    screens: Iterable[Union["DAQuestion", "DAField"]],
+    completions: Sequence[_ListCompletionSpec],
+) -> List[Union["DAQuestion", "DAField"]]:
+    """Leave out what a list's completion rule already asks for every item.
+
+    Without this the first child's school sits on a screen of its own, asked
+    before the interview has even asked whether there are any children. The
+    per-item question asks it for the first child along with the others.
+    Screens are copied, never edited, so the author's own screens stay as they
+    are.
+    """
+    covered = {
+        f"{completion.name}[0].{attribute}"
+        for completion in completions
+        for attribute in completion.attributes
+    }
+    asked_per_item = {
+        field.get_settable_var()
+        for completion in completions
+        for field in completion.item_fields
+    }
+    kept: List[Union["DAQuestion", "DAField"]] = []
+    for screen in screens:
+        field_list = getattr(screen, "field_list", None)
+        if isinstance(screen, DAQuestion) and field_list:
+            remaining = [
+                field
+                for field in field_list
+                if field.get_settable_var() not in asked_per_item
+            ]
+            if len(remaining) == len(field_list):
+                kept.append(screen)
+            elif remaining:
+                trimmed = copy.copy(screen)
+                trimmed.field_list = remaining
+                kept.append(trimmed)
+            continue
+        # A built-in such as `children[0].birthdate` in the interview order;
+        # `children.gather()` now gets it for every child
+        if isinstance(screen, DAField) and screen.trigger_gather() in covered:
+            continue
+        kept.append(screen)
+    return kept
+
+
+def list_item_variable(completion: _ListCompletionSpec, variable: str) -> str:
+    """``children[0].school`` -> ``children[i].school`` for a per-item question."""
+    return re.sub(
+        r"\b" + re.escape(completion.name) + r"\[0\]",
+        completion.name + "[i]",
+        variable,
+    )
+
+
+def list_item_label(field: "DAField") -> str:
+    """A label for a per-item question that doesn't name the first item."""
+    label = str(getattr(field, "label", "") or "")
+    if label and not re.search(r"\[\d+\]", label):
+        return label
+    attribute = field.get_settable_var().split("].", 1)[-1]
+    return attribute.replace(".", " ").replace("_", " ").capitalize()
+
+
 class DAFieldList(DAList):
     """A DAFieldList contains multiple DAFields."""
 
@@ -1998,6 +2172,7 @@ class DAFieldList(DAList):
         self.object_type = DAField
         self.auto_gather = False
         self.complete_attribute = "complete"
+        self.docx_loop_attributes = {}
         self.initializeAttribute(
             "custom_people_plurals", DADict.using(auto_gather=False, gathered=True)
         )
@@ -2524,6 +2699,16 @@ class DAFieldList(DAList):
             # condition" hints come from the same pass over the text
             docx_text = docx_template_text(document.path())
             all_fields: Iterable = docx_variables_in_order(docx_text)
+            if not hasattr(self, "docx_loop_attributes"):
+                # A DAFieldList pickled before this attribute existed
+                self.docx_loop_attributes = {}
+            for list_name, attributes in get_docx_loop_attribute_hints(
+                docx_text
+            ).items():
+                saved = self.docx_loop_attributes.setdefault(list_name, [])
+                saved.extend(
+                    attribute for attribute in attributes if attribute not in saved
+                )
             boolean_fields = get_docx_boolean_variables(docx_text)
             type_hints = get_docx_function_type_hints(docx_text)
             choice_hints = get_docx_choice_hints(docx_text)
@@ -2868,7 +3053,8 @@ class DAFieldList(DAList):
 
         Returns:
             A dict mapping canonical person name → ``"one"`` or ``"more"``.
-            Person types with no indexed fields are omitted.
+            Person types with no indexed fields are omitted, and so are lists
+            a DOCX only loops over.
         """
         known_plurals = set(reserved_person_pluralizers_map.values()) | set(
             self.custom_people_plurals.values()
@@ -2886,9 +3072,13 @@ class DAFieldList(DAList):
                 continue
             if canonical not in max_indices or index > max_indices[canonical]:
                 max_indices[canonical] = index
+        # A DOCX that loops over a list prints however many items there are.
+        # Its `[0]` stands for every item, not for a list of exactly one.
+        looped = set(getattr(self, "docx_loop_attributes", {}))
         return {
             person: ("one" if max_idx == 0 else "more")
             for person, max_idx in max_indices.items()
+            if max_idx > 0 or person not in looped
         }
 
     def _is_single_docx_person(self, name: str) -> bool:
@@ -5598,6 +5788,7 @@ Rules:
         them.
         """
         self.all_fields.clear()
+        self.all_fields.docx_loop_attributes = {}
         self.all_fields.add_fields_from_file(self.uploaded_templates)
         self.all_fields.gathered = True
 
@@ -5937,7 +6128,7 @@ def _loop_target_replacements(
     return {names[0]: f"{resolved}[0]"}
 
 
-def _raw_variables_from_template(text: str) -> List[str]:
+def _template_variable_uses(text: str) -> List[Tuple[str, Optional[str]]]:
     """Find every variable-looking chain in a DOCX template's Jinja tags.
 
     Walks the tags in document order so that `for` loops can be tracked: inside
@@ -5948,21 +6139,30 @@ def _raw_variables_from_template(text: str) -> List[str]:
         text (str): the full text of a DOCX template.
 
     Returns:
-        List[str]: the variable chains found, before any suffix mapping, in the
-        order the template first uses them.
+        List[Tuple[str, Optional[str]]]: each use of a variable chain, before any
+        suffix mapping, in document order and with repeats. The second item is
+        the loop item the chain was reached through, such as ``children[0]`` for
+        ``child.school`` inside ``for child in children``, or None.
     """
-    # A dict keeps document order; a set made the fields, and so the screens,
-    # come out in a different order on every run
-    found: Dict[str, None] = {}
+    uses: List[Tuple[str, Optional[str]]] = []
     loop_scopes: List[Dict[str, Optional[str]]] = []
 
-    def keep(chains: Iterable[str]) -> None:
+    def keep(chains: Iterable[str], through_loop_target: bool = True) -> None:
         for chain in chains:
-            resolved = _resolve_loop_variable(
-                _normalize_literal_subscripts(chain), loop_scopes
+            chain = _normalize_literal_subscripts(chain)
+            resolved = _resolve_loop_variable(chain, loop_scopes)
+            if not resolved:
+                continue
+            root = re.split(r"[.\[]", chain, maxsplit=1)[0]
+            loop_item = (
+                next(
+                    (scope[root] for scope in reversed(loop_scopes) if root in scope),
+                    None,
+                )
+                if through_loop_target
+                else None
             )
-            if resolved:
-                found.setdefault(resolved)
+            uses.append((resolved, loop_item))
 
     for match in JINJA_ANY_TAG.finditer(text):
         output, raw_statement = match.group(1), match.group(2)
@@ -5981,7 +6181,12 @@ def _raw_variables_from_template(text: str) -> List[str]:
         for_match = JINJA_FOR_STATEMENT.match(statement)
         if for_match:
             targets, iterable_expression = for_match.group(1), for_match.group(2)
-            keep(_variables_in_jinja_expression(iterable_expression))
+            # A nested `for grade in child.grades` names a collection, not a
+            # value each child needs, so it is never a per-item attribute
+            keep(
+                _variables_in_jinja_expression(iterable_expression),
+                through_loop_target=False,
+            )
             loop_scopes.append(
                 _loop_target_replacements(targets, iterable_expression, loop_scopes)
             )
@@ -5993,7 +6198,42 @@ def _raw_variables_from_template(text: str) -> List[str]:
         conditional_match = JINJA_CONDITIONAL_STATEMENT.match(statement)
         if conditional_match:
             keep(_variables_in_jinja_expression(conditional_match.group(1)))
-    return list(found)
+    return uses
+
+
+def _raw_variables_from_template(text: str) -> List[str]:
+    """The variable chains in a DOCX template, in the order it first uses them.
+
+    See :func:`_template_variable_uses`.
+    """
+    # A dict keeps document order; a set made the fields, and so the screens,
+    # come out in a different order on every run
+    return list(
+        dict.fromkeys(chain for chain, _loop_item in _template_variable_uses(text))
+    )
+
+
+def get_docx_loop_attribute_hints(text: str) -> Dict[str, List[str]]:
+    """Return item attributes referenced through DOCX ``for`` loops over a list.
+
+    A loop target such as ``child`` in ``for child in children`` represents any
+    item in ``children``.  Unlike a literal reference to ``children[0]``, its
+    attributes can safely be used in a generic ``children[i]`` completion rule.
+    """
+    found: Dict[str, List[str]] = {}
+    for chain, loop_item in _template_variable_uses(text):
+        list_match = re.fullmatch(r"([A-Za-z_]\w*)\[0\]", loop_item or "")
+        if not list_match:
+            continue
+        settable = _settable_docx_variable(chain)
+        prefix = f"{loop_item}."
+        if not settable or not settable.startswith(prefix):
+            continue
+        attributes = found.setdefault(list_match.group(1), [])
+        attribute = settable[len(prefix) :]
+        if attribute and attribute not in attributes:
+            attributes.append(attribute)
+    return found
 
 
 # Functions an author can wrap a variable in inside a DOCX template that say
@@ -8603,6 +8843,11 @@ def _render_interview_yaml(
         yesno,
     )
 
+    configured_objects, list_completions = _configure_list_completions(
+        list(objects or []), _docx_list_completion_specs(interview)
+    )
+    objects = configured_objects
+
     output_defs_path = _resolve_template_path("output_defs.mako")
     question_library_path = _resolve_template_path("question_library.mako")
     output_mako_ref = get_output_mako_package_and_path(output_mako_choice)
@@ -8638,6 +8883,10 @@ def _render_interview_yaml(
             screen_reordered = list(interview.draft_screen_order())
         else:
             screen_reordered = []
+    screen_reordered = _without_list_item_fields(screen_reordered, list_completions)
+    rendered_questions = _without_list_item_fields(
+        interview.questions, list_completions
+    )
     for question in screen_reordered:
         if isinstance(question, DAQuestion) and not hasattr(question, "type"):
             question.type = "question"
@@ -8692,6 +8941,7 @@ def _render_interview_yaml(
 
     context = {
         "interview": interview,
+        "rendered_questions": rendered_questions,
         "objects": objects or [],
         "baseline_questions": baseline_question_specs(interview, objects or []),
         "generate_download_screen": include_download_screen,
@@ -8723,6 +8973,11 @@ def _render_interview_yaml(
         "attachment_reference": attachment_reference,
         "row_attachment_expression": row_attachment_expression,
         "row_family_yaml": row_family_yaml,
+        "docx_list_completion_yaml": docx_list_completion_yaml,
+        "list_completions": list_completions,
+        "list_item_variable": list_item_variable,
+        "list_item_label": list_item_label,
+        "singular_label": singular_label,
         "FIELD_TYPE_YAML": generator_constants.FIELD_TYPE_YAML,
         "signature_fields_expression": signature_fields_expression,
         "item_lists": lists_that_may_run_short(objects or []),
