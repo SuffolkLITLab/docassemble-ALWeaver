@@ -414,6 +414,38 @@ class TestKeepingTheVariable(unittest.TestCase):
             order_code(updated),
         )
 
+    def test_a_block_id_that_matches_the_variable_is_not_a_binding(self):
+        source = SOURCE.replace("id: story\n", "id: incident_description\n")
+        updated, _ = add_ai_help_keeping_variable(
+            source, REWRITE, question_block_id="incident_description"
+        )
+        self.assertIn("id: incident_description\n", updated)
+        self.assertIn("  - no label: incident_description_draft\n", updated)
+
+    def test_a_question_that_reads_the_answer_is_left_alone(self):
+        source = SOURCE.replace(
+            "    datatype: area\n",
+            "    datatype: area\nvalidation code: |\n"
+            "  if len(incident_description) < 10:\n"
+            "    validation_error('Say more')\n",
+            1,
+        )
+        with self.assertRaises(ValueError):
+            add_ai_help_keeping_variable(source, REWRITE, question_block_id="story")
+
+    def test_removing_it_gives_the_field_its_variable_back(self):
+        updated, summary = add_ai_help_keeping_variable(
+            SOURCE, REWRITE, question_block_id="story"
+        )
+        removed = remove_ai_assist(updated, summary["name"])
+        self.assertNotIn("_draft", removed)
+        self.assertNotIn("AIAssist", removed)
+        story = next(d for d in documents(removed) if d.get("id") == "story")
+        self.assertEqual(
+            story["fields"], [{"no label": "incident_description", "datatype": "area"}]
+        )
+        self.assertEqual(order_code(removed), order_code(SOURCE))
+
     def test_only_writing_help_can_keep_the_variable(self):
         with self.assertRaises(ValueError):
             add_ai_help_keeping_variable(

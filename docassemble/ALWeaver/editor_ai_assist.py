@@ -1190,6 +1190,29 @@ def remove_ai_assist(full_yaml: str, name: str) -> str:
     if assist["review_block_id"]:
         updated = delete_block_from_yaml(updated, assist["review_block_id"])
     model = parse_interview_yaml(updated)
+    # AI help that kept the field's variable renamed the field to a draft;
+    # give the field its variable back so documents that use it still work.
+    source = str(assist["settings"].get("source") or "")
+    if review_line and re.fullmatch(
+        re.escape(review_line) + r"_draft(?:_\d+)?", source
+    ):
+        question = next(
+            (
+                block
+                for block in model["blocks"]
+                if block.get("type") == "question"
+                and source in _question_variables(block)
+            ),
+            None,
+        )
+        if question is not None:
+            updated = _rename_field_binding(
+                updated, str(question["id"]), source, review_line
+            )
+            updated = _rename_order_line(
+                updated, parse_interview_yaml(updated), source, review_line
+            )
+            model = parse_interview_yaml(updated)
     for block in model["blocks"]:
         if not any(
             str(row.get("name") or "").strip() == name
@@ -1240,8 +1263,23 @@ def _rename_field_binding(full_yaml: str, block_id: str, old: str, new: str) -> 
         + r"(?P=q)(?P<tail>[ \t]*(?:#.*)?)$"
     )
     lines = body.split("\n")
+    # Only the `fields` list can hold the binding; `id: story` cannot.
+    node = yaml.compose(body)
+    fields_node = next(
+        (
+            value
+            for key, value in getattr(node, "value", [])
+            if getattr(key, "value", None) == "fields"
+        ),
+        None,
+    )
+    if fields_node is None:
+        raise ValueError(f"The question that sets {old} has no fields list")
+    first_line, last_line = fields_node.start_mark.line, fields_node.end_mark.line
     hits = []
     for index, line in enumerate(lines):
+        if not first_line <= index <= last_line:
+            continue
         match = binding.match(line)
         if not match:
             continue
@@ -1260,6 +1298,17 @@ def _rename_field_binding(full_yaml: str, block_id: str, old: str, new: str) -> 
         + match.group("tail")
     )
     edited = "\n".join(lines)
+    # Anything else in the question that reads the answer, such as validation
+    # code or a `show if`, would now read the reviewed answer, which doesn't
+    # exist yet when this question is answered.
+    readers = "\n".join(
+        line for line in lines if not re.match(r"^id\s*:", line)
+    )  # A block id that matches the name is only a label.
+    if re.search(r"(?<![\w.])" + re.escape(old) + r"(?![\w])", readers):
+        raise ValueError(
+            f"This question uses {old} somewhere other than its field, so the "
+            "reviewed answer can't take over that name; give it its own variable"
+        )
     before = _question_variables(block)
     after = _question_variables({"data": yaml.safe_load(edited)})
     if after != [new if name == old else name for name in before]:
