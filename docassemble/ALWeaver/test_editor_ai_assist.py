@@ -12,6 +12,7 @@ import yaml
 
 from .editor_ai_assist import (
     AI_ASSIST_INCLUDE,
+    add_ai_help_keeping_variable,
     apply_ai_assist,
     describe_ai_assists,
     normalize_ai_assist_config,
@@ -384,6 +385,49 @@ class TestRemoveInsideABranch(unittest.TestCase):
         self.assertIn("if users[0].name.first:\n  pass\n", code)
         ast.parse(code)
         self.assertNotIn("review hearing_date", removed)
+
+
+class TestKeepingTheVariable(unittest.TestCase):
+    """The reviewed answer takes over the variable documents already use."""
+
+    def test_the_field_becomes_a_draft_and_the_review_sets_the_variable(self):
+        updated, summary = add_ai_help_keeping_variable(
+            SOURCE,
+            dict(REWRITE, output="ignored"),
+            question_block_id="story",
+        )
+        self.assertEqual(summary["draft_variable"], "incident_description_draft")
+        self.assertEqual(summary["name"], "incident_description_ai")
+        story = next(d for d in documents(updated) if d.get("id") == "story")
+        self.assertEqual(
+            story["fields"],
+            [{"no label": "incident_description_draft", "datatype": "area"}],
+        )
+        review = next(
+            d
+            for d in documents(updated)
+            if d.get("id") == "review incident_description"
+        )
+        self.assertEqual(review["fields"][0]["no label"], "incident_description")
+        self.assertIn(
+            "incident_description_draft\nincident_description\n",
+            order_code(updated),
+        )
+
+    def test_only_writing_help_can_keep_the_variable(self):
+        with self.assertRaises(ValueError):
+            add_ai_help_keeping_variable(
+                SOURCE,
+                dict(EXTRACT, source="incident_description"),
+                question_block_id="story",
+            )
+
+    def test_a_draft_name_already_in_use_is_not_reused(self):
+        source = SOURCE + "---\ncode: |\n  incident_description_draft = 1\n"
+        updated, summary = add_ai_help_keeping_variable(
+            source, REWRITE, question_block_id="story"
+        )
+        self.assertEqual(summary["draft_variable"], "incident_description_draft_2")
 
 
 class TestOrderStep(unittest.TestCase):

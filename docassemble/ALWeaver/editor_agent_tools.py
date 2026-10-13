@@ -1028,6 +1028,59 @@ def _tool_insert_question(
     )
 
 
+def _tool_add_ai_help(
+    context: ToolContext, arguments: Dict[str, Any]
+) -> AgentToolResult:
+    """Give a field AI help: a review question, its declaration and order line."""
+    from .editor_ai_assist import (
+        AI_ASSIST_TASKS,
+        add_ai_help_keeping_variable,
+        apply_ai_assist,
+    )
+
+    block_id = str(arguments["question_block_id"])
+    task = str(arguments["task"])
+    config: Dict[str, Any] = {
+        key: arguments[key]
+        for key in (
+            "task",
+            "instructions",
+            "rubric",
+            "initial_question",
+            "question_limit",
+            "language",
+            "model",
+            "ask_permission",
+            "review_question",
+            "outputs",
+            "choices",
+        )
+        if key in arguments
+    }
+    config["source"] = str(arguments["variable"])
+    keep = bool(arguments.get("keep_variable", AI_ASSIST_TASKS.get(task) == "text"))
+    try:
+        if keep:
+            proposed, summary = add_ai_help_keeping_variable(
+                context.candidate.raw_source, config, question_block_id=block_id
+            )
+        else:
+            config["output"] = str(arguments.get("output") or "")
+            proposed, summary = apply_ai_assist(
+                context.candidate.raw_source, config, question_block_id=block_id
+            )
+    except ValueError as exc:
+        return _reject("add_ai_help", "invalid_ai_help", str(exc))
+    return _commit(
+        context,
+        "add_ai_help",
+        arguments,
+        proposed,
+        f"Added AI help to {config['source']}",
+        summary,
+    )
+
+
 def _tool_insert_exit_screen(
     context: ToolContext, arguments: Dict[str, Any]
 ) -> AgentToolResult:
@@ -1866,6 +1919,94 @@ def _register_all() -> None:
                 },
             },
             handler=_tool_replace_fields,
+        )
+    )
+    register_tool(
+        AgentToolSpec(
+            name="add_ai_help",
+            risk=RISK_LOW,
+            mutating=True,
+            description=(
+                "Give a field on a question AI help, so the person can ask AI "
+                "to help answer it and then reviews the result. Writes the "
+                "AIAssist declaration, the ALToolbox include, a review question "
+                "after the question, and the review line in the interview order. "
+                "Tasks: rewrite (organize their words), goal (follow-up questions "
+                "until `rubric` is met), prompt (`instructions` is the prompt), "
+                "summarize, translate (`language`), extract and extract_file "
+                "(`outputs`: answers to find, each with variable, label, datatype "
+                "and description), classify (`choices`: label, value, "
+                "description). For writing tasks the reviewed answer keeps the "
+                "field's variable by default (keep_variable), so documents get "
+                "the confirmed answer; otherwise give `output`. extract_file "
+                "needs a file field. Use only when the author asks for AI help."
+            ),
+            schema={
+                "type": "object",
+                "required": [
+                    "question_block_id",
+                    "variable",
+                    "task",
+                    "review_question",
+                ],
+                "additionalProperties": False,
+                "properties": {
+                    "question_block_id": {"type": "string", "minLength": 1},
+                    "variable": {"type": "string", "minLength": 1},
+                    "task": {
+                        "type": "string",
+                        "enum": [
+                            "rewrite",
+                            "goal",
+                            "prompt",
+                            "summarize",
+                            "translate",
+                            "extract",
+                            "extract_file",
+                            "classify",
+                        ],
+                    },
+                    "review_question": {"type": "string", "minLength": 1},
+                    "keep_variable": {"type": "boolean"},
+                    "output": {"type": "string"},
+                    "instructions": {"type": "string"},
+                    "rubric": {"type": "string"},
+                    "initial_question": {"type": "string"},
+                    "question_limit": {"type": "integer", "minimum": 1, "maximum": 10},
+                    "language": {"type": "string"},
+                    "model": {"type": "string"},
+                    "ask_permission": {"type": "boolean"},
+                    "outputs": {
+                        "type": "array",
+                        "maxItems": 20,
+                        "items": {
+                            "type": "object",
+                            "required": ["variable"],
+                            "additionalProperties": False,
+                            "properties": {
+                                "variable": {"type": "string"},
+                                "label": {"type": "string"},
+                                "datatype": {"type": "string"},
+                                "description": {"type": "string"},
+                            },
+                        },
+                    },
+                    "choices": {
+                        "type": "array",
+                        "maxItems": 30,
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "label": {"type": "string"},
+                                "value": {"type": "string"},
+                                "description": {"type": "string"},
+                            },
+                        },
+                    },
+                },
+            },
+            handler=_tool_add_ai_help,
         )
     )
     register_tool(

@@ -107,6 +107,11 @@ SYSTEM_PROMPT = textwrap.dedent("""
       {"kind": "condition", "condition": "not recipient_has_fax",
        "children": ["no_fax_exit"]}
 
+    When the author asks for AI help on an answer (AI that helps the person
+    write it, asks follow-up questions, translates it or fills fields in from
+    a document), use add_ai_help on the field. It writes the review screen and
+    the order line too; do not build those by hand.
+
     A screen with an empty field list is never correct. If a screen asks
     nothing, it is an exit screen.
 

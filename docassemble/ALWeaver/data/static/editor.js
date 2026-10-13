@@ -15092,8 +15092,6 @@
           html +=
             '<button class="btn btn-sm btn-outline-primary" id="add-field-btn"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Add field</button>';
           html +=
-            '<button class="btn btn-sm btn-outline-primary" id="add-ai-field-btn"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>Add AI field</button>';
-          html +=
             '<button class="btn btn-sm btn-outline-secondary" id="ai-generate-screen"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>AI draft screen</button>';
           html +=
             '<button class="btn btn-sm btn-outline-secondary" id="ai-generate-fields"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>AI fields</button>';
@@ -15105,8 +15103,6 @@
           html += '<div class="d-flex gap-2 align-items-center flex-wrap">';
           html +=
             '<button class="btn btn-sm btn-outline-primary" id="add-field-btn"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Add field</button>';
-          html +=
-            '<button class="btn btn-sm btn-outline-primary" id="add-ai-field-btn"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>Add AI field</button>';
           html +=
             '<button class="btn btn-sm btn-outline-secondary" id="ai-generate-screen"><i class="fa-solid fa-wand-magic-sparkles me-1" aria-hidden="true"></i>AI draft screen</button>';
           html +=
@@ -16033,21 +16029,6 @@
       '<div class="dropdown-menu editor-field-type-menu" aria-labelledby="field-type-btn-' +
       fi +
       '">';
-    html += '<h6 class="dropdown-header">AI help</h6>';
-    AI.TASKS.forEach(function (item) {
-      html +=
-        '<button type="button" class="dropdown-item editor-field-type-item' +
-        (aiAssist && aiAssist.task === item.value ? ' active' : '') +
-        '" data-ai-task="' +
-        item.value +
-        '" data-field-idx="' +
-        fi +
-        // data-ai-task: each item adds AI help of that kind.
-        '"><i class="fa-solid fa-wand-magic-sparkles me-2" aria-hidden="true"></i>' +
-        esc(item.label) +
-        '</button>';
-    });
-    html += '<div class="dropdown-divider"></div>';
     FIELD_TYPE_GROUPS.forEach(function (group, gi) {
       if (gi > 0) html += '<div class="dropdown-divider"></div>';
       html += '<h6 class="dropdown-header">' + esc(group.label) + '</h6>';
@@ -16067,6 +16048,21 @@
           esc(_fieldTypeLabel(item));
         html += '</button>';
       });
+    });
+    html += '<div class="dropdown-divider"></div>';
+    html += '<h6 class="dropdown-header">AI help</h6>';
+    AI.TASKS.forEach(function (item) {
+      html +=
+        '<button type="button" class="dropdown-item editor-field-type-item' +
+        (aiAssist && aiAssist.task === item.value ? ' active' : '') +
+        '" data-ai-task="' +
+        item.value +
+        '" data-field-idx="' +
+        fi +
+        // data-ai-task: each item adds AI help of that kind.
+        '"><i class="fa-solid fa-wand-magic-sparkles me-2" aria-hidden="true"></i>' +
+        esc(item.label) +
+        '</button>';
     });
     html += '</div></div>';
     return html;
@@ -18263,6 +18259,11 @@
         '<input class="form-check-input" type="checkbox" id="new-project-use-llm-assist" checked>' +
         '<label class="form-check-label editor-tiny" for="new-project-use-llm-assist">Use AI assistance for drafting</label>' +
         '<div class="text-muted small mt-1">If enabled, Weaver will use your context and reference page to refine labels and screen grouping. Variable names are always derived from the template\'s field labels, with or without this.</div>' +
+        '</div>' +
+        '<div class="form-check form-switch m-0">' +
+        '<input class="form-check-input" type="checkbox" id="new-project-allow-ai-questions" checked>' +
+        '<label class="form-check-label editor-tiny" for="new-project-allow-ai-questions">Allow adding AI-powered questions</label>' +
+        '<div class="text-muted small mt-1">Weaver may add AI help to long answers, such as a description of what happened: AI asks follow-up questions or organizes the answer, and the person reviews the result. Needs AI assistance for drafting.</div>' +
         '</div>' +
         '</div>',
     );
@@ -23318,23 +23319,6 @@
       openBlockById(aiOpenBlock.getAttribute('data-ai-open-block'));
       return;
     }
-    if (target.id === 'add-ai-field-btn') {
-      var aiBlock = getSelectedBlock();
-      if (aiBlock && aiBlock.data) {
-        if (syncFieldsToData(aiBlock) === false) return false;
-        if (!aiBlock.data.fields) aiBlock.data.fields = [];
-        aiBlock.data.fields.push({ label: '', field: '', datatype: 'area' });
-        _openFieldModsPanels = {};
-        markInterviewDirty('add-ai-field');
-        renderCanvas();
-        openAIAssistModal({
-          fieldIndex: aiBlock.data.fields.length - 1,
-          task: 'rewrite',
-        });
-      }
-      return;
-    }
-
     var alMethodOptionsButton = target.closest(
       '[data-al-field-method-options]',
     );
@@ -24213,6 +24197,12 @@
         ? copyBaselineQuestionsInput.checked
         : true;
       var createTest = createTestInput ? createTestInput.checked : true;
+      var allowAiQuestionsInput = document.getElementById(
+        'new-project-allow-ai-questions',
+      );
+      var allowAiQuestions =
+        useLlmAssist &&
+        Boolean(allowAiQuestionsInput && allowAiQuestionsInput.checked);
       _showUploadProgressModal('This may take a minute or two. Please wait.');
 
       if (_uploadedFiles.length > 0) {
@@ -24223,6 +24213,10 @@
         formData.append('help_page_url', helpPageUrl);
         formData.append('help_page_title', helpPageTitle);
         formData.append('use_llm_assist', useLlmAssist ? 'true' : 'false');
+        formData.append(
+          'allow_ai_questions',
+          allowAiQuestions ? 'true' : 'false',
+        );
         formData.append('output_type', outputType);
         formData.append('form_type', formType);
         formData.append('default_state', defaultState);
@@ -25076,6 +25070,17 @@
     });
 
   _wireAIAssistModal();
+
+  // AI-powered questions are picked by the AI drafting step, so the switch
+  // follows it: on whenever the author drafts with AI, off without it.
+  document.addEventListener('change', function (event) {
+    var target = event.target;
+    if (!target || target.id !== 'new-project-use-llm-assist') return;
+    var allow = document.getElementById('new-project-allow-ai-questions');
+    if (!allow) return;
+    allow.checked = target.checked;
+    allow.disabled = !target.checked;
+  });
 
   var orderAddKindSelect = document.getElementById('order-add-kind');
   if (orderAddKindSelect) {

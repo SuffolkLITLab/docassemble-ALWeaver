@@ -1013,12 +1013,13 @@ def apply_ai_assist(
     name: Optional[str] = None,
     question_block_id: Optional[str] = None,
     add_to_order: bool = True,
+    new_name: Optional[str] = None,
 ) -> Tuple[str, Dict[str, Any]]:
     """Write or update one field's AI help. Returns the source and a summary.
 
     ``name`` is the existing ``AIAssist`` to change; without it a new one is
-    named after the source variable. ``question_block_id`` is the question
-    with the field, which the review question follows.
+    named ``new_name``, or after the source variable. ``question_block_id`` is
+    the question with the field, which the review question follows.
     """
     from .editor_utils import (
         insert_block_in_yaml,
@@ -1044,7 +1045,7 @@ def apply_ai_assist(
         for row in block.get("editor_objects") or []
     }
     if not name:
-        name = ai_assist_object_name(settings["source"], declared)
+        name = ai_assist_object_name(new_name or settings["source"], declared)
 
     updated = _upsert_declaration(
         full_yaml, model, name, render_ai_assist_expression(settings)
@@ -1209,3 +1210,103 @@ def remove_ai_assist(full_yaml: str, name: str) -> str:
             raise ValueError(f"Could not remove {name} from its objects block")
         return _replace_document_body(updated, start, end, edited)
     return updated
+
+
+# ---------------------------------------------------------------------------
+# AI help that keeps the field's variable
+# ---------------------------------------------------------------------------
+
+
+def draft_variable_name(variable: str, full_yaml: str) -> str:
+    """``story`` -> ``story_draft``, unless the file already uses that name."""
+    if not re.search(r"[A-Za-z0-9_]$", variable) or not _is_variable(variable):
+        raise ValueError(f"Can't add AI help that keeps {variable}; name it plainly")
+    base = variable + "_draft"
+    candidate, number = base, 2
+    while re.search(r"(?<![\w.])" + re.escape(candidate) + r"(?![\w])", full_yaml):
+        candidate = f"{base}_{number}"
+        number += 1
+    return candidate
+
+
+def _rename_field_binding(full_yaml: str, block_id: str, old: str, new: str) -> str:
+    """Make the question's field set ``new`` instead of ``old``. One line changes."""
+    from .editor_utils import _replace_document_body, _unique_block_document
+
+    block, start, end, body = _unique_block_document(full_yaml, block_id)
+    binding = re.compile(
+        r"^(?P<lead>\s*(?:-\s+)?(?P<key>[^#\n]*?):[ \t]+)(?P<q>['\"]?)"
+        + re.escape(old)
+        + r"(?P=q)(?P<tail>[ \t]*(?:#.*)?)$"
+    )
+    lines = body.split("\n")
+    hits = []
+    for index, line in enumerate(lines):
+        match = binding.match(line)
+        if not match:
+            continue
+        key = match.group("key").strip().strip("'\"")
+        if key in _FIELD_MODIFIERS and key not in ("field", "no label"):
+            continue  # `show if: story` and the like are not the binding
+        hits.append((index, match))
+    if len(hits) != 1:
+        raise ValueError(f"Could not find the one field that sets {old}")
+    index, match = hits[0]
+    lines[index] = (
+        match.group("lead")
+        + match.group("q")
+        + new
+        + match.group("q")
+        + match.group("tail")
+    )
+    edited = "\n".join(lines)
+    before = _question_variables(block)
+    after = _question_variables({"data": yaml.safe_load(edited)})
+    if after != [new if name == old else name for name in before]:
+        raise ValueError(f"Could not rename the field that sets {old}")
+    return _replace_document_body(full_yaml, start, end, edited)
+
+
+def add_ai_help_keeping_variable(
+    full_yaml: str,
+    config: Dict[str, Any],
+    *,
+    question_block_id: str,
+    add_to_order: bool = True,
+) -> Tuple[str, Dict[str, Any]]:
+    """Add AI help to a field whose variable the rest of the interview uses.
+
+    The reviewed answer keeps the field's variable, so documents and logic
+    that use it get the answer the person confirmed. The field asks for a new
+    ``<variable>_draft`` instead, and an order line that asked for the field
+    by its variable asks for the draft. Only text tasks can do this: an
+    extraction has several outputs.
+    """
+    from .editor_utils import parse_interview_yaml
+
+    variable = str(config.get("source") or "").strip()
+    task = str(config.get("task") or "")
+    if AI_ASSIST_TASKS.get(task) != "text":
+        raise ValueError("Only writing kinds of AI help can keep the field's variable")
+    model = parse_interview_yaml(full_yaml)
+    question = next(
+        (b for b in model["blocks"] if b.get("id") == question_block_id), None
+    )
+    if question is None or variable not in _question_variables(question):
+        raise ValueError(
+            f"{question_block_id!r} is not the question that sets {variable}"
+        )
+    draft = draft_variable_name(variable, full_yaml)
+    updated = _rename_field_binding(full_yaml, question_block_id, variable, draft)
+    updated = _rename_order_line(
+        updated, parse_interview_yaml(updated), variable, draft
+    )
+    updated, summary = apply_ai_assist(
+        updated,
+        dict(config, source=draft, output=variable),
+        question_block_id=question_block_id,
+        add_to_order=add_to_order,
+        new_name=variable,
+    )
+    summary["draft_variable"] = draft
+    return updated, summary

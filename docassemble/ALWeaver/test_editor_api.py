@@ -2670,6 +2670,8 @@ class TestEditorApiFileCreation(unittest.TestCase):
             start_kwargs["generation_options"]["help_page_title"], "Help page title"
         )
         self.assertTrue(start_kwargs["generation_options"]["use_llm_assist"])
+        # On by default when AI drafts the interview.
+        self.assertTrue(start_kwargs["generation_options"]["allow_ai_questions"])
         self.assertFalse(start_kwargs["generation_options"]["create_package_zip"])
         self.assertFalse(start_kwargs["generation_options"]["separate_main_order"])
         self.assertTrue(start_kwargs["generation_options"]["include_next_steps"])
@@ -3155,6 +3157,61 @@ class TestEditorNewProjectNaming(unittest.TestCase):
                 interview_filename=interview_filename,
             )
         return result, mock_write
+
+    def test_ai_questions_are_added_only_when_allowed_and_ai_drafts(self):
+        for options, expected in (
+            ({"use_llm_assist": True, "allow_ai_questions": True}, True),
+            ({"use_llm_assist": True, "allow_ai_questions": False}, False),
+            ({"use_llm_assist": False, "allow_ai_questions": True}, False),
+        ):
+            with (
+                self.subTest(options=options),
+                patch.object(
+                    api_editor,
+                    "add_suggested_ai_questions",
+                    return_value=(
+                        "metadata:\n  title: AI\n",
+                        ["Added AI help (goal) to x."],
+                    ),
+                ) as add,
+                patch.object(api_editor, "_update_new_project_job_state"),
+                patch.object(api_editor, "playground_write_yaml") as write,
+                patch.object(api_editor, "_copy_files_to_section"),
+                patch.object(
+                    api_editor,
+                    "generate_interview_from_bytes",
+                    return_value={
+                        "yaml_text": "metadata:\n  title: Eviction\n",
+                        "yaml_filename": "eviction.yml",
+                        "input_filename": "eviction.pdf",
+                        "generated_template_files": [],
+                    },
+                ) as generate,
+            ):
+                result = api_editor._complete_new_project_upload_job(
+                    job_id="job-1",
+                    uid=7,
+                    project_name="Eviction",
+                    request_id="req-1",
+                    uploaded_files=[
+                        {
+                            "filename": "eviction.pdf",
+                            "content_bytes": b"%PDF-1.4",
+                            "mimetype": "application/pdf",
+                        }
+                    ],
+                    generation_options=dict(options),
+                    debug_requested=False,
+                )
+            # The generator never sees the option; it isn't one of its own.
+            self.assertNotIn(
+                "allow_ai_questions", generate.call_args.kwargs["generation_options"]
+            )
+            self.assertEqual(add.called, expected)
+            self.assertEqual(
+                "AI" in write.call_args.args[3], expected, write.call_args.args[3]
+            )
+            self.assertEqual(bool(result["ai_questions"]), expected)
 
     def test_generated_project_keeps_the_descriptive_name_weaver_derived(self):
         result, mock_write = self._run_upload_job("eviction.yml")

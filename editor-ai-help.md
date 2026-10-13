@@ -7,8 +7,8 @@ original answer is kept too.
 
 ## Adding it
 
-- In a question's field list, choose a kind of AI help from the top of the
-  field's **Type** menu, or use **Add AI field**.
+- In a question's field list, choose a kind of AI help from the **AI help**
+  group at the end of the field's **Type** menu.
 - The dialog has the settings an author usually needs: the kind of help, the
   field's label and variable, what AI should do, and the review screen's
   question and variable. Less common settings (extra instructions, other
@@ -58,6 +58,21 @@ and the include stay.
 
 A declaration whose settings use Python expressions is shown, but the dialog
 won't save over it: edit it in YAML.
+
+## From the assistant and "I'm feeling lucky"
+
+The editor's assistant has an `add_ai_help` tool and uses it when the author
+asks for AI help on an answer. "I'm feeling lucky" adds AI help to up to three
+long answers, such as a description of what happened, when **Allow adding
+AI-powered questions** is on. That switch is on by default when **Use AI
+assistance for drafting** is on, and unavailable without it: one model call
+picks the fields and whether each gets follow-up questions or a rewrite, and
+Weaver checks the picks against the interview before writing anything.
+
+Both keep the field's variable for the reviewed answer, because a generated
+interview's documents already use it: the field asks for `<variable>_draft`,
+the review question sets `<variable>`, and an order line that asked for the
+field asks for the draft, followed by the review.
 
 ## The interview order
 
