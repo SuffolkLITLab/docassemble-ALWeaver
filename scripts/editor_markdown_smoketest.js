@@ -4,7 +4,8 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { chromium } = require('playwright');
+const { spawnSync } = require('node:child_process');
+const playwright = require('playwright');
 const root = path.resolve(__dirname, '..');
 const staticDir = path.join(root, 'docassemble/ALWeaver/data/static');
 const editorSource = fs.readFileSync(path.join(staticDir, 'editor.js'), 'utf8');
@@ -26,7 +27,7 @@ function htmlPage(body) {
 // A page with editor.css, optionally the CM6 bundle, and editor_markdown.js.
 // `daNewEditor` is wrapped so tests can reach each CodeMirror view.
 async function openPage(browser, body, options = {}) {
-  const page = await browser.newPage();
+  const page = await browser.newPage(options.context || {});
   if (options.colorScheme)
     await page.emulateMedia({ colorScheme: options.colorScheme });
   page.errors = [];
@@ -72,7 +73,420 @@ const nextFrames = (page) =>
       ),
   );
 
+async function expressionPage(browser, text, context = {}) {
+  const page = await openPage(
+    browser,
+    '<label for="question">Question</label><textarea id="question"></textarea>' +
+      '<label for="subquestion">Subquestion</label><textarea id="subquestion">Other ${ x }</textarea>' +
+      '<button id="outside">Outside</button>',
+    { context },
+  );
+  await page.exposeFunction('parsePython', (source, context) => {
+    const result = spawnSync(
+      process.env.PYTHON || 'python3',
+      [
+        '-c',
+        'import json,runpy,sys; p=runpy.run_path(sys.argv[1]); print(json.dumps(p["parse_expression"](**json.load(sys.stdin))))',
+        path.join(root, 'docassemble/ALWeaver/editor_expressions.py'),
+      ],
+      { input: JSON.stringify({ source, context }), encoding: 'utf8' },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(result.stdout);
+  });
+  await page.addScriptTag({
+    path: path.join(staticDir, 'editor_expressions.js'),
+  });
+  await page.evaluate((text) => {
+    const editor = WeaverExpressions.install({
+      annotate() {},
+      variables: () => ['monthly_income', 'annual_income', 'users'],
+      parse: (source, context) => {
+        if (window.failParse)
+          return Promise.reject(
+            new Error('Parser unavailable. Cancel and use Edit in text.'),
+          );
+        return window.parsePython(source, context);
+      },
+      createSource(id, value) {
+        const bundle = daNewEditor(
+          document.getElementById(id),
+          value,
+          'python',
+          'default',
+          true,
+        );
+        const view = bundle.ev;
+        view.contentDOM.setAttribute('aria-label', 'Python expression');
+        window.draftView = view;
+        return {
+          getValue: () => view.state.doc.toString(),
+          setValue(value) {
+            view.dispatch({
+              changes: { from: 0, to: view.state.doc.length, insert: value },
+            });
+          },
+          dispose() {
+            view.destroy();
+          },
+        };
+      },
+    });
+    WeaverMarkdown.setExpressionEditor(editor);
+    const input = document.querySelector('#question');
+    input.value = text;
+    WeaverMarkdown.enhance(input);
+    window.questionView = window.testView;
+    WeaverMarkdown.enhance(document.querySelector('#subquestion'));
+    window.changeCount = 0;
+    input.addEventListener('input', () => window.changeCount++);
+  }, text);
+  return page;
+}
+
+async function tokenPoint(page, pos) {
+  return page.evaluate((pos) => {
+    const rect = questionView.coordsAtPos(pos);
+    return { x: rect.left + 1, y: (rect.top + rect.bottom) / 2 };
+  }, pos);
+}
+
+async function hoverToken(page, pos) {
+  const point = await tokenPoint(page, pos);
+  await page.mouse.move(point.x, point.y);
+  await page
+    .getByRole('group', { name: 'Mako expression', exact: true })
+    .waitFor();
+}
+
+async function openAt(page, pos) {
+  await hoverToken(page, pos);
+  await page
+    .getByRole('button', { name: 'Edit expression', exact: true })
+    .click();
+  await page.locator('dialog.expression-dialog').waitFor();
+  await page.waitForFunction(
+    () =>
+      !document
+        .querySelector('.expression-status')
+        .textContent.includes('Checking'),
+  );
+}
+
+async function draft(page, value) {
+  await page.getByRole('button', { name: 'Python', exact: true }).click();
+  await page
+    .getByRole('textbox', { name: 'Python expression', exact: true })
+    .fill(value);
+}
+
 const scenarios = {
+  async contextualTypingFailuresAndHistory(browser) {
+    const page = await expressionPage(browser, 'Hello ${ value }.');
+    const control = page.getByRole('textbox', {
+      name: 'Question',
+      exact: true,
+    });
+    await control.focus();
+    await control.press('Control+End');
+    await page.keyboard.insertText(' Earlier prose.');
+    const before = await page.locator('#question').inputValue();
+    await openAt(page, 12);
+    await draft(page, 'changed');
+    await page.mouse.click(1, 1);
+    assert.equal(await page.locator('dialog[open]').count(), 1);
+    assert.equal(
+      await page.evaluate(() => draftView.state.doc.toString()),
+      'changed',
+    );
+    await page
+      .getByRole('button', { name: 'Apply expression', exact: true })
+      .click();
+    await page.locator('dialog').waitFor({ state: 'detached' });
+    await page.keyboard.press('Control+z');
+    assert.equal(
+      await page.locator('#question').inputValue(),
+      before,
+      'Undo preserves earlier prose edits',
+    );
+    await openAt(page, 12);
+    await page.locator('.expression-picker input').fill('mon');
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('dialog[open]').count(), 1);
+    assert.equal(
+      await page.locator('.expression-suggestions:visible').count(),
+      0,
+    );
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('dialog').count(), 0);
+    await page.evaluate(() => {
+      window.failParse = true;
+    });
+    await openAt(page, 12);
+    assert.match(
+      await page.locator('.expression-status').textContent(),
+      /unavailable/,
+    );
+    await draft(page, 'replacement');
+    await page
+      .getByRole('button', { name: 'Apply expression', exact: true })
+      .click();
+    await page.waitForFunction(() =>
+      document
+        .querySelector('dialog [role="alert"]')
+        .textContent.includes('unavailable'),
+    );
+    assert.equal(await page.locator('#question').inputValue(), before);
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await page.evaluate(() => {
+      questionView.focus();
+      questionView.dispatch({ selection: { anchor: 12 } });
+    });
+    await page.keyboard.insertText('typing');
+    await nextFrames(page);
+    assert.equal(
+      await page.locator('.mako-expression-popover').count(),
+      0,
+      'Typing must not rebuild the action over prose',
+    );
+    assert.deepEqual(page.errors, []);
+    await page.close();
+  },
+  async contextualEditing(browser) {
+    const original =
+      '😀 **Income** ${ currency(monthly_income) } and ${ currency(monthly_income) }.\nKeep this prose.';
+    const page = await expressionPage(browser, original);
+    await page.locator('#outside').focus();
+    const selection = await page.evaluate(() =>
+      questionView.state.selection.toJSON(),
+    );
+    const second = original.lastIndexOf('${') + 5;
+    await hoverToken(page, second);
+    assert.equal(
+      await page.evaluate(() => document.activeElement.id),
+      'outside',
+    );
+    assert.deepEqual(
+      await page.evaluate(() => questionView.state.selection.toJSON()),
+      selection,
+    );
+    assert.equal(await page.evaluate(() => window.changeCount), 0);
+    await page
+      .getByRole('button', { name: 'Edit expression', exact: true })
+      .hover();
+    await page.waitForTimeout(450);
+    await page
+      .getByRole('button', { name: 'Edit expression', exact: true })
+      .click();
+    await page.waitForFunction(
+      () => document.querySelector('.expression-guided')?.hidden === false,
+    );
+    assert.equal(
+      await page.evaluate(() => draftView.state.doc.toString()),
+      'currency(monthly_income)',
+    );
+    assert.equal(
+      await page.locator('.expression-origin').textContent(),
+      'Question',
+    );
+    await draft(page, 'currency(annual_income)');
+    await page
+      .getByRole('button', { name: 'Apply expression', exact: true })
+      .click();
+    await page.locator('dialog').waitFor({ state: 'detached' });
+    const expected =
+      original.slice(0, original.lastIndexOf('monthly_income')) +
+      'annual_income' +
+      original.slice(
+        original.lastIndexOf('monthly_income') + 'monthly_income'.length,
+      );
+    assert.equal(await page.locator('#question').inputValue(), expected);
+    assert.equal(
+      await page.locator('#subquestion').inputValue(),
+      'Other ${ x }',
+    );
+    assert.equal(
+      await page.evaluate(
+        () => document.activeElement === questionView.contentDOM,
+      ),
+      true,
+    );
+    await page.keyboard.press('Control+z');
+    assert.equal(await page.locator('#question').inputValue(), original);
+    await page.keyboard.press('Control+Shift+z');
+    assert.equal(await page.locator('#question').inputValue(), expected);
+    assert.deepEqual(page.errors, []);
+    await page.close();
+  },
+  async contextualCancelNoopAndKeyboard(browser) {
+    const original = 'Hello ${  user.name  }.';
+    const page = await expressionPage(browser, original);
+    await page.evaluate(() => {
+      questionView.focus();
+      questionView.dispatch({ selection: { anchor: 12 } });
+    });
+    await nextFrames(page);
+    await page.keyboard.press('Tab');
+    assert.equal(
+      await page.evaluate(() => document.activeElement.textContent),
+      'Edit expression',
+    );
+    await page.keyboard.press('Space');
+    await page.locator('dialog').waitFor();
+    await page.getByRole('button', { name: 'Python', exact: true }).click();
+    await page
+      .getByRole('button', { name: 'Apply expression', exact: true })
+      .click();
+    await page.locator('dialog').waitFor({ state: 'detached' });
+    assert.equal(await page.locator('#question').inputValue(), original);
+    assert.equal(await page.evaluate(() => window.changeCount), 0);
+    for (const action of ['Cancel', 'Escape', 'Close expression editor']) {
+      await openAt(page, 12);
+      await draft(page, 'changed');
+      if (action === 'Escape') await page.keyboard.press('Escape');
+      else
+        await page.getByRole('button', { name: action, exact: true }).click();
+      await page.locator('dialog').waitFor({ state: 'detached' });
+      assert.equal(await page.locator('#question').inputValue(), original);
+      assert.equal(await page.evaluate(() => window.changeCount), 0);
+    }
+    await hoverToken(page, 12);
+    await page
+      .getByRole('button', { name: 'Edit expression', exact: true })
+      .focus();
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('.mako-expression-popover').count(), 0);
+    assert.deepEqual(page.errors, []);
+    await page.close();
+  },
+  async contextualValidationAndStaleSource(browser) {
+    const page = await expressionPage(browser, '${ value }');
+    await openAt(page, 5);
+    for (const invalid of [
+      '',
+      'x +',
+      'value | h',
+      'value # closing delimiter would be commented out',
+    ]) {
+      await draft(page, invalid);
+      await page
+        .getByRole('button', { name: 'Apply expression', exact: true })
+        .click();
+      await page.waitForFunction(
+        () =>
+          document.querySelector('dialog [role="alert"]').textContent.length >
+          0,
+      );
+      assert.equal(
+        await page.evaluate(() => draftView.state.doc.toString()),
+        invalid,
+      );
+      assert.equal(await page.locator('#question').inputValue(), '${ value }');
+    }
+    await draft(page, '[x for x in items]');
+    await page
+      .getByRole('button', { name: 'Expression editor', exact: true })
+      .click();
+    await page.waitForFunction(() =>
+      document
+        .querySelector('.expression-status')
+        .textContent.startsWith('Advanced Python'),
+    );
+    await page
+      .getByRole('button', { name: 'Apply expression', exact: true })
+      .click();
+    await page.locator('dialog').waitFor({ state: 'detached' });
+    assert.equal(
+      await page.locator('#question').inputValue(),
+      '${ [x for x in items] }',
+    );
+    await openAt(page, 5);
+    await draft(page, 'new_name');
+    // Change and then restore the same field string: the revision still changed.
+    await page.evaluate(() => {
+      questionView.dispatch({ changes: { from: 0, insert: 'x' } });
+      questionView.dispatch({ changes: { from: 0, to: 1, insert: '' } });
+    });
+    await page
+      .getByRole('button', { name: 'Apply expression', exact: true })
+      .click();
+    assert.match(
+      await page.locator('dialog [role="alert"]').textContent(),
+      /text changed/,
+    );
+    assert.equal(
+      await page.evaluate(() => draftView.state.doc.toString()),
+      'new_name',
+    );
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await openAt(page, 5);
+    await draft(page, 'replacement');
+    await page.evaluate(() => {
+      WeaverMarkdown.dispose(document.querySelector('#question').parentElement);
+      WeaverMarkdown.enhance(document.querySelector('#question'));
+      window.questionView = window.testView;
+    });
+    await page
+      .getByRole('button', { name: 'Apply expression', exact: true })
+      .click();
+    assert.match(
+      await page.locator('dialog [role="alert"]').textContent(),
+      /text changed/,
+    );
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    assert.equal(await page.locator('.mako-expression-popover').count(), 0);
+    assert.deepEqual(page.errors, []);
+    await page.close();
+  },
+  async contextualTouchFallbackAndAccessibility(browser) {
+    const page = await expressionPage(
+      browser,
+      'Income ${ currency(monthly_income) }',
+      { hasTouch: true, viewport: { width: 768, height: 1024 } },
+    );
+    const point = await tokenPoint(page, 14);
+    await page.touchscreen.tap(point.x, point.y);
+    await page
+      .getByRole('button', { name: 'Edit expression', exact: true })
+      .tap();
+    await page.waitForFunction(
+      () => document.querySelector('.expression-guided')?.hidden === false,
+    );
+    assert.equal(await page.locator('dialog').count(), 1);
+    assert.deepEqual(await axeViolations(page), []);
+    for (const viewport of [
+      { width: 375, height: 480 },
+      { width: 1024, height: 768 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await nextFrames(page);
+      const rect = await page.locator('dialog').boundingBox();
+      assert.ok(rect.x >= 0 && rect.x + rect.width <= viewport.width);
+      await page
+        .getByRole('button', { name: 'Apply expression', exact: true })
+        .scrollIntoViewIfNeeded();
+    }
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await page
+      .getByRole('textbox', { name: 'Question', exact: true })
+      .fill('${ value | h }');
+    await hoverToken(page, 5);
+    await page
+      .getByRole('button', { name: 'Edit in text', exact: true })
+      .click();
+    assert.equal(
+      await page.evaluate(() =>
+        questionView.state.sliceDoc(
+          questionView.state.selection.main.from,
+          questionView.state.selection.main.to,
+        ),
+      ),
+      '${ value | h }',
+    );
+    assert.equal(await page.locator('dialog').count(), 0);
+    assert.deepEqual(page.errors, []);
+    await page.close();
+  },
   async makoRangesStayWithinExpressions(browser) {
     const prose =
       "The bond ensures that ${ children[0] } will receive compensation for financial harm if a guardian mishandles their estate.\n\nFor example, if a guardian uses money from ${ children[0].familiar() }'s bank account to pay for their own personal expenses, ${ children[0].familiar() } can use the bond to get that money back.";
@@ -630,7 +1044,12 @@ const scenarios = {
 
 (async () => {
   const only = process.argv[2];
-  const browser = await chromium.launch({ headless: true });
+  const browser = await playwright[process.env.BROWSER || 'chromium'].launch({
+    headless: true,
+    ...(process.env.BROWSER_PATH
+      ? { executablePath: process.env.BROWSER_PATH }
+      : {}),
+  });
   try {
     for (const [name, scenario] of Object.entries(scenarios)) {
       if (only && name !== only) continue;

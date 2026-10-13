@@ -670,7 +670,7 @@
         replace(node);
       });
       add.className = 'btn btn-sm expression-add';
-      add.setAttribute('aria-label', 'Add operand');
+      add.setAttribute('aria-label', addLabel.slice(2));
       box.appendChild(add);
     }
     if (node.kind === 'function') {
@@ -1018,7 +1018,8 @@
 
   function install(options) {
     var active = null;
-    async function open(value, context, apply, title, opener) {
+    async function open(value, context, apply, title, opener, details) {
+      details = details || {};
       if (active) {
         var activeFeedback = active.querySelector('[role="alert"]');
         if (activeFeedback) {
@@ -1030,6 +1031,7 @@
         return;
       }
       var dialog = el('dialog', 'expression-dialog');
+      if (root.WeaverMarkdown) root.WeaverMarkdown.dismissPopover();
       dialog.setAttribute('aria-labelledby', 'expression-dialog-title');
       var heading = el('h2', 'h5', title || 'Edit expression');
       heading.id = 'expression-dialog-title';
@@ -1040,6 +1042,13 @@
       feedback.setAttribute('role', 'alert');
       var footer = el('div', 'expression-toolbar expression-dialog-footer');
       dialog.append(heading, host, feedback, footer);
+      if (details.fieldLabel) {
+        var fieldLabel = el('p', 'expression-origin', details.fieldLabel);
+        fieldLabel.id = 'expression-origin';
+        heading.after(fieldLabel);
+        dialog.setAttribute('aria-describedby', fieldLabel.id);
+      }
+      if (details.guidance) footer.before(el('p', 'small', details.guidance));
       document.body.appendChild(dialog);
       // Bootstrap modals may be underneath this native modal. Keep their focus
       // trap from pulling keyboard focus out of the top-level dialog.
@@ -1065,25 +1074,84 @@
         functions: options.functions,
       });
       active = dialog;
+      var viewport = root.visualViewport;
+      function resize(event) {
+        if (!viewport) return;
+        if (
+          viewport.width >= root.innerWidth &&
+          viewport.height >= root.innerHeight &&
+          !viewport.offsetTop &&
+          !viewport.offsetLeft
+        ) {
+          [
+            'maxHeight',
+            'maxWidth',
+            'top',
+            'left',
+            'transform',
+            'margin',
+          ].forEach(function (property) {
+            dialog.style[property] = '';
+          });
+          return;
+        }
+        dialog.style.maxHeight = Math.max(100, viewport.height - 24) + 'px';
+        dialog.style.maxWidth = Math.max(100, viewport.width - 24) + 'px';
+        dialog.style.top = viewport.offsetTop + 12 + 'px';
+        dialog.style.left = viewport.offsetLeft + viewport.width / 2 + 'px';
+        dialog.style.transform = 'translateX(-50%)';
+        dialog.style.margin = '0';
+        var focused = document.activeElement;
+        var bounds = focused && focused.getBoundingClientRect();
+        if (
+          event &&
+          event.type === 'resize' &&
+          dialog.contains(focused) &&
+          (bounds.top < viewport.offsetTop ||
+            bounds.bottom > viewport.offsetTop + viewport.height)
+        )
+          focused.scrollIntoView({ block: 'nearest' });
+      }
+      if (viewport) {
+        viewport.addEventListener('resize', resize);
+        viewport.addEventListener('scroll', resize);
+      }
       function close() {
+        if (viewport) {
+          viewport.removeEventListener('resize', resize);
+          viewport.removeEventListener('scroll', resize);
+        }
         view.dispose();
         source.dispose();
         dialog.close();
         dialog.remove();
         active = null;
         if (opener && opener.isConnected) opener.focus();
+        if (details.onClose) details.onClose();
       }
       dialog.addEventListener('cancel', function (event) {
         event.preventDefault();
         close();
       });
       footer.appendChild(button('Cancel', close));
+      var closeButton = button('Close', close);
+      closeButton.classList.add('expression-dialog-close');
+      closeButton.setAttribute('aria-label', 'Close expression editor');
+      dialog.appendChild(closeButton);
       var applyButton = button('Apply expression', async function () {
         var candidate = source.getValue();
         applyButton.disabled = true;
         try {
-          // A no-op must preserve exact bytes, even for an incomplete expression.
-          if (candidate !== value) {
+          if (details.validateTarget) details.validateTarget();
+          // Existing callers preserve unchanged source without validation.
+          // Contextual substitutions also validate unchanged drafts: an empty
+          // or invalid expression must never be accepted by that entry point.
+          if (candidate !== value || details.validateUnchanged) {
+            if (!candidate.trim() && details.validateUnchanged) {
+              feedback.textContent =
+                'This expression is incomplete. Finish it before applying.';
+              return;
+            }
             var result = await options.parse(candidate, context);
             if (active !== dialog) return;
             if (candidate !== source.getValue()) {
@@ -1095,7 +1163,8 @@
               feedback.textContent = result.reason;
               return;
             }
-            apply(candidate);
+            if (details.validateTarget) details.validateTarget();
+            if (candidate !== value) apply(candidate);
           }
           close();
         } catch (error) {
@@ -1107,6 +1176,7 @@
       applyButton.className = 'btn btn-primary';
       footer.appendChild(applyButton);
       dialog.showModal();
+      resize();
     }
 
     function write(input, value) {
@@ -1197,7 +1267,13 @@
     }).observe(document.body, { childList: true, subtree: true });
     options.annotate();
     enhance();
-    return { open: open, write: write };
+    return {
+      open: open,
+      write: write,
+      isOpen: function () {
+        return Boolean(active);
+      },
+    };
   }
   var api = {
     python: python,
