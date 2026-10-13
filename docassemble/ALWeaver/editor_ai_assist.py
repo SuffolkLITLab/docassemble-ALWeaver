@@ -428,7 +428,70 @@ def render_review_question(
     return "\n".join(lines)
 
 
-def _render_review_fields(name: str, normalized: Dict[str, Any]) -> List[str]:
+def _review_shape(fields: Sequence[Dict[str, Any]]) -> List[Any]:
+    """What the dialog controls about the review fields, for spotting changes."""
+    return [
+        (
+            f["variable"],
+            f.get("label") or "",
+            f["datatype"],
+            [(c["label"], c["value"]) for c in f.get("choices") or []],
+        )
+        for f in fields
+    ]
+
+
+_REVIEW_FIELD_OWNED = {"label", "field", "datatype", "default", "choices"}
+
+
+def _review_field_extras(block: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """Each review field's other settings, by variable."""
+    fields = (block.get("data") or {}).get("fields")
+    if isinstance(fields, dict):
+        fields = [fields]
+    extras: Dict[str, Dict[str, Any]] = {}
+    for item in fields if isinstance(fields, list) else []:
+        if not isinstance(item, dict):
+            continue
+        variable = item.get("field")
+        if variable is None:
+            variable = next(
+                (
+                    value
+                    for key, value in item.items()
+                    if key not in _FIELD_MODIFIERS and isinstance(value, str)
+                ),
+                None,
+            )
+        if not isinstance(variable, str):
+            continue
+        extras[variable] = {
+            key: value
+            for key, value in item.items()
+            if key in _FIELD_MODIFIERS and key not in _REVIEW_FIELD_OWNED
+        }
+    return extras
+
+
+def _yaml_entry(key: str, value: Any, indent: str) -> List[str]:
+    if isinstance(value, str) and "\n" in value:
+        return _block_scalar(key, value.rstrip("\n"), indent).split("\n")
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        text = value if isinstance(value, str) else yaml.safe_dump(value).split("\n")[0]
+        return [
+            f"{indent}{key}: {_yaml_scalar(text) if isinstance(value, str) else text}"
+        ]
+    dumped = yaml.safe_dump(value, default_flow_style=False, sort_keys=False)
+    return [f"{indent}{key}:"] + [
+        indent + "  " + line for line in dumped.rstrip("\n").split("\n")
+    ]
+
+
+def _render_review_fields(
+    name: str,
+    normalized: Dict[str, Any],
+    extras: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> List[str]:
     lines: List[str] = []
     kind = AI_ASSIST_TASKS[normalized["settings"]["task"]]
     for output in normalized["outputs"]:
@@ -455,7 +518,88 @@ def _render_review_fields(name: str, normalized: Dict[str, Any]) -> List[str]:
                 f"{_yaml_scalar(choice['value'])}"
             )
         lines.append(f"    default: {_yaml_scalar(default)}")
+        for key, value in ((extras or {}).get(variable) or {}).items():
+            lines.extend(_yaml_entry(key, value, "    "))
     return lines
+
+
+def _patch_top_level_keys(
+    full_yaml: str, block_id: str, replacements: Dict[str, str]
+) -> str:
+    """Rewrite only the named top-level keys of one block.
+
+    Every other key, comment and blank line of the block keeps its source.
+    """
+    from .editor_utils import _replace_document_body, _unique_block_document
+
+    _b, start, end, body = _unique_block_document(full_yaml, block_id)
+    node = yaml.compose(body)
+    original = yaml.safe_load(body)
+    if not isinstance(node, yaml.MappingNode) or not isinstance(original, dict):
+        raise ValueError("The review question is not a mapping; edit it in YAML")
+    spans = []
+    for key, value in node.value:
+        if getattr(key, "value", None) not in replacements:
+            continue
+        span_start = body.rfind("\n", 0, key.start_mark.index) + 1
+        span_end = value.end_mark.index
+        if body[span_end - 1 : span_end] != "\n":
+            newline = body.find("\n", span_end)
+            span_end = len(body) if newline == -1 else newline + 1
+        spans.append((span_start, span_end, replacements[key.value]))
+    edited = body
+    for span_start, span_end, text in sorted(spans, reverse=True):
+        ending = "\n" if edited[span_start:span_end].endswith("\n") else ""
+        edited = edited[:span_start] + text + ending + edited[span_end:]
+    parsed = yaml.safe_load(edited)
+    expected = yaml.safe_load("\n".join(replacements.values()) + "\n")
+    if not isinstance(parsed, dict) or any(
+        parsed.get(key) != (original.get(key) if key not in expected else expected[key])
+        for key in set(original) | set(parsed)
+    ):
+        raise ValueError("Could not update the review question safely; edit it in YAML")
+    return _replace_document_body(full_yaml, start, end, edited)
+
+
+def _order_code_lines(body: str) -> Tuple[List[str], int]:
+    lines = body.split("\n")
+    key_line = next(
+        (i for i, text in enumerate(lines) if re.match(r"^code\s*:", text)), -1
+    )
+    return lines, key_line
+
+
+_ORDER_STATEMENT = re.compile(r"^(\s*)(\S.*?)(\s*#.*)?$")
+
+
+def _rename_order_line(
+    full_yaml: str, model: Dict[str, Any], old: str, new: str
+) -> str:
+    """Ask for ``new`` wherever the interview order asked for ``old``."""
+    from .editor_utils import _replace_document_body, _unique_block_document
+
+    updated = full_yaml
+    for block in model["blocks"]:
+        if block.get("index") not in (model.get("order_blocks") or []):
+            continue
+        _b, start, end, body = _unique_block_document(updated, block["id"])
+        lines, key_line = _order_code_lines(body)
+        changed = False
+        for index in range(key_line + 1, len(lines)):
+            match = _ORDER_STATEMENT.match(lines[index])
+            if key_line >= 0 and match and match.group(2) == old:
+                lines[index] = match.group(1) + new + (match.group(3) or "")
+                changed = True
+        if changed:
+            updated = _replace_document_body(updated, start, end, "\n".join(lines))
+            model = _reparse(updated)
+    return updated
+
+
+def _reparse(full_yaml: str) -> Dict[str, Any]:
+    from .editor_utils import parse_interview_yaml
+
+    return parse_interview_yaml(full_yaml)
 
 
 def _objects_entry_ranges(body: str) -> Dict[str, Tuple[int, int, int, int]]:
@@ -872,34 +1016,26 @@ def apply_ai_assist(
         )
     else:
         review_block_id = str(review.get("id"))
-        current = [
-            (f["variable"], f["datatype"], [c["value"] for c in f.get("choices") or []])
-            for f in _review_fields(review)
-        ]
-        wanted = [
-            (o["variable"], o["datatype"], [c["value"] for c in o.get("choices") or []])
-            for o in normalized["outputs"]
-        ]
         data = review.get("data") or {}
-        question_changed = (
-            str(data.get("question") or "").strip() != normalized["review_question"]
-        )
-        if current != wanted or question_changed:
-            # The fields follow the settings; the author's own subquestion and
-            # any other keys of the review question stay as written.
-            new_block = render_review_question(
-                name,
-                review_block_id,
-                normalized,
-                subquestion=str(data.get("subquestion") or "").rstrip("\n"),
+        current_fields = _review_fields(review)
+        replacements: Dict[str, str] = {}
+        if str(data.get("question") or "").strip() != normalized["review_question"]:
+            replacements["question"] = _block_scalar(
+                "question", normalized["review_question"], ""
             )
-            if "id" not in data:
-                new_block = new_block.split("\n", 1)[1]
-            updated = update_block_in_yaml(
-                updated,
-                review_block_id,
-                new_block,
-                preserve_unchanged_annotations=True,
+        if _review_shape(current_fields) != _review_shape(normalized["outputs"]):
+            # Settings the author added to a review field, such as `required`
+            # or `help`, stay with its variable.
+            replacements["fields"] = "fields:\n" + "\n".join(
+                _render_review_fields(name, normalized, _review_field_extras(review))
+            )
+        if replacements:
+            updated = _patch_top_level_keys(updated, review_block_id, replacements)
+        old_output = current_fields[0]["variable"] if current_fields else ""
+        new_output = normalized["outputs"][0]["variable"]
+        if old_output and old_output != new_output:
+            updated = _rename_order_line(
+                updated, parse_interview_yaml(updated), old_output, new_output
             )
     model = parse_interview_yaml(updated)
 
@@ -919,6 +1055,15 @@ def apply_ai_assist(
         "review_block_id": review_block_id,
         "added_to_order": placed,
     }
+
+
+def _order_code_parses(body_lines: List[str]) -> bool:
+    try:
+        code = (yaml.safe_load("\n".join(body_lines)) or {}).get("code")
+        ast.parse(str(code or ""))
+    except (SyntaxError, yaml.YAMLError):
+        return False
+    return True
 
 
 def remove_ai_assist(full_yaml: str, name: str) -> str:
@@ -941,9 +1086,7 @@ def remove_ai_assist(full_yaml: str, name: str) -> str:
     review_line = (
         assist["review_fields"][0]["variable"] if assist["review_fields"] else None
     )
-    if assist["review_block_id"]:
-        updated = delete_block_from_yaml(updated, assist["review_block_id"])
-    model = parse_interview_yaml(updated)
+    # The order goes first: if it can't be fixed, nothing has been deleted.
     if review_line:
         for block in model["blocks"]:
             if block.get("index") not in (model.get("order_blocks") or []):
@@ -951,21 +1094,33 @@ def remove_ai_assist(full_yaml: str, name: str) -> str:
             _b, start, end, body = _unique_block_document(
                 updated, block["id"], parsed_model=model
             )
-            lines = body.split("\n")
-            kept = [
-                text
-                for text in lines
-                if re.sub(r"\s*#.*$", "", text).strip() != review_line
+            lines, key_line = _order_code_lines(body)
+            hits = [
+                index
+                for index in range(key_line + 1, len(lines))
+                if key_line >= 0
+                and (match := _ORDER_STATEMENT.match(lines[index]))
+                and match.group(2) == review_line
             ]
-            if len(kept) == len(lines):
+            if not hits:
                 continue
-            edited = "\n".join(kept)
-            try:
-                ast.parse(str((yaml.safe_load(edited) or {}).get("code") or ""))
-            except (SyntaxError, yaml.YAMLError):
-                continue  # Removing the line would leave an empty `if`; leave it.
-            updated = _replace_document_body(updated, start, end, edited)
+            for index in reversed(hits):
+                kept = lines[:index] + lines[index + 1 :]
+                if not _order_code_parses(kept):
+                    # It was the only statement in an `if` or `for`.
+                    indent = _ORDER_STATEMENT.match(lines[index]).group(1)  # type: ignore[union-attr]
+                    kept = lines[:index] + [indent + "pass"] + lines[index + 1 :]
+                if not _order_code_parses(kept):
+                    raise ValueError(
+                        f"Could not take {review_line} out of the interview order; "
+                        "edit the order first"
+                    )
+                lines = kept
+            updated = _replace_document_body(updated, start, end, "\n".join(lines))
             model = parse_interview_yaml(updated)
+    if assist["review_block_id"]:
+        updated = delete_block_from_yaml(updated, assist["review_block_id"])
+    model = parse_interview_yaml(updated)
     for block in model["blocks"]:
         if not any(
             str(row.get("name") or "").strip() == name

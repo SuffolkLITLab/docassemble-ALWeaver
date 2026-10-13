@@ -47,10 +47,14 @@ One save writes ordinary source, through `POST /al/editor/api/ai-assist`
    the one that asks the question with the field. If the order doesn't ask
    that question, nothing is guessed and the dialog says so.
 
-Editing changes the declaration in place. The review question is rewritten
-only when its question or fields change, and its subquestion stays as the
-author wrote it. **Remove AI help** deletes the declaration, the review
-question and its order line; the field and the include stay.
+Editing changes the declaration in place. On the review question only the
+`question` and `fields` keys are rewritten, and only when they change; the
+subquestion and anything else the author added stay as written, and settings
+added to a review field (`required`, `help`, ...) stay with its variable.
+Renaming the reviewed answer renames its line in the interview order.
+**Remove AI help** deletes the declaration, the review question and its order
+line (leaving `pass` if that line was alone in an `if` or `for`); the field
+and the include stay.
 
 A declaration whose settings use Python expressions is shown, but the dialog
 won't save over it: edit it in YAML.

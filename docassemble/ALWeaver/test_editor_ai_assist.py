@@ -264,6 +264,56 @@ class TestApply(unittest.TestCase):
         self.assertTrue(review["subquestion"].startswith("Check it.\n"))
         self.assertIn('model="gpt-5-mini"', twice)
 
+    def test_renaming_the_reviewed_answer_renames_its_order_line(self):
+        once, _ = apply_ai_assist(SOURCE, REWRITE, question_block_id="story")
+        twice, _ = apply_ai_assist(
+            once,
+            dict(REWRITE, output="incident_final"),
+            name="incident_description_ai",
+            question_block_id="story",
+        )
+        code = order_code(twice)
+        self.assertNotIn("incident_narrative", code)
+        self.assertIn("incident_description\nincident_final\n", code)
+
+    def test_edits_keep_what_the_author_added_to_the_review_question(self):
+        once, _ = apply_ai_assist(SOURCE, EXTRACT)
+        once = once.replace(
+            '    default: ${ notice_text_ai.suggestion("court_name") }\n',
+            '    default: ${ notice_text_ai.suggestion("court_name") }\n'
+            "    required: False\n"
+            "    help: |\n"
+            "      The court's full name.\n"
+            "validation code: |\n"
+            "  check_court(court_name)  # keep me\n",
+        )
+        renamed = [dict(row) for row in EXTRACT["outputs"]]
+        renamed[1]["label"] = "Court name"
+        twice, _ = apply_ai_assist(
+            once,
+            dict(EXTRACT, outputs=renamed, review_question="Check these"),
+            name="notice_text_ai",
+        )
+        review = next(
+            d for d in documents(twice) if d.get("id") == "review hearing_date"
+        )
+        self.assertEqual(review["question"], "Check these\n")
+        court = review["fields"][1]
+        self.assertEqual(court["Court name"], "court_name")
+        self.assertIs(court["required"], False)
+        self.assertEqual(court["help"], "The court's full name.\n")
+        self.assertIn("  check_court(court_name)  # keep me\n", twice)
+
+    def test_a_label_change_alone_is_saved(self):
+        once, _ = apply_ai_assist(SOURCE, EXTRACT)
+        renamed = [dict(row) for row in EXTRACT["outputs"]]
+        renamed[0]["label"] = "Date of hearing"
+        twice, _ = apply_ai_assist(
+            once, dict(EXTRACT, outputs=renamed), name="notice_text_ai"
+        )
+        (assist,) = describe_ai_assists(parse_interview_yaml(twice))
+        self.assertEqual(assist["review_fields"][0]["label"], "Date of hearing")
+
     def test_a_computed_declaration_is_not_rewritten(self):
         once, _ = apply_ai_assist(SOURCE, REWRITE, question_block_id="story")
         computed = once.replace(
@@ -311,6 +361,17 @@ class TestApply(unittest.TestCase):
         self.assertIn("incident_description", removed)
         self.assertIn("users", declared(removed))
         self.assertIn(AI_ASSIST_INCLUDE, removed)
+
+
+class TestRemoveInsideABranch(unittest.TestCase):
+    def test_a_review_line_alone_in_an_if_leaves_pass(self):
+        once, _ = apply_ai_assist(SOURCE, EXTRACT)
+        once = once.replace("    notice_text\n    hearing_date\n", "    hearing_date\n")
+        removed = remove_ai_assist(once, "notice_text_ai")
+        code = order_code(removed)
+        self.assertIn("if users[0].name.first:\n  pass\n", code)
+        ast.parse(code)
+        self.assertNotIn("review hearing_date", removed)
 
 
 class TestOrderStep(unittest.TestCase):
