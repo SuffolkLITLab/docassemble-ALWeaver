@@ -352,7 +352,7 @@ ${ indent(interview.can_I_use_this_form, by=2)}
 <%doc>
     Main question loop
 </%doc>\
-% for question in interview.questions:
+% for question in rendered_questions:
 ---
 id: ${ fix_id(question.question_text) }
 question: |
@@ -402,8 +402,7 @@ ${ row_family_yaml(family, datatypes) }\
 ${ docx_list_completion_yaml(completion) }\
   % if completion.item_fields:
 <%doc>
-    The first item is asked about on its own screen above; this question asks
-    the same thing about every other item while the list is gathered.
+    Asked about every item, the first one included, while the list is gathered.
 </%doc>\
 ---
 id: ${ fix_id(completion.name + " item details") }

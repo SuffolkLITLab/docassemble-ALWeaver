@@ -417,6 +417,11 @@ question: |
             ]
         )
         self.assertIn("children[0].signature", yaml_text)
+        # The per-item question asks the first child too, so the first
+        # child's school isn't asked before the interview asks about children
+        self.assertNotIn("children[0].school", yaml_text)
+        self.assertNotIn("children[0].birthdate", yaml_text)
+        self.assertIn("favorite_color", yaml_text)
         self._run_dayamlchecker_text(yaml_text)
 
     def test_an_existing_complete_attribute_stays_part_of_the_rule(self):

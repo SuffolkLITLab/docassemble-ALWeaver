@@ -2100,6 +2100,52 @@ def docx_list_completion_yaml(completion: _ListCompletionSpec) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _without_list_item_fields(
+    screens: Iterable[Union["DAQuestion", "DAField"]],
+    completions: Sequence[_ListCompletionSpec],
+) -> List[Union["DAQuestion", "DAField"]]:
+    """Leave out what a list's completion rule already asks for every item.
+
+    Without this the first child's school sits on a screen of its own, asked
+    before the interview has even asked whether there are any children. The
+    per-item question asks it for the first child along with the others.
+    Screens are copied, never edited, so the author's own screens stay as they
+    are.
+    """
+    covered = {
+        f"{completion.name}[0].{attribute}"
+        for completion in completions
+        for attribute in completion.attributes
+    }
+    asked_per_item = {
+        field.get_settable_var()
+        for completion in completions
+        for field in completion.item_fields
+    }
+    kept: List[Union["DAQuestion", "DAField"]] = []
+    for screen in screens:
+        field_list = getattr(screen, "field_list", None)
+        if isinstance(screen, DAQuestion) and field_list:
+            remaining = [
+                field
+                for field in field_list
+                if field.get_settable_var() not in asked_per_item
+            ]
+            if len(remaining) == len(field_list):
+                kept.append(screen)
+            elif remaining:
+                trimmed = copy.copy(screen)
+                trimmed.field_list = remaining
+                kept.append(trimmed)
+            continue
+        # A built-in such as `children[0].birthdate` in the interview order;
+        # `children.gather()` now gets it for every child
+        if isinstance(screen, DAField) and screen.trigger_gather() in covered:
+            continue
+        kept.append(screen)
+    return kept
+
+
 def list_item_variable(completion: _ListCompletionSpec, variable: str) -> str:
     """``children[0].school`` -> ``children[i].school`` for a per-item question."""
     return re.sub(
@@ -8837,6 +8883,10 @@ def _render_interview_yaml(
             screen_reordered = list(interview.draft_screen_order())
         else:
             screen_reordered = []
+    screen_reordered = _without_list_item_fields(screen_reordered, list_completions)
+    rendered_questions = _without_list_item_fields(
+        interview.questions, list_completions
+    )
     for question in screen_reordered:
         if isinstance(question, DAQuestion) and not hasattr(question, "type"):
             question.type = "question"
@@ -8891,6 +8941,7 @@ def _render_interview_yaml(
 
     context = {
         "interview": interview,
+        "rendered_questions": rendered_questions,
         "objects": objects or [],
         "baseline_questions": baseline_question_specs(interview, objects or []),
         "generate_download_screen": include_download_screen,
