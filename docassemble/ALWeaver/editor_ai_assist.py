@@ -212,11 +212,13 @@ def _review_fields(block: Dict[str, Any]) -> List[Dict[str, Any]]:
             continue
         variable = item.get("field")
         label = item.get("label")
+        if variable is None and isinstance(item.get("no label"), str):
+            variable, label = item["no label"], ""
         if variable is None:
             for key, value in item.items():
                 if key in _FIELD_MODIFIERS or not isinstance(value, str):
                     continue
-                variable, label = value, ("" if key == "no label" else key)
+                variable, label = value, key
                 break
         if not variable:
             continue
@@ -238,24 +240,70 @@ def _review_fields(block: Dict[str, Any]) -> List[Dict[str, Any]]:
     return out
 
 
+# The keys docassemble reads as settings of a field; any other key is a
+# field's label. Matches `fieldLabelKey` in editor_serializers.js.
 _FIELD_MODIFIERS = {
     "datatype",
     "input type",
-    "default",
+    "input_type",
     "required",
+    "disabled",
+    "under text",
+    "hint",
+    "help",
+    "default",
     "choices",
+    "code",
+    "exclude",
+    "none of the above",
+    "all of the above",
+    "shuffle",
     "show if",
     "hide if",
-    "help",
-    "hint",
-    "rows",
+    "enable if",
+    "disable if",
+    "js show if",
+    "js hide if",
+    "js enable if",
+    "js disable if",
     "label",
     "field",
-    "under text",
+    "validate",
+    "validation messages",
+    "address autocomplete",
+    "max image size",
+    "image type",
+    "accept",
+    "rows",
     "maxlength",
     "minlength",
-    "validate",
-    "code",
+    "min",
+    "max",
+    "step",
+    "scale",
+    "inline width",
+    "currency symbol",
+    "label above field",
+    "floating label",
+    "grid",
+    "item grid",
+    "css class",
+    "uncheck others",
+    "check others",
+    "object labeler",
+    "help generator",
+    "image generator",
+    "file css class",
+    "persistent",
+    "private",
+    "allow privileges",
+    "allow users",
+    "permissions",
+    "action",
+    "note",
+    "html",
+    "raw html",
+    "no label",
 }
 
 
@@ -453,22 +501,22 @@ def _review_field_extras(block: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     for item in fields if isinstance(fields, list) else []:
         if not isinstance(item, dict):
             continue
+        label_key = None
         variable = item.get("field")
         if variable is None:
-            variable = next(
-                (
-                    value
-                    for key, value in item.items()
-                    if key not in _FIELD_MODIFIERS and isinstance(value, str)
-                ),
-                None,
+            label_key = (
+                "no label"
+                if "no label" in item
+                else next((key for key in item if key not in _FIELD_MODIFIERS), None)
             )
+            variable = item.get(label_key) if label_key else None
         if not isinstance(variable, str):
             continue
+        # Everything but what AI help writes: `min`, `disabled`, `help`...
         extras[variable] = {
             key: value
             for key, value in item.items()
-            if key in _FIELD_MODIFIERS and key not in _REVIEW_FIELD_OWNED
+            if key not in _REVIEW_FIELD_OWNED and key != label_key
         }
     return extras
 
@@ -502,12 +550,12 @@ def _render_review_fields(
         else:
             default = f"${{ {name}.suggestion() }}"
         if label and _yaml_scalar(label) == label and ":" not in label:
-            lines.append(f"  - {label}: {variable}")
+            lines.append(f"  - {label}: {_yaml_scalar(variable)}")
         elif label:
             lines.append(f"  - label: {_yaml_scalar(label)}")
-            lines.append(f"    field: {variable}")
+            lines.append(f"    field: {_yaml_scalar(variable)}")
         else:
-            lines.append(f"  - no label: {variable}")
+            lines.append(f"  - no label: {_yaml_scalar(variable)}")
         if output["datatype"] != "text":
             lines.append(f"    datatype: {output['datatype']}")
         for choice in output.get("choices") or []:
@@ -870,6 +918,9 @@ def _question_variables(block: Dict[str, Any]) -> List[str]:
         if isinstance(item.get("field"), str):
             names.append(item["field"])
             continue
+        if isinstance(item.get("no label"), str):
+            names.append(item["no label"])
+            continue
         for key, value in item.items():
             if key not in _FIELD_MODIFIERS and isinstance(value, str):
                 names.append(value)
@@ -1054,7 +1105,24 @@ def apply_ai_assist(
         "name": name,
         "review_block_id": review_block_id,
         "added_to_order": placed,
+        "in_order": placed
+        or _order_has_line(
+            parse_interview_yaml(updated), normalized["outputs"][0]["variable"]
+        ),
     }
+
+
+def _order_has_line(model: Dict[str, Any], line: str) -> bool:
+    """Whether some interview order block asks for ``line`` on a line of its own."""
+    for block in model["blocks"]:
+        if block.get("index") not in (model.get("order_blocks") or []):
+            continue
+        code = (block.get("data") or {}).get("code")
+        for text in str(code or "").split("\n"):
+            match = _ORDER_STATEMENT.match(text)
+            if match and match.group(2) == line:
+                return True
+    return False
 
 
 def _order_code_parses(body_lines: List[str]) -> bool:

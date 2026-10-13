@@ -172,6 +172,7 @@ class TestApply(unittest.TestCase):
                 "name": "incident_description_ai",
                 "review_block_id": "review incident_narrative",
                 "added_to_order": True,
+                "in_order": True,
             },
         )
         docs = documents(updated)
@@ -255,6 +256,7 @@ class TestApply(unittest.TestCase):
             question_block_id="story",
         )
         self.assertFalse(summary["added_to_order"])  # already there
+        self.assertTrue(summary["in_order"])
         self.assertEqual(order_code(twice).count("incident_narrative"), 1)
         self.assertEqual(twice.count("incident_description_ai: |"), 1)
         review = next(
@@ -282,6 +284,7 @@ class TestApply(unittest.TestCase):
             '    default: ${ notice_text_ai.suggestion("court_name") }\n',
             '    default: ${ notice_text_ai.suggestion("court_name") }\n'
             "    required: False\n"
+            '    min: "2020-01-01"\n'
             "    help: |\n"
             "      The court's full name.\n"
             "validation code: |\n"
@@ -301,8 +304,17 @@ class TestApply(unittest.TestCase):
         court = review["fields"][1]
         self.assertEqual(court["Court name"], "court_name")
         self.assertIs(court["required"], False)
+        self.assertEqual(court["min"], "2020-01-01")
         self.assertEqual(court["help"], "The court's full name.\n")
         self.assertIn("  check_court(court_name)  # keep me\n", twice)
+
+    def test_a_variable_with_a_quoted_key_is_written_as_valid_yaml(self):
+        config = dict(REWRITE, output="answers['a: b']")
+        updated, _ = apply_ai_assist(SOURCE, config, question_block_id="story")
+        review = next(
+            d for d in documents(updated) if d.get("id") == "review answers['a: b']"
+        )
+        self.assertEqual(review["fields"][0]["no label"], "answers['a: b']")
 
     def test_a_label_change_alone_is_saved(self):
         once, _ = apply_ai_assist(SOURCE, EXTRACT)

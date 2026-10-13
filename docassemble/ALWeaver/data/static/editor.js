@@ -3460,7 +3460,7 @@
         _aiAssistContext = null;
         refreshFromFileResponse(res.data, { selectedBlockId: keepSelected });
         var summary = res.data.ai_assist || {};
-        if (form.addToOrder !== false && !summary.added_to_order) {
+        if (form.addToOrder !== false && !summary.in_order) {
           window.alert(
             'AI help is saved. The review screen is not in the interview order yet: ' +
               'add an AI help step after this question in the order builder.',
