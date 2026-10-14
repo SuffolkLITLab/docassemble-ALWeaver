@@ -2670,6 +2670,8 @@ class TestEditorApiFileCreation(unittest.TestCase):
             start_kwargs["generation_options"]["help_page_title"], "Help page title"
         )
         self.assertTrue(start_kwargs["generation_options"]["use_llm_assist"])
+        # On by default when AI drafts the interview.
+        self.assertTrue(start_kwargs["generation_options"]["allow_ai_questions"])
         self.assertFalse(start_kwargs["generation_options"]["create_package_zip"])
         self.assertFalse(start_kwargs["generation_options"]["separate_main_order"])
         self.assertTrue(start_kwargs["generation_options"]["include_next_steps"])
@@ -3155,6 +3157,61 @@ class TestEditorNewProjectNaming(unittest.TestCase):
                 interview_filename=interview_filename,
             )
         return result, mock_write
+
+    def test_ai_questions_are_added_only_when_allowed_and_ai_drafts(self):
+        for options, expected in (
+            ({"use_llm_assist": True, "allow_ai_questions": True}, True),
+            ({"use_llm_assist": True, "allow_ai_questions": False}, False),
+            ({"use_llm_assist": False, "allow_ai_questions": True}, False),
+        ):
+            with (
+                self.subTest(options=options),
+                patch.object(
+                    api_editor,
+                    "add_suggested_ai_questions",
+                    return_value=(
+                        "metadata:\n  title: AI\n",
+                        ["Added AI help (goal) to x."],
+                    ),
+                ) as add,
+                patch.object(api_editor, "_update_new_project_job_state"),
+                patch.object(api_editor, "playground_write_yaml") as write,
+                patch.object(api_editor, "_copy_files_to_section"),
+                patch.object(
+                    api_editor,
+                    "generate_interview_from_bytes",
+                    return_value={
+                        "yaml_text": "metadata:\n  title: Eviction\n",
+                        "yaml_filename": "eviction.yml",
+                        "input_filename": "eviction.pdf",
+                        "generated_template_files": [],
+                    },
+                ) as generate,
+            ):
+                result = api_editor._complete_new_project_upload_job(
+                    job_id="job-1",
+                    uid=7,
+                    project_name="Eviction",
+                    request_id="req-1",
+                    uploaded_files=[
+                        {
+                            "filename": "eviction.pdf",
+                            "content_bytes": b"%PDF-1.4",
+                            "mimetype": "application/pdf",
+                        }
+                    ],
+                    generation_options=dict(options),
+                    debug_requested=False,
+                )
+            # The generator never sees the option; it isn't one of its own.
+            self.assertNotIn(
+                "allow_ai_questions", generate.call_args.kwargs["generation_options"]
+            )
+            self.assertEqual(add.called, expected)
+            self.assertEqual(
+                "AI" in write.call_args.args[3], expected, write.call_args.args[3]
+            )
+            self.assertEqual(bool(result["ai_questions"]), expected)
 
     def test_generated_project_keeps_the_descriptive_name_weaver_derived(self):
         result, mock_write = self._run_upload_job("eviction.yml")
@@ -4877,6 +4934,101 @@ class TestEditorQuestionLibraryApi(unittest.TestCase):
                     response[1] if isinstance(response, tuple) else response.status_code
                 )
                 self.assertEqual(status, 401)
+
+
+class TestEditorAIAssistApi(unittest.TestCase):
+    """POST /api/ai-assist writes AI help as ordinary source, or rejects it."""
+
+    SOURCE = (
+        "id: interview order\n"
+        "mandatory: True\n"
+        "code: |\n"
+        "  story\n"
+        "---\n"
+        "id: story question\n"
+        "question: |\n"
+        "  Tell us what happened\n"
+        "fields:\n"
+        "  - no label: story\n"
+        "    datatype: area\n"
+    )
+
+    def _post(self, body, source=None):
+        from . import editor_utils as real_editor_utils
+
+        written = {}
+
+        def record_write(uid, project, filename, content):
+            written["content"] = content
+
+        payload = {"project": "default", "filename": "test.yml"}
+        payload.update(body)
+        with ExitStack() as stack:
+            for patcher in (
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "_current_user_id", return_value=7),
+                patch.object(
+                    api_editor,
+                    "playground_read_yaml",
+                    return_value=source if source is not None else self.SOURCE,
+                ),
+                patch.object(
+                    api_editor,
+                    "parse_interview_yaml",
+                    side_effect=real_editor_utils.parse_interview_yaml,
+                ),
+                patch.object(
+                    api_editor,
+                    "source_revision",
+                    side_effect=real_editor_utils.source_revision,
+                ),
+                patch.object(
+                    api_editor, "playground_write_yaml", side_effect=record_write
+                ),
+                api_editor.app.test_request_context(
+                    "/al/editor/api/ai-assist", method="POST", json=payload
+                ),
+            ):
+                stack.enter_context(patcher)
+            response = api_editor.editor_api_ai_assist()
+        return response, written.get("content")
+
+    def test_save_writes_the_ai_help_and_returns_the_file(self):
+        response, written = self._post(
+            {
+                "question_block_id": "story question",
+                "config": {
+                    "task": "summarize",
+                    "source": "story",
+                    "output": "story_summary",
+                    "review_question": "Review the summary",
+                },
+            }
+        )
+        payload = response.get_json()
+        self.assertTrue(payload["success"], payload)
+        self.assertEqual(payload["data"]["ai_assist"]["name"], "story_ai")
+        self.assertTrue(payload["data"]["ai_assist"]["added_to_order"])
+        self.assertIn("docassemble.ALToolbox:ai_assist.yml", written)
+        self.assertIn("  story\n  story_summary\n", written)
+        described = [
+            assist["name"]
+            for block in payload["data"]["blocks"]
+            for assist in block.get("ai_assists", [])
+        ]
+        self.assertEqual(described, ["story_ai"])
+
+    def test_invalid_settings_write_nothing(self):
+        response, written = self._post(
+            {"config": {"task": "rewrite", "source": "story", "output": "story"}}
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNone(written)
+
+    def test_remove_needs_a_name(self):
+        response, written = self._post({"action": "remove"})
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNone(written)
 
 
 class TestEditorBlockPayloadValidation(unittest.TestCase):

@@ -2851,6 +2851,733 @@
     renderCanvas();
   }
 
+  // -------------------------------------------------------------------------
+  // AI help on a field
+  //
+  // The field stays an ordinary field. Its AI help is an `AIAssist` object
+  // and a review question, which /api/ai-assist writes; the dialog edits
+  // their settings. editor_ai_assist.js holds the task list and the form
+  // logic.
+  // -------------------------------------------------------------------------
+  var AI = window.ALWeaverAIAssist;
+  var _aiAssistContext = null;
+
+  function aiAssists() {
+    return AI.assistsFromBlocks(state.blocks);
+  }
+
+  function _aiFieldRowInput(fieldIndex, prop) {
+    return document.querySelector(
+      '.editor-field-row[data-field-idx="' +
+        fieldIndex +
+        '"] [data-field-prop="' +
+        prop +
+        '"]',
+    );
+  }
+
+  // The question that asks for `variable`, for an AI step opened from the
+  // order builder.
+  function _questionBlockForVariable(variable) {
+    for (var i = 0; i < state.blocks.length; i++) {
+      var block = state.blocks[i];
+      if (block.type !== 'question') continue;
+      if (block.variable === variable) return block;
+      var fields = (block.data && block.data.fields) || [];
+      for (var j = 0; j < fields.length; j++) {
+        var field = fields[j];
+        if (!field || typeof field !== 'object') continue;
+        if (field.field === variable) return block;
+        for (var key in field) {
+          if (
+            FIELD_MODIFIER_KEYS.indexOf(key) === -1 &&
+            key !== 'label' &&
+            key !== 'field' &&
+            field[key] === variable
+          )
+            return block;
+        }
+      }
+    }
+    return null;
+  }
+
+  // The variables a question sets, which the interview order may use to ask it.
+  function _questionVariablesFor(source) {
+    var block = _questionBlockForVariable(source);
+    if (!block) return [];
+    var names = [];
+    if (block.variable) names.push(block.variable);
+    ((block.data && block.data.fields) || []).forEach(function (field) {
+      if (!field || typeof field !== 'object') return;
+      if (typeof field.field === 'string') return names.push(field.field);
+      for (var key in field) {
+        if (
+          FIELD_MODIFIER_KEYS.indexOf(key) === -1 &&
+          key !== 'label' &&
+          typeof field[key] === 'string'
+        )
+          return names.push(field[key]);
+      }
+    });
+    return names;
+  }
+
+  function mergeAIOrderSteps(steps) {
+    return AI.mergeOrderSteps(steps, state.blocks, _questionVariablesFor);
+  }
+
+  function openBlockById(blockId, actionLabel) {
+    var target = getBlockById(blockId);
+    if (!target) return;
+    function open() {
+      _inlineEditStepId = null;
+      state.canvasMode = 'question';
+      state.selectedBlockId = target.id;
+      dirtyState.setActiveBlock(target.id);
+      renderOutline();
+      renderCanvas();
+    }
+    if (deferNavigationForUnsavedChanges(actionLabel || 'open the block', open))
+      return;
+    open();
+  }
+
+  // The compact line under a field with AI help: what AI does, and links to
+  // the review screen and to the declaration.
+  function renderAIFieldSummary(assist, fieldIndex) {
+    var info = AI.summary(assist);
+    var html =
+      '<div class="editor-field-ai-summary" data-ai-summary="' +
+      fieldIndex +
+      '">';
+    html +=
+      '<i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>';
+    html += '<span class="editor-field-ai-kind">' + esc(info.label) + '</span>';
+    html += '<span aria-hidden="true">→</span>';
+    if (assist.review_block_id) {
+      html +=
+        '<button type="button" class="btn btn-link editor-field-ai-link" data-ai-open-block="' +
+        esc(assist.review_block_id) +
+        '" title="Open the review screen">';
+      html +=
+        esc(assist.review_question || 'Review screen') +
+        ' <code>' +
+        esc(info.outputs) +
+        '</code></button>';
+    } else {
+      html += '<span class="text-warning">No review screen</span>';
+    }
+    html +=
+      '<button type="button" class="btn btn-link editor-field-ai-link" data-ai-open-block="' +
+      esc(assist.objects_block_id) +
+      '" title="Open the objects block that holds these settings"><code>' +
+      esc(assist.name) +
+      '</code></button>';
+    if (assist.computed && assist.computed.length)
+      html +=
+        '<span class="editor-field-ai-note">Uses expressions; edit in YAML</span>';
+    html += '</div>';
+    return html;
+  }
+
+  // The order builder's AI step: the question, then its review screen.
+  function renderAIOrderStepLines(step) {
+    var html = '<span class="editor-order-ai-lines">';
+    (step.children || []).forEach(function (child, index) {
+      var block = findBlockByInvoke(child);
+      html += '<span class="editor-order-ai-line">';
+      html +=
+        '<span class="editor-order-ai-role">' +
+        (index === 0 ? 'Ask' : 'Review') +
+        '</span>';
+      html +=
+        '<span class="editor-order-title">' +
+        esc(child.invoke || '') +
+        '</span>';
+      if (block && block.title)
+        html +=
+          '<span class="editor-order-detail">' + esc(block.title) + '</span>';
+      html += '</span>';
+    });
+    html += '</span>';
+    return html;
+  }
+
+  function _aiFormRow(id, label, control, hint) {
+    var html = '<div class="editor-form-group">';
+    html += '<label class="editor-tiny" for="' + id + '">' + label + '</label>';
+    html += control;
+    if (hint)
+      html += '<span class="editor-obj-hint d-block">' + hint + '</span>';
+    html += '</div>';
+    return html;
+  }
+
+  function _aiInput(id, value, extra) {
+    return (
+      '<input class="form-control editor-form-control' +
+      (extra && extra.mono ? ' font-monospace' : '') +
+      '" id="' +
+      id +
+      '"' +
+      (extra && extra.symbol ? ' data-symbol-role="variable"' : '') +
+      (extra && extra.type ? ' type="' + extra.type + '"' : '') +
+      (extra && extra.attrs ? ' ' + extra.attrs : '') +
+      ' value="' +
+      esc(value == null ? '' : String(value)) +
+      '">'
+    );
+  }
+
+  function _aiTextarea(id, value, rows) {
+    return (
+      '<textarea class="form-control editor-form-control" id="' +
+      id +
+      '" rows="' +
+      (rows || 3) +
+      '">' +
+      esc(value || '') +
+      '</textarea>'
+    );
+  }
+
+  function renderAIAssistBody() {
+    var context = _aiAssistContext;
+    var form = context.form;
+    var info = AI.task(form.task) || AI.TASKS[0];
+    var html = '';
+    if (context.computed && context.computed.length) {
+      html +=
+        '<div class="editor-info-box mb-3">These settings use Python expressions for <code>' +
+        esc(context.computed.join(', ')) +
+        '</code>. Edit them in the objects block.</div>';
+    }
+    var options = AI.TASKS.map(function (item) {
+      return (
+        '<option value="' +
+        item.value +
+        '"' +
+        (item.value === form.task ? ' selected' : '') +
+        '>' +
+        esc(item.label) +
+        '</option>'
+      );
+    }).join('');
+    html += _aiFormRow(
+      'ai-assist-task',
+      'Kind of AI help',
+      '<select class="form-select editor-form-control" id="ai-assist-task">' +
+        options +
+        '</select>',
+      esc(info.help),
+    );
+
+    html += '<div class="editor-section-legend mt-3">The person answers</div>';
+    if (context.fieldIndex !== null) {
+      html += _aiFormRow(
+        'ai-assist-field-label',
+        'Field label',
+        _aiInput('ai-assist-field-label', form.fieldLabel),
+      );
+    }
+    html += _aiFormRow(
+      'ai-assist-source',
+      'Variable for their answer',
+      _aiInput('ai-assist-source', form.source, { mono: true, symbol: true }),
+      info.input === 'file'
+        ? 'The field becomes a file upload. AI reads the document.'
+        : 'AI reads this answer. It is kept as the person wrote it.',
+    );
+
+    html += '<div class="editor-section-legend mt-3">AI</div>';
+    if (form.task === 'prompt') {
+      html += _aiFormRow(
+        'ai-assist-instructions',
+        'Prompt',
+        _aiTextarea('ai-assist-instructions', form.instructions, 4),
+        'Example: List every deadline in this letter, with its date.',
+      );
+    }
+    if (form.task === 'goal') {
+      html += _aiFormRow(
+        'ai-assist-rubric',
+        'What a complete answer includes',
+        _aiTextarea('ai-assist-rubric', form.rubric, 3),
+        'Example: What happened, about when, and who was there.',
+      );
+      html += _aiFormRow(
+        'ai-assist-limit',
+        'Most follow-up questions',
+        _aiInput('ai-assist-limit', form.questionLimit, {
+          type: 'number',
+          attrs: 'min="1" max="10" step="1"',
+        }),
+      );
+    }
+    if (form.task === 'translate') {
+      html += _aiFormRow(
+        'ai-assist-language',
+        'Translate into',
+        '<select class="form-select editor-form-control" id="ai-assist-language">' +
+          AI.LANGUAGES.map(function (pair) {
+            return (
+              '<option value="' +
+              pair[0] +
+              '"' +
+              (pair[0] === form.language ? ' selected' : '') +
+              '>' +
+              esc(pair[1]) +
+              '</option>'
+            );
+          }).join('') +
+          '</select>',
+      );
+    }
+    if (info.output === 'fields') {
+      html +=
+        '<div class="editor-tiny mb-1" id="ai-assist-outputs-label">Answers to find</div>';
+      html +=
+        '<div class="editor-ai-rows" role="group" aria-labelledby="ai-assist-outputs-label">';
+      html +=
+        '<div class="editor-ai-row editor-ai-row-head" aria-hidden="true"><span>Label</span><span>Variable</span><span>Type</span><span>What to look for (optional)</span><span></span></div>';
+      form.outputs.forEach(function (row, index) {
+        html +=
+          '<div class="editor-ai-row" data-ai-output-row="' + index + '">';
+        html +=
+          '<input class="form-control form-control-sm" data-ai-output="label" aria-label="Label" value="' +
+          esc(row.label) +
+          '">';
+        html +=
+          '<input class="form-control form-control-sm font-monospace" data-ai-output="variable" data-symbol-role="variable" aria-label="Variable" value="' +
+          esc(row.variable) +
+          '">';
+        html +=
+          '<select class="form-select form-select-sm" data-ai-output="datatype" aria-label="Type">' +
+          AI.EXTRACT_DATATYPES.map(function (pair) {
+            return (
+              '<option value="' +
+              pair[0] +
+              '"' +
+              (pair[0] === row.datatype ? ' selected' : '') +
+              '>' +
+              esc(pair[1]) +
+              '</option>'
+            );
+          }).join('') +
+          '</select>';
+        html +=
+          '<input class="form-control form-control-sm" data-ai-output="description" aria-label="What to look for" value="' +
+          esc(row.description) +
+          '">';
+        html +=
+          '<button type="button" class="btn btn-sm btn-ghost-danger editor-icon-btn" data-ai-remove-row="outputs" data-row-index="' +
+          index +
+          '" title="Remove"><i class="fa-solid fa-xmark" aria-hidden="true"></i><span class="visually-hidden">Remove answer ' +
+          (index + 1) +
+          '</span></button>';
+        html += '</div>';
+      });
+      html += '</div>';
+      html +=
+        '<button type="button" class="btn btn-sm btn-link px-0" data-ai-add-row="outputs"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Add an answer</button>';
+    }
+    if (info.output === 'choice') {
+      html +=
+        '<div class="editor-tiny mb-1" id="ai-assist-choices-label">Choices</div>';
+      html +=
+        '<div class="editor-ai-rows editor-ai-rows-choices" role="group" aria-labelledby="ai-assist-choices-label">';
+      html +=
+        '<div class="editor-ai-row editor-ai-row-head" aria-hidden="true"><span>Label</span><span>Value</span><span>When it fits (optional)</span><span></span></div>';
+      form.choices.forEach(function (row, index) {
+        html +=
+          '<div class="editor-ai-row" data-ai-choice-row="' + index + '">';
+        html +=
+          '<input class="form-control form-control-sm" data-ai-choice="label" aria-label="Label" value="' +
+          esc(row.label) +
+          '">';
+        html +=
+          '<input class="form-control form-control-sm font-monospace" data-ai-choice="value" aria-label="Value" value="' +
+          esc(row.value) +
+          '">';
+        html +=
+          '<input class="form-control form-control-sm" data-ai-choice="description" aria-label="When it fits" value="' +
+          esc(row.description) +
+          '">';
+        html +=
+          '<button type="button" class="btn btn-sm btn-ghost-danger editor-icon-btn" data-ai-remove-row="choices" data-row-index="' +
+          index +
+          '" title="Remove"><i class="fa-solid fa-xmark" aria-hidden="true"></i><span class="visually-hidden">Remove choice ' +
+          (index + 1) +
+          '</span></button>';
+        html += '</div>';
+      });
+      html += '</div>';
+      html +=
+        '<button type="button" class="btn btn-sm btn-link px-0" data-ai-add-row="choices"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Add a choice</button>';
+    }
+
+    html += '<div class="editor-section-legend mt-3">Review screen</div>';
+    html += _aiFormRow(
+      'ai-assist-review-question',
+      'Question',
+      _aiInput('ai-assist-review-question', form.reviewQuestion),
+      'The person sees what AI suggested and can change it before going on.',
+    );
+    if (info.output !== 'fields') {
+      html += _aiFormRow(
+        'ai-assist-output',
+        'Variable for the reviewed answer',
+        _aiInput('ai-assist-output', form.output, { mono: true, symbol: true }),
+        'Use this variable in your documents.',
+      );
+    }
+    html +=
+      '<div class="form-check mt-2"><input class="form-check-input" type="checkbox" id="ai-assist-add-order"' +
+      (form.addToOrder !== false ? ' checked' : '') +
+      '><label class="form-check-label" for="ai-assist-add-order">Ask the review screen right after this question in the interview order</label></div>';
+
+    html +=
+      '<details class="editor-ai-advanced mt-3"' +
+      (form.advancedOpen ? ' open' : '') +
+      '><summary>Advanced settings</summary>';
+    if (form.task !== 'prompt') {
+      html += _aiFormRow(
+        'ai-assist-instructions',
+        'Extra instructions for AI',
+        _aiTextarea('ai-assist-instructions', form.instructions, 2),
+      );
+    }
+    if (form.task === 'prompt' || form.task === 'summarize') {
+      html += _aiFormRow(
+        'ai-assist-inputs',
+        'Also send these answers',
+        _aiTextarea('ai-assist-inputs', form.inputs, 2),
+        'One variable per line. Only the answers listed here are sent.',
+      );
+    }
+    html += _aiFormRow(
+      'ai-assist-model',
+      'Model',
+      _aiInput('ai-assist-model', form.model, { mono: true }),
+      'Leave blank to use the default model of the server the interview runs on.',
+    );
+    html +=
+      '<div class="form-check"><input class="form-check-input" type="checkbox" id="ai-assist-ask-permission"' +
+      (form.askPermission ? ' checked' : '') +
+      '><label class="form-check-label" for="ai-assist-ask-permission">Ask the person before sending their answer to AI</label></div>';
+    html += '</details>';
+    html +=
+      '<div class="alert alert-danger mt-3 mb-0 d-none" id="ai-assist-error" role="alert"></div>';
+    return html;
+  }
+
+  function readAIAssistForm() {
+    var form = _aiAssistContext.form;
+    function val(id, fallback) {
+      var el = document.getElementById(id);
+      return el ? el.value : fallback;
+    }
+    form.task = val('ai-assist-task', form.task);
+    form.fieldLabel = val('ai-assist-field-label', form.fieldLabel);
+    form.source = val('ai-assist-source', form.source);
+    form.instructions = val('ai-assist-instructions', form.instructions);
+    form.rubric = val('ai-assist-rubric', form.rubric);
+    form.questionLimit = val('ai-assist-limit', form.questionLimit);
+    form.language = val('ai-assist-language', form.language);
+    form.reviewQuestion = val('ai-assist-review-question', form.reviewQuestion);
+    form.output = val('ai-assist-output', form.output);
+    form.inputs = val('ai-assist-inputs', form.inputs);
+    form.model = val('ai-assist-model', form.model);
+    var permission = document.getElementById('ai-assist-ask-permission');
+    if (permission) form.askPermission = permission.checked;
+    var order = document.getElementById('ai-assist-add-order');
+    if (order) form.addToOrder = order.checked;
+    var advanced = document.querySelector(
+      '#ai-assist-body .editor-ai-advanced',
+    );
+    if (advanced) form.advancedOpen = advanced.open;
+    var outputRows = document.querySelectorAll('[data-ai-output-row]');
+    if (outputRows.length)
+      form.outputs = Array.prototype.map.call(outputRows, function (row) {
+        var out = {};
+        row.querySelectorAll('[data-ai-output]').forEach(function (input) {
+          out[input.getAttribute('data-ai-output')] = input.value;
+        });
+        return out;
+      });
+    var choiceRows = document.querySelectorAll('[data-ai-choice-row]');
+    if (choiceRows.length)
+      form.choices = Array.prototype.map.call(choiceRows, function (row) {
+        var out = {};
+        row.querySelectorAll('[data-ai-choice]').forEach(function (input) {
+          out[input.getAttribute('data-ai-choice')] = input.value;
+        });
+        return out;
+      });
+    return form;
+  }
+
+  function rerenderAIAssistBody(focusId) {
+    var body = document.getElementById('ai-assist-body');
+    if (!body) return;
+    body.innerHTML = renderAIAssistBody();
+    var save = document.getElementById('ai-assist-save');
+    if (save)
+      save.disabled = Boolean(
+        _aiAssistContext.computed && _aiAssistContext.computed.length,
+      );
+    if (focusId) {
+      var focus = document.getElementById(focusId);
+      if (focus) focus.focus();
+    }
+  }
+
+  // Opens the dialog for a field (`fieldIndex` on the selected question) or,
+  // from the order builder, for an existing AI help by name.
+  function openAIAssistModal(options) {
+    var assist = options.name
+      ? AI.assistByName(state.blocks, options.name)
+      : null;
+    var fieldIndex =
+      options.fieldIndex === undefined || options.fieldIndex === null
+        ? null
+        : options.fieldIndex;
+    var source = '';
+    var fieldLabel = '';
+    if (fieldIndex !== null) {
+      var variableInput = _aiFieldRowInput(fieldIndex, 'variable');
+      var labelInput = _aiFieldRowInput(fieldIndex, 'label');
+      source = variableInput ? String(variableInput.value || '').trim() : '';
+      fieldLabel = labelInput ? String(labelInput.value || '').trim() : '';
+      if (!assist) assist = AI.assistForSource(state.blocks, source);
+    }
+    var form = AI.formState(assist, source, options.task);
+    form.fieldLabel = fieldLabel;
+    form.addToOrder = true;
+    var questionBlock =
+      fieldIndex !== null
+        ? getSelectedBlock()
+        : _questionBlockForVariable(form.source);
+    _aiAssistContext = {
+      name: assist ? assist.name : null,
+      fieldIndex: fieldIndex,
+      questionBlockId: questionBlock ? questionBlock.id : null,
+      computed: assist ? assist.computed : [],
+      form: form,
+    };
+    var title = document.getElementById('ai-assist-title');
+    if (title)
+      title.textContent = assist ? 'Edit AI help' : 'Add AI help to this field';
+    var remove = document.getElementById('ai-assist-remove');
+    if (remove) remove.classList.toggle('d-none', !assist);
+    rerenderAIAssistBody();
+    var modal = getOrCreateBootstrapModal('ai-assist-modal');
+    if (modal) modal.show();
+  }
+
+  function _showAIAssistError(message) {
+    var box = document.getElementById('ai-assist-error');
+    if (!box) return window.alert(message);
+    box.textContent = message;
+    box.classList.remove('d-none');
+  }
+
+  // The field row is updated through its own inputs, so the question saves
+  // the way it does when the author types in it.
+  function _applyAIFieldToRow(context) {
+    if (context.fieldIndex === null) return true;
+    var block = getSelectedBlock();
+    if (!block || block.type !== 'question') return true;
+    var form = context.form;
+    var labelInput = _aiFieldRowInput(context.fieldIndex, 'label');
+    var variableInput = _aiFieldRowInput(context.fieldIndex, 'variable');
+    var typeSelect = _aiFieldRowInput(context.fieldIndex, 'type');
+    var changed = false;
+    if (
+      labelInput &&
+      form.fieldLabel !== undefined &&
+      labelInput.value !== form.fieldLabel
+    ) {
+      labelInput.value = form.fieldLabel;
+      changed = true;
+    }
+    if (variableInput && variableInput.value !== form.source) {
+      variableInput.value = form.source;
+      changed = true;
+    }
+    var datatype = AI.inputDatatypeFor(
+      form.task,
+      typeSelect ? typeSelect.value : 'text',
+    );
+    if (typeSelect && datatype) {
+      typeSelect.value = datatype;
+      changed = true;
+    }
+    if (!changed) return true;
+    if (syncFieldsToData(block) === false) return false;
+    markInterviewDirty('ai-assist-field:' + context.fieldIndex);
+    return true;
+  }
+
+  function saveAIAssistModal() {
+    if (!_aiAssistContext) return;
+    var context = _aiAssistContext;
+    var form = readAIAssistForm();
+    form.source = String(form.source || '').trim();
+    if (!form.source) {
+      _showAIAssistError("Give the person's answer a variable name.");
+      return;
+    }
+    if (_applyAIFieldToRow(context) === false) return;
+    _setButtonLoading('ai-assist-save', true, 'Saving...');
+    saveCurrentBlockIfDirty()
+      .then(function (saved) {
+        if (!saved) throw new Error('Save the question first, then try again.');
+        // Saving can give the question a new handle; find it by its field.
+        var questionBlock = _questionBlockForVariable(form.source);
+        return apiPost('/api/ai-assist', {
+          project: state.project,
+          filename: state.filename,
+          expected_revision: state.revision,
+          action: 'save',
+          name: context.name,
+          question_block_id: questionBlock
+            ? questionBlock.id
+            : context.questionBlockId,
+          add_to_order: form.addToOrder !== false,
+          config: AI.configFromForm(form),
+        });
+      })
+      .then(function (res) {
+        if (!res || !res.success || !res.data)
+          throw new Error(
+            (res && res.error && res.error.message) ||
+              'Unable to save AI help.',
+          );
+        var keepSelected = state.selectedBlockId;
+        closeBootstrapModal('ai-assist-modal');
+        _aiAssistContext = null;
+        refreshFromFileResponse(res.data, { selectedBlockId: keepSelected });
+        var summary = res.data.ai_assist || {};
+        if (form.addToOrder !== false && !summary.in_order) {
+          window.alert(
+            'AI help is saved. The review screen is not in the interview order yet: ' +
+              'add an AI help step after this question in the order builder.',
+          );
+        }
+      })
+      .catch(function (error) {
+        if (isSupersededRequest(error)) return;
+        _showAIAssistError(
+          String((error && error.message) || 'Unable to save AI help.'),
+        );
+      })
+      .finally(function () {
+        _setButtonLoading('ai-assist-save', false, '');
+      });
+  }
+
+  function removeAIAssistFromModal() {
+    if (!_aiAssistContext || !_aiAssistContext.name) return;
+    var name = _aiAssistContext.name;
+    if (
+      !window.confirm(
+        'Remove AI help from this field? This deletes its review screen and ' +
+          'takes the review screen out of the interview order. The field stays.',
+      )
+    )
+      return;
+    saveCurrentBlockIfDirty()
+      .then(function (saved) {
+        if (!saved) throw new Error('Save the question first, then try again.');
+        return apiPost('/api/ai-assist', {
+          project: state.project,
+          filename: state.filename,
+          expected_revision: state.revision,
+          action: 'remove',
+          name: name,
+        });
+      })
+      .then(function (res) {
+        if (!res || !res.success || !res.data)
+          throw new Error(
+            (res && res.error && res.error.message) ||
+              'Unable to remove AI help.',
+          );
+        var keepSelected = state.selectedBlockId;
+        closeBootstrapModal('ai-assist-modal');
+        _aiAssistContext = null;
+        refreshFromFileResponse(res.data, { selectedBlockId: keepSelected });
+      })
+      .catch(function (error) {
+        if (isSupersededRequest(error)) return;
+        _showAIAssistError(
+          String((error && error.message) || 'Unable to remove AI help.'),
+        );
+      });
+  }
+
+  function _wireAIAssistModal() {
+    var body = document.getElementById('ai-assist-body');
+    if (!body || body.getAttribute('data-wired')) return;
+    body.setAttribute('data-wired', 'true');
+    body.addEventListener('change', function (event) {
+      var target = event.target;
+      if (!_aiAssistContext || !target || target.id !== 'ai-assist-task')
+        return;
+      var form = readAIAssistForm();
+      // Keep what carries over; take the new kind's defaults for the rest.
+      var next = AI.formState(
+        AI.assistByName(state.blocks, _aiAssistContext.name),
+        form.source,
+        target.value,
+      );
+      next.fieldLabel = form.fieldLabel;
+      next.model = form.model;
+      next.askPermission = form.askPermission;
+      next.addToOrder = form.addToOrder;
+      next.advancedOpen = form.advancedOpen;
+      if (form.instructions && target.value !== 'prompt')
+        next.instructions = form.instructions;
+      _aiAssistContext.form = next;
+      rerenderAIAssistBody('ai-assist-task');
+    });
+    body.addEventListener('click', function (event) {
+      var target = event.target.closest(
+        '[data-ai-add-row], [data-ai-remove-row]',
+      );
+      if (!target || !_aiAssistContext) return;
+      var form = readAIAssistForm();
+      var list =
+        target.getAttribute('data-ai-add-row') ||
+        target.getAttribute('data-ai-remove-row');
+      if (target.hasAttribute('data-ai-add-row')) {
+        form[list].push(
+          list === 'outputs'
+            ? { label: '', variable: '', datatype: 'text', description: '' }
+            : { label: '', value: '', description: '' },
+        );
+      } else {
+        form[list].splice(
+          parseInt(target.getAttribute('data-row-index'), 10),
+          1,
+        );
+      }
+      rerenderAIAssistBody();
+      var rows = document.querySelectorAll(
+        list === 'outputs' ? '[data-ai-output-row]' : '[data-ai-choice-row]',
+      );
+      var last = rows[rows.length - 1];
+      var first = last && last.querySelector('input');
+      if (first) first.focus();
+    });
+    var save = document.getElementById('ai-assist-save');
+    if (save) save.addEventListener('click', saveAIAssistModal);
+    var remove = document.getElementById('ai-assist-remove');
+    if (remove) remove.addEventListener('click', removeAIAssistFromModal);
+  }
+
   // All known field modifier keys
   var FIELD_MODIFIER_KEYS = [
     'datatype',
@@ -7162,9 +7889,10 @@
 
   function setActiveOrderBlock(blockId, steps) {
     state.activeOrderBlockId = blockId || null;
-    state.orderSteps =
+    state.orderSteps = mergeAIOrderSteps(
       cloneData(steps || (blockId ? state.orderStepMap[blockId] : []) || []) ||
-      [];
+        [],
+    );
     state.selectedOrderStepIds = {};
     state.orderBuilderLoading = false;
   }
@@ -7292,10 +8020,11 @@
     state.currentView = 'interview';
     state.canvasMode = 'order-builder';
     state.orderBuilderLoading = Boolean(nextOrderBlockId);
-    state.orderSteps =
+    state.orderSteps = mergeAIOrderSteps(
       nextOrderBlockId && state.orderStepMap[nextOrderBlockId]
         ? cloneData(state.orderStepMap[nextOrderBlockId]) || []
-        : [];
+        : [],
+    );
     state.selectedOrderStepIds = {};
 
     var loadSeq = ++_orderBuilderLoadSeq;
@@ -7372,6 +8101,7 @@
     if (step.kind === 'condition') return 'condition';
     if (step.kind === 'section') return 'section';
     if (step.kind === 'progress') return 'progress';
+    if (step.kind === 'ai') return 'AI help';
     return 'code';
   }
 
@@ -7406,6 +8136,11 @@
       detail = '';
     } else if (step && step.kind === 'progress') {
       heading = step.value ? step.value + '%' : step.summary || 'Progress';
+      detail = '';
+    } else if (step && step.kind === 'ai') {
+      var aiStepAssist = AI.assistByName(state.blocks, step.assist);
+      var aiStepTask = aiStepAssist ? AI.task(aiStepAssist.task) : null;
+      heading = 'AI: ' + (aiStepTask ? aiStepTask.label : 'help');
       detail = '';
     }
     return {
@@ -7854,6 +8589,37 @@
         '<div class="mb-2"><label class="editor-tiny">Function call</label>';
       html +=
         '<input class="form-control form-control-sm mt-1 font-monospace" id="order-add-invoke" data-symbol-role="function-call" value="function_call()"></div>';
+    } else if (kind === 'ai') {
+      var assists = aiAssists();
+      if (!assists.length) {
+        html +=
+          '<div class="editor-info-box">No field has AI help yet. Choose a kind of AI help in a field\'s type menu, or use <strong>Add AI field</strong> on a question.</div>';
+      } else {
+        html +=
+          '<div class="mb-2"><label class="editor-tiny" for="order-add-ai">Field with AI help</label>';
+        html +=
+          '<select class="form-select form-select-sm mt-1" id="order-add-ai">';
+        assists.forEach(function (assist) {
+          var info = AI.summary(assist);
+          html +=
+            '<option value="' +
+            esc(assist.name) +
+            '">' +
+            esc(
+              info.label +
+                ': ' +
+                (assist.settings.source || '') +
+                ' → ' +
+                info.outputs,
+            ) +
+            '</option>';
+        });
+        html +=
+          '</select><span class="editor-obj-hint d-block mt-1">Adds two lines: the question that asks for the answer, then the review screen.</span></div>';
+      }
+      bodyEl.innerHTML = html;
+      if (saveBtn) saveBtn.disabled = !assists.length;
+      return;
     } else {
       html += '<div class="mb-2"><label class="editor-tiny">Raw Python</label>';
       html +=
@@ -7969,6 +8735,8 @@
         step.kind === 'function'
       )
         lines.push(prefix + String(step.invoke || ''));
+      else if (step.kind === 'ai')
+        lines.push(renderOrderCodePreview(step.children || [], indent));
       else if (step.kind === 'loop') {
         lines.push(
           prefix +
@@ -14064,7 +14832,10 @@
               } else {
                 var keys = Object.keys(f);
                 if (keys.length > 0) {
-                  var firstKey = keys[0];
+                  var firstKey = window.ALWeaverSerializers.fieldLabelKey(
+                    f,
+                    FIELD_TYPES,
+                  );
                   var _isTypeShorthand =
                     FIELD_TYPES.indexOf(firstKey) !== -1 ||
                     firstKey === 'no label';
@@ -14144,9 +14915,14 @@
             if (typeof showIfVal === 'object')
               showIfVal = JSON.stringify(showIfVal);
 
+            var aiAssist =
+              varName && !isStandaloneType && !isALMethodType
+                ? AI.assistForSource(state.blocks, varName)
+                : null;
             html +=
               '<div class="editor-field-row' +
               (isStandaloneType ? ' editor-field-row-special' : '') +
+              (aiAssist ? ' editor-field-row-ai' : '') +
               '" data-field-idx="' +
               fi +
               '">';
@@ -14172,7 +14948,7 @@
                 esc(label) +
                 '</textarea>';
             }
-            html += _renderFieldTypeDropdown(fi, dtype);
+            html += _renderFieldTypeDropdown(fi, dtype, aiAssist);
             if (isALMethodType)
               html += renderSymbolDatalist(
                 'al-individual-list-' + fi,
@@ -14250,6 +15026,12 @@
                 '" title="Field settings" aria-label="Field settings"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>';
               html += '</div>';
             }
+            if (aiAssist) {
+              html +=
+                '<button type="button" class="btn btn-sm btn-ghost-secondary editor-icon-btn editor-field-ai-btn" data-ai-assist-edit="' +
+                fi +
+                '" title="AI help settings" aria-label="AI help settings"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i></button>';
+            }
             html +=
               '<button type="button" class="btn btn-sm btn-ghost-danger editor-icon-btn" data-remove-field="' +
               fi +
@@ -14277,6 +15059,7 @@
             });
             html += '</select>';
             html += '</div>';
+            if (aiAssist) html += renderAIFieldSummary(aiAssist, fi);
             if (hasChoices) {
               html += '<div class="editor-field-choices-row">';
               html +=
@@ -15224,18 +16007,23 @@
     return _normalizeFieldType(dtype) === 'code' ? 4 : 3;
   }
 
-  function _renderFieldTypeDropdown(fi, dtype) {
+  function _renderFieldTypeDropdown(fi, dtype, aiAssist) {
     var html = '';
+    var aiTask = aiAssist ? AI.task(aiAssist.task) : null;
     html += '<div class="dropdown editor-field-type-dropdown">';
     html +=
       '<button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle editor-field-type-btn" id="field-type-btn-' +
       fi +
       '" data-bs-toggle="dropdown" aria-expanded="false" title="Datatype">';
+    // A field with ai-assist help shows its kind of AI help as its type.
     html +=
       '<i class="fa-solid ' +
-      _fieldTypeIcon(dtype) +
+      (aiTask ? 'fa-wand-magic-sparkles' : _fieldTypeIcon(dtype)) +
       '" aria-hidden="true"></i>';
-    html += '<span>' + esc(_fieldTypeLabel(dtype)) + '</span>';
+    html +=
+      '<span>' +
+      esc(aiTask ? 'AI: ' + aiTask.label : _fieldTypeLabel(dtype)) +
+      '</span>';
     html += '</button>';
     html +=
       '<div class="dropdown-menu editor-field-type-menu" aria-labelledby="field-type-btn-' +
@@ -15260,6 +16048,21 @@
           esc(_fieldTypeLabel(item));
         html += '</button>';
       });
+    });
+    html += '<div class="dropdown-divider"></div>';
+    html += '<h6 class="dropdown-header">AI help</h6>';
+    AI.TASKS.forEach(function (item) {
+      html +=
+        '<button type="button" class="dropdown-item editor-field-type-item' +
+        (aiAssist && aiAssist.task === item.value ? ' active' : '') +
+        '" data-ai-task="' +
+        item.value +
+        '" data-field-idx="' +
+        fi +
+        // data-ai-task: each item adds AI help of that kind.
+        '"><i class="fa-solid fa-wand-magic-sparkles me-2" aria-hidden="true"></i>' +
+        esc(item.label) +
+        '</button>';
     });
     html += '</div></div>';
     return html;
@@ -16911,18 +17714,21 @@
       html += '<div class="editor-order-step-main">';
       html +=
         '<span class="drag-handle" title="Drag to reorder" aria-hidden="true"><i class="fa-solid fa-grip-vertical"></i></span>';
-      html +=
-        '<span class="editor-order-title' +
-        (step.kind === 'screen' ? '' : ' editor-order-title-meta') +
-        '" data-editable="true" data-step-id="' +
-        esc(step.id) +
-        '"' +
-        (presentation.tooltip
-          ? ' title="' + esc(presentation.tooltip) + '"'
-          : '') +
-        '>' +
-        esc(presentation.heading) +
-        '</span>';
+      if (step.kind === 'ai') {
+        html += renderAIOrderStepLines(step);
+      } else
+        html +=
+          '<span class="editor-order-title' +
+          (step.kind === 'screen' ? '' : ' editor-order-title-meta') +
+          '" data-editable="true" data-step-id="' +
+          esc(step.id) +
+          '"' +
+          (presentation.tooltip
+            ? ' title="' + esc(presentation.tooltip) + '"'
+            : '') +
+          '>' +
+          esc(presentation.heading) +
+          '</span>';
       if (presentation.detail) {
         html +=
           '<span class="editor-order-detail">' +
@@ -16995,6 +17801,18 @@
               : '<i class="fa-solid fa-arrow-up-right-from-square me-2" aria-hidden="true"></i>Go to block') +
             '</button></li>';
         }
+      }
+      if (step.kind === 'ai') {
+        (step.children || []).forEach(function (child, childIndex) {
+          var childBlock = findBlockByInvoke(child);
+          if (!childBlock) return;
+          html +=
+            '<li><button class="dropdown-item" type="button" data-ai-open-block="' +
+            esc(childBlock.id) +
+            '"><i class="fa-solid fa-arrow-up-right-from-square me-2" aria-hidden="true"></i>' +
+            (childIndex === 0 ? 'Go to question' : 'Go to review screen') +
+            '</button></li>';
+        });
       }
       html += '<li><hr class="dropdown-divider"></li>';
       html +=
@@ -17441,6 +18259,11 @@
         '<input class="form-check-input" type="checkbox" id="new-project-use-llm-assist" checked>' +
         '<label class="form-check-label editor-tiny" for="new-project-use-llm-assist">Use AI assistance for drafting</label>' +
         '<div class="text-muted small mt-1">If enabled, Weaver will use your context and reference page to refine labels and screen grouping. Variable names are always derived from the template\'s field labels, with or without this.</div>' +
+        '</div>' +
+        '<div class="form-check form-switch m-0">' +
+        '<input class="form-check-input" type="checkbox" id="new-project-allow-ai-questions" checked>' +
+        '<label class="form-check-label editor-tiny" for="new-project-allow-ai-questions">Allow adding AI-powered questions</label>' +
+        '<div class="text-muted small mt-1">Weaver may add AI help to long answers, such as a description of what happened: AI asks follow-up questions or organizes the answer, and the person reviews the result. Needs AI assistance for drafting.</div>' +
         '</div>' +
         '</div>',
     );
@@ -22476,6 +23299,26 @@
       return;
     }
 
+    var aiTaskItem = target.closest('[data-ai-task]');
+    var aiEditButton = target.closest('[data-ai-assist-edit]');
+    if (aiTaskItem || aiEditButton) {
+      var aiFieldIndex = parseInt(
+        (aiTaskItem || aiEditButton).getAttribute(
+          aiTaskItem ? 'data-field-idx' : 'data-ai-assist-edit',
+        ),
+        10,
+      );
+      openAIAssistModal({
+        fieldIndex: aiFieldIndex,
+        task: aiTaskItem ? aiTaskItem.getAttribute('data-ai-task') : null,
+      });
+      return;
+    }
+    var aiOpenBlock = target.closest('[data-ai-open-block]');
+    if (aiOpenBlock) {
+      openBlockById(aiOpenBlock.getAttribute('data-ai-open-block'));
+      return;
+    }
     var alMethodOptionsButton = target.closest(
       '[data-al-field-method-options]',
     );
@@ -22951,6 +23794,8 @@
         renderCanvas();
       } else if (action === 'preview') {
         showOrderPreview(stepRecord.step);
+      } else if (action === 'edit' && stepRecord.step.kind === 'ai') {
+        openAIAssistModal({ name: stepRecord.step.assist });
       } else if (action === 'edit') {
         showOrderEdit(stepRecord.step, targetStepId);
       } else if (action === 'toggle-collapse') {
@@ -23352,6 +24197,12 @@
         ? copyBaselineQuestionsInput.checked
         : true;
       var createTest = createTestInput ? createTestInput.checked : true;
+      var allowAiQuestionsInput = document.getElementById(
+        'new-project-allow-ai-questions',
+      );
+      var allowAiQuestions =
+        useLlmAssist &&
+        Boolean(allowAiQuestionsInput && allowAiQuestionsInput.checked);
       _showUploadProgressModal('This may take a minute or two. Please wait.');
 
       if (_uploadedFiles.length > 0) {
@@ -23362,6 +24213,10 @@
         formData.append('help_page_url', helpPageUrl);
         formData.append('help_page_title', helpPageTitle);
         formData.append('use_llm_assist', useLlmAssist ? 'true' : 'false');
+        formData.append(
+          'allow_ai_questions',
+          allowAiQuestions ? 'true' : 'false',
+        );
         formData.append('output_type', outputType);
         formData.append('form_type', formType);
         formData.append('default_state', defaultState);
@@ -24214,6 +25069,19 @@
       renderCanvas();
     });
 
+  _wireAIAssistModal();
+
+  // AI-powered questions are picked by the AI drafting step, so the switch
+  // follows it: on whenever the author drafts with AI, off without it.
+  document.addEventListener('change', function (event) {
+    var target = event.target;
+    if (!target || target.id !== 'new-project-use-llm-assist') return;
+    var allow = document.getElementById('new-project-allow-ai-questions');
+    if (!allow) return;
+    allow.checked = target.checked;
+    allow.disabled = !target.checked;
+  });
+
   var orderAddKindSelect = document.getElementById('order-add-kind');
   if (orderAddKindSelect) {
     orderAddKindSelect.addEventListener('change', function () {
@@ -24297,6 +25165,14 @@
         var bounded = Math.max(0, Math.min(100, parsed));
         newStep.value = String(bounded);
         newStep.summary = 'Progress: ' + bounded + '%';
+      } else if (kind === 'ai') {
+        var aiSelect = document.getElementById('order-add-ai');
+        var chosenAssist = aiSelect
+          ? AI.assistByName(state.blocks, aiSelect.value)
+          : null;
+        if (!chosenAssist) return;
+        var askVariables = _questionVariablesFor(chosenAssist.settings.source);
+        newStep = AI.newOrderStep(chosenAssist, askVariables[0]);
       } else {
         var codeVal = codeEl ? String(codeEl.value || '').trim() : '';
         if (!codeVal) return;

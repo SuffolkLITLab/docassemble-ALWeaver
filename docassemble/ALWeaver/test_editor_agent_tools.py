@@ -716,3 +716,70 @@ class TestSessionCandidateLifecycle(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAddAIHelp(AgentToolTestCase):
+    """The assistant gives a field AI help the way the field's dialog does."""
+
+    def setUp(self):
+        super().setUp()
+        source = INTERVIEW.replace(
+            "fields:\n  - Your name: user_name\n",
+            "fields:\n  - Your name: user_name\n  - What happened?: story\n"
+            "    datatype: area\n",
+        )
+        self.candidate = AgentCandidate.from_source(source)
+        self.context.candidate = self.candidate
+
+    def test_writing_help_keeps_the_fields_variable(self):
+        result = self.call(
+            "add_ai_help",
+            {
+                "question_block_id": "intro",
+                "variable": "story",
+                "task": "goal",
+                "rubric": "When it happened and who was there.",
+                "review_question": "Review your story",
+            },
+        )
+        self.assertTrue(result.succeeded, result.message)
+        updated = self.context.candidate.raw_source
+        self.assertIn("What happened?: story_draft", updated)
+        self.assertIn('source="story_draft"', updated)
+        self.assertIn("  - no label: story\n", updated)
+        self.assertIn("docassemble.ALToolbox:ai_assist.yml", updated)
+        # This order asks for `intro`, a block id, not a variable of the
+        # question, so there is no line to put the review after.
+        self.assertFalse(result.data["in_order"])
+        self.assertIn("code: |\n  intro\n  user_address\n", updated)
+        self.assertEqual(result.data["draft_variable"], "story_draft")
+
+    def test_an_extraction_names_its_outputs(self):
+        result = self.call(
+            "add_ai_help",
+            {
+                "question_block_id": "intro",
+                "variable": "story",
+                "task": "extract",
+                "review_question": "Check these",
+                "outputs": [{"variable": "event_date", "datatype": "date"}],
+            },
+        )
+        self.assertTrue(result.succeeded, result.message)
+        self.assertIn('"event_date"', self.context.candidate.raw_source)
+
+    def test_bad_settings_are_refused_without_changing_anything(self):
+        before = self.context.candidate.raw_source
+        result = self.call(
+            "add_ai_help",
+            {
+                "question_block_id": "intro",
+                "variable": "story",
+                "task": "classify",
+                "review_question": "Check",
+                "output": "kind",
+                "choices": [{"label": "Only one"}],
+            },
+        )
+        self.assertEqual(result.reason, "invalid_ai_help")
+        self.assertEqual(self.context.candidate.raw_source, before)

@@ -18,6 +18,7 @@ Provides:
     GET  /al/editor/api/question-library — AssemblyLine questions for this file's objects
     POST /al/editor/api/question-library/insert — copy chosen library questions in
     POST /al/editor/api/question-library/object — declare a new list of people
+    POST /al/editor/api/ai-assist — add, change or remove AI help on a field
     GET  /al/editor/api/package-file — parse a YAML file from an installed package
     GET  /al/editor/api/variables — extract variable names from a file
     POST /al/editor/api/order    — save order-builder steps as code
@@ -211,6 +212,8 @@ from .question_library import (
     PERSON_LIST_CLASSES,
 )
 from .generator_constants import generator_constants
+from .editor_ai_assist import apply_ai_assist, remove_ai_assist
+from .ai_question_suggestions import add_suggested_ai_questions
 
 try:
     from .editor_utils import (
@@ -10253,6 +10256,75 @@ def editor_api_question_library_object() -> Response:
         )
 
 
+@app.route(f"{EDITOR_BASE_PATH}/api/ai-assist", methods=["POST"])
+def editor_api_ai_assist() -> Response:
+    """Add, change or remove AI help on a field.
+
+    The browser sends the settings from the AI help dialog; the declaration,
+    include, review question and order line are written here, as ordinary
+    source, by `editor_ai_assist`.
+    """
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        post_data = request.get_json(silent=True) or {}
+        project = _normalize_project(post_data.get("project"))
+        filename = _normalize_filename(post_data.get("filename"))
+        action = str(post_data.get("action") or "save").strip()
+        name = str(post_data.get("name") or "").strip() or None
+        content = playground_read_yaml(uid, project, filename)
+        summary: Dict[str, Any] = {}
+        if action == "remove":
+            if not name:
+                raise ValueError("Say which AI help to remove")
+            updated_content = remove_ai_assist(content, name)
+        elif action == "save":
+            config = post_data.get("config")
+            if not isinstance(config, dict):
+                raise ValueError("config must be an object")
+            question_raw = post_data.get("question_block_id")
+            updated_content, summary = apply_ai_assist(
+                content,
+                config,
+                name=name,
+                question_block_id=str(question_raw).strip() if question_raw else None,
+                add_to_order=post_data.get("add_to_order") is not False,
+            )
+        else:
+            raise ValueError("action must be save or remove")
+        if updated_content != content:
+            conflict = _write_source_content(
+                uid, project, filename, updated_content, post_data, request_id
+            )
+            if conflict is not None:
+                return conflict
+        data = _build_file_response_data(updated_content, project, filename)
+        data["ai_assist"] = summary
+        return jsonify({"success": True, "request_id": request_id, "data": data})
+    except (ValueError, FileNotFoundError) as exc:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            status,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: AI assist error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "server_error", "message": str(exc)},
+            },
+            500,
+        )
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/variables", methods=["GET"])
 def editor_api_variables() -> Response:
     """Get extracted variable names from a playground YAML file."""
@@ -11615,11 +11687,15 @@ def _complete_new_project_upload_job(
         )
         # Every upload is woven into the one interview: each contributes its
         # fields, its own attachment block, and an entry in the bundle.
+        # Not a generator option: AI-powered questions are added to the
+        # finished YAML below.
+        weaver_options = dict(generation_options)
+        allow_ai_questions = bool(weaver_options.pop("allow_ai_questions", False))
         first_result = generate_interview_from_bytes(
             filename=documents[0]["filename"],
             content_bytes=documents[0]["content_bytes"],
             mimetype=documents[0]["mimetype"],
-            generation_options=generation_options,
+            generation_options=weaver_options,
             include_yaml_text=True,
             include_generated_template_bytes=True,
             additional_documents=documents[1:],
@@ -11664,6 +11740,22 @@ def _complete_new_project_upload_job(
             raise ValueError(
                 "Weaver did not produce any YAML output for the uploaded file."
             )
+        if allow_ai_questions and weaver_options.get("use_llm_assist"):
+            stage = "ai_questions"
+            _update_new_project_job_state(
+                job_id,
+                status="running",
+                stage=stage,
+                message="Adding AI help to long-answer questions.",
+                progress=65,
+            )
+            yaml_text, ai_notes = add_suggested_ai_questions(yaml_text)
+            first_result["warnings"] = list(first_result.get("warnings") or []) + [
+                note for note in ai_notes if not note.startswith("Added")
+            ]
+            first_result["ai_questions"] = [
+                note for note in ai_notes if note.startswith("Added")
+            ]
 
         stage = "write_yaml"
         _update_new_project_job_state(
@@ -11760,6 +11852,7 @@ def _complete_new_project_upload_job(
             "renamed_template_count": len(normalized_bytes),
             "test_filename": generated_test,
             "warnings": list(first_result.get("warnings") or []),
+            "ai_questions": list(first_result.get("ai_questions") or []),
         }
         _update_new_project_job_state(
             job_id,
@@ -12769,6 +12862,11 @@ def _new_project_from_uploads(
     normalize_field_names = parse_bool(
         request.form.get("normalize_field_names"), default=False
     )
+    # AI-powered questions need the AI drafting step that picks them, so
+    # they default on exactly when the author asked AI to draft.
+    allow_ai_questions = use_llm_assist and parse_bool(
+        request.form.get("allow_ai_questions"), default=True
+    )
     # Publishing metadata. The generator can invent a title from the filename and
     # `_ensure_required_metadata_values()` backfills the rest, but the values an
     # author actually knows -- jurisdiction, topics, landing page -- can only come
@@ -12917,6 +13015,7 @@ def _new_project_from_uploads(
             "use_llm_assist": use_llm_assist,
             "interview_overrides": interview_overrides,
             "normalize_field_names": normalize_field_names,
+            "allow_ai_questions": allow_ai_questions,
         }
         if help_page_url:
             generation_options["help_page_url"] = help_page_url

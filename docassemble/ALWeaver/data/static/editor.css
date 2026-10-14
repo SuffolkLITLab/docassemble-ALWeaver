@@ -6056,3 +6056,121 @@ body {
 @media (prefers-color-scheme: dark) {
   ::highlight(weaver-mako) { color: #eed5ff; text-decoration-color: #eed5ff; }
 }
+
+/* --- AI help on a field ------------------------------------------------- */
+/* A quiet line under the field: what AI does, and links to the review
+   screen and the settings. The field row itself stays an ordinary row. */
+.editor-field-ai-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: -2px 0 6px;
+  padding-left: 2px;
+  font-size: 0.8125rem;
+  color: #526174;
+}
+
+.editor-field-ai-summary > .fa-wand-magic-sparkles {
+  color: #6652ae;
+}
+
+.editor-field-ai-kind {
+  font-weight: 500;
+}
+
+.editor-field-ai-link {
+  padding: 0;
+  font-size: inherit;
+  text-decoration: none;
+}
+
+.editor-field-ai-link:hover,
+.editor-field-ai-link:focus-visible {
+  text-decoration: underline;
+}
+
+.editor-field-ai-link code {
+  font-size: 0.8125rem;
+}
+
+.editor-field-ai-note {
+  color: #8a5a00;
+}
+
+.editor-field-row-ai .editor-field-type-btn .fa-wand-magic-sparkles,
+.editor-field-ai-btn .fa-wand-magic-sparkles {
+  color: #6652ae;
+}
+
+.editor-ai-rows {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.editor-ai-row {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1.1fr) minmax(0, 1.1fr) minmax(0, 0.8fr) minmax(0, 1.4fr)
+    auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.editor-ai-rows-choices .editor-ai-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr) auto;
+}
+
+.editor-ai-row-head {
+  font-size: 0.8125rem;
+  color: #6b7785;
+}
+
+.editor-ai-advanced > summary {
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: #526174;
+  margin-bottom: 8px;
+}
+
+/* The order builder's AI step: two lines, Ask and Review. */
+.editor-order-step-ai .editor-order-step-top {
+  padding: 4px 0;
+}
+
+.editor-order-ai-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.editor-order-ai-line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.editor-order-ai-role {
+  flex: 0 0 3.5rem;
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6652ae;
+}
+
+.editor-order-type-ai {
+  color: #6652ae;
+}
+
+@media (max-width: 720px) {
+  .editor-ai-row,
+  .editor-ai-rows-choices .editor-ai-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .editor-ai-row-head {
+    display: none;
+  }
+}

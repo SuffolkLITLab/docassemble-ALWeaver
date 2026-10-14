@@ -937,6 +937,15 @@ def parse_interview_yaml(raw_yaml: str) -> Dict[str, Any]:
             ):
                 order_indices.append(i)
 
+    # A field with AI help is drawn as one item, so each objects block carries
+    # a description of the AI help it declares, review question and all.
+    from .editor_ai_assist import describe_ai_assists
+
+    for assist in describe_ai_assists({"blocks": blocks}):
+        for block in blocks:
+            if block["id"] == assist["objects_block_id"]:
+                block.setdefault("ai_assists", []).append(assist)
+
     return {
         "blocks": blocks,
         "metadata_blocks": metadata_indices,
@@ -1716,6 +1725,7 @@ STEP_PROGRESS = "progress"
 STEP_FUNCTION = "function"
 STEP_CONDITION = "condition"
 STEP_RAW = "raw"
+STEP_AI = "ai"
 
 # Patterns for parsing order code lines
 _RE_SET_PROGRESS = re.compile(r"set_progress\(\s*(\d+)\s*\)")
@@ -2431,6 +2441,10 @@ def serialize_order_steps(
                 lines.append(f"{prefix}{step.get('invoke', '')}")
             elif kind == STEP_CONDITION:
                 _append_condition(step, indent, "if")
+            elif kind == STEP_AI:
+                # One step in the order builder, two lines in the code: the
+                # question with the field, then its AI review question.
+                _append_steps(step.get("children") or [], indent)
             elif kind == "loop":
                 lines.append(
                     f"{prefix}for {step.get('target', '')} in {step.get('iterable', '')}:"
@@ -2452,7 +2466,10 @@ def serialize_order_steps(
                     lines.append(
                         f"{prefix}{raw_line}" if raw_line.strip() else raw_line
                     )
-            if kind not in (STEP_RAW, "comment", "loop", STEP_CONDITION) and lines:
+            if (
+                kind not in (STEP_RAW, "comment", "loop", STEP_CONDITION, STEP_AI)
+                and lines
+            ):
                 lines[-1] += _comment(step, "_order_inline_comment")
 
     _append_steps(steps, 0)

@@ -638,3 +638,17 @@ for (const key of ['none of the above', 'all of the above']) {
   const saved = serialize('checkboxes', [{key, value: 'False'}], '', {data: {fields: [{[key]: 'False'}]}});
   assert.strictEqual(parseYaml(saved).fields[0][key], 'False');
 }
+
+// The editor's API returns keys alphabetically, so a field's label is found by
+// what it is, not by where it is.
+{
+  const types = ['text', 'area', 'yesno', 'code', 'note'];
+  const labelKey = (field) => serializers.fieldLabelKey(field, types);
+  assert.strictEqual(labelKey({ datatype: 'area', 'no label': 'story' }), 'no label');
+  assert.strictEqual(labelKey({ datatype: 'area', where: 'place' }), 'where');
+  assert.strictEqual(labelKey({ required: false, 'Your name': 'n' }), 'Your name');
+  assert.strictEqual(labelKey({ code: 'c', Pick: 'v' }), 'Pick');
+  assert.strictEqual(labelKey({ code: 'c' }), 'code');
+  assert.strictEqual(labelKey({ 'show if': 'x', note: 'hi' }), 'note');
+  assert.strictEqual(labelKey({ yesno: 'likes_cats' }), 'yesno');
+}

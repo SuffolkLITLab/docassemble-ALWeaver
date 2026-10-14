@@ -831,7 +831,45 @@
     return typeof original === 'string' ? original : true;
   }
 
+  // The keys docassemble reads as settings of a field. Any other key of a
+  // field is its label, as in `- Your name: user_name`. The editor's API
+  // returns object keys in alphabetical order, so the label is not
+  // necessarily the first key: `- no label: story` arrives after `datatype`.
+  var FIELD_SETTING_KEYS = [
+    'datatype', 'input type', 'input_type', 'required', 'disabled', 'under text',
+    'hint', 'help', 'default', 'choices', 'code', 'exclude', 'none of the above',
+    'all of the above', 'shuffle', 'show if', 'hide if', 'enable if', 'disable if',
+    'js show if', 'js hide if', 'js enable if', 'js disable if', 'label', 'field',
+    'validate', 'validation messages', 'address autocomplete', 'max image size',
+    'image type', 'accept', 'rows', 'maxlength', 'minlength', 'min', 'max', 'step',
+    'scale', 'inline width', 'currency symbol', 'label above field',
+    'floating label', 'grid', 'item grid', 'css class', 'uncheck others',
+    'check others', 'object labeler', 'help generator', 'image generator',
+    'file css class', 'persistent', 'private', 'allow privileges', 'allow users',
+    'permissions', 'action', 'note', 'html', 'raw html', 'no label',
+  ];
+  var FIELD_CONTENT_KEYS = ['note', 'html', 'raw html', 'no label'];
+
+  // The key of a field written as `label: variable`, or of a shorthand such
+  // as `- no label: story`, `- note: text` or `- yesno: likes_cats`.
+  function fieldLabelKey(field, typeKeys) {
+    var keys = Object.keys(field || {});
+    var types = typeKeys || [];
+    for (var i = 0; i < keys.length; i++) {
+      if (FIELD_CONTENT_KEYS.indexOf(keys[i]) !== -1) return keys[i];
+    }
+    for (var j = 0; j < keys.length; j++) {
+      if (FIELD_SETTING_KEYS.indexOf(keys[j]) === -1) return keys[j];
+    }
+    // Only settings: `- code: ...` and the like name their own type.
+    for (var k = 0; k < keys.length; k++) {
+      if (types.indexOf(keys[k]) !== -1 && keys[k] !== 'datatype') return keys[k];
+    }
+    return keys[0];
+  }
+
   return {
+    fieldLabelKey: fieldLabelKey,
     enabledExpressionValue: enabledExpressionValue,
     fieldModifierYamlValue: fieldModifierYamlValue,
     fieldChoicesText: fieldChoicesText,
