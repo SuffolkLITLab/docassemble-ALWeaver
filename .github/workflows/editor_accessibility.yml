@@ -80,7 +80,7 @@ jobs:
         run: node scripts/editor_navigation_smoketest.js
       - name: Upload navigation screenshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: editor-navigation-screenshots
           path: /tmp/alweaver-navigation-screenshots
