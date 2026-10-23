@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Audit editor accessibility
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: "ALKiln - Start the isolated temporary docassemble server on GitHub"
         id: github_server
         uses: suffolkLITLab/ALKiln/action_for_github_server@v5
@@ -80,7 +80,7 @@ jobs:
         run: node scripts/editor_navigation_smoketest.js
       - name: Upload navigation screenshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: editor-navigation-screenshots
           path: /tmp/alweaver-navigation-screenshots

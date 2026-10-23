@@ -75,7 +75,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Run interview tests
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Starts a temporary Docassemble server inside GitHub and installs this
       # branch, and its pyproject.toml dependencies, on it. No server of your
       # own is needed and the tests never touch one.
@@ -111,7 +111,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Run interview tests
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Use ALKiln to run tests
         uses: SuffolkLITLab/ALKiln@v5
         with:
@@ -185,7 +185,7 @@ jobs:
   deploy-playground:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: SuffolkLITLab/ALActions/da_playground_install@main
         with:
           SERVER_URL: ${{ secrets.SERVER_URL }}
