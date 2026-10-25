@@ -56,6 +56,10 @@ class _TemplateCollector(HTMLParser):
 
 
 class TestEditorFrontend(unittest.TestCase):
+    def test_question_library_offers_standalone_addresses(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        self.assertIn('<option value="ALAddress">An address</option>', template)
+
     def test_project_download_is_in_its_own_interview_menu_section(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
         menu = template.split('aria-labelledby="interview-menu">', 1)[1].split(

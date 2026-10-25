@@ -1,0 +1,143 @@
+Here is the independent read-only code review of the uncommitted expanded-variable-support changes.
+
+---
+
+## 1. Concrete Bugs
+
+### Bug 1 (High): `apply_object_types()` runs after `auto_assign_attributes()` without clearing `interview.questions`, leaving broken custom question screens and duplicating custom questions
+* **Where**:
+  * [`generate_interview_from_path`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L9750-L9757) and [lines 9825–9836](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L9825-L9836)
+  * [`DAInterview.auto_assign_attributes`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L4558-L4587)
+  * [`DAInterview.auto_group_fields`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L5848-L5895)
+* **Mechanism**:
+  1. In [`generate_interview_from_path`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L9750), `interview.auto_assign_attributes()` runs **before** `interview_overrides` (`object_types`) are copied onto `interview` (at [line 9777](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L9777)).
+  2. Inside `auto_assign_attributes()`, `self.auto_group_fields()` runs while `property_address_*` / `property_address.*` fields still have `group == DAFieldGroup.CUSTOM`. This appends a custom [`DAQuestion`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L1808) screen to `interview.questions` containing those `DAField` objects in `new_screen.field_list`.
+  3. Later (at [lines 9825–9828](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L9825-L9828)), `interview.apply_object_types()` mutates those `DAField` instances in place (`field.group = DAFieldGroup.BUILT_IN`, `field.standalone_address = True`) and calls `interview.auto_group_fields()` a second time.
+  4. Unlike [`apply_structure_proposals`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L4885) and [`llm_group_fields`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L5022), [`auto_group_fields`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L5848-L5895) never calls `self.questions.clear()` (and does not filter `new_screen.field_list` when rendering).
+* **Reproduction & Impact**:
+  * Even in the new test [`test_declared_address_pdf_and_docx`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/test_expanded_variables.py#L319-L333) (`generate(["property_address_city", "property_address_block"], interview_overrides={"object_types": {"property_address": "ALAddress"}})`), the stale custom `DAQuestion` remains in `interview.questions`. Because [`field_entry_yaml`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/data/templates/output.mako#L451) uses `field.get_settable_var()` (which `apply_object_types` rewrote to `"property_address.address"`), the generated YAML contains **both** the baseline `id: property address address` screen **and** a broken custom question block that sets `property_address.address` twice as plain text:
+    ```yaml
+    ---
+    id: property_address_city
+    question: |
+      Property address city
+    fields:
+      - "Property address city": property_address.address
+        maxlength: 100
+      - "Property address block": property_address.address
+        input type: area
+        maxlength: 300
+    ```
+  * Furthermore, if the template has any custom fields alongside `object_types` (e.g., `["property_address_city", "rent_amount"]`), calling `auto_group_fields()` a second time without clearing `interview.questions` appends a **duplicate** custom question screen for `rent_amount`. (The same duplicate-screen issue occurs on the `elif added_fields: interview.auto_group_fields()` branch at [lines 9835–9836](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L9835-L9836) when `llm_group_fields()` was not used.)
+
+---
+
+### Bug 2 (High): Singleton DOCX `ALIndividual` recognition (`_is_single_docx_person`) produces interviews that either never trigger name gathering or leave dotted person attributes as `DAFieldGroup.CUSTOM`
+* **Where**:
+  * [`DAInterview._is_single_docx_person`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L3110-L3133)
+  * [`DAInterview.mark_people_as_builtins`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L3135-L3181)
+  * [`is_reserved_docx_label`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L6835-L6880)
+  * [`DAField.trigger_gather`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L1626-L1672)
+  * [`validation/variable-recognition-corpus.json`](file:///home/quinten/docassemble-ALWeaver/validation/variable-recognition-corpus.json)
+* **Mechanism & Reproduction**:
+  Changing [`_is_single_docx_person`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L3128-L3132) to accept bare `{{ client }}` alongside `{{ client.attr }}` reclassifies 5 DOCX templates in the corpus (`client`, `tenant`, `landlords_attorney`, `student`) from `ALPeopleList` to singleton `ALIndividual`. However, downstream handling of singleton DOCX people has two severe bugs:
+  1. **Bare singleton references (`{{ client }}`, `{{ student }}`) never trigger their `name_fields()` screen**:
+     * In [`equitable-adjustment.docx`](file:///home/quinten/docassemble-ALWeaver/validation/variable-recognition-corpus.json#L25-L34) (`client`) and [`prs_complaint_language_access.docx`](file:///home/quinten/docassemble-ALWeaver/validation/variable-recognition-corpus.json#L321-L330) (`student`), `client` / `student` is removed from `self.custom_people_plurals`.
+     * [`DAField.trigger_gather`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L1643-L1651) only appends `.gather()` for `people_lists`, and `field.variable` has no `.name` or `.address` suffix, so `trigger_gather()` returns bare `"client"` / `"student"` (visible in the corpus JSON at [line 29](file:///home/quinten/docassemble-ALWeaver/validation/variable-recognition-corpus.json#L29) and [line 325](file:///home/quinten/docassemble-ALWeaver/validation/variable-recognition-corpus.json#L325)).
+     * In Docassemble, `objects: - client: ALIndividual` defines `client` immediately. Evaluating a bare `client` statement inside the `interview_order` code block is a no-op—it does **not** seek `client.name.first`. Because `question_library.py` generates `id: client name` with `sets: [client.name.first, ...]`, that question is never triggered during the interview order and `client.name.first` remains undefined until the final attachment renders!
+  2. **Dotted singleton attributes (`{{ client.address_block() }}`, `{{ tenant.address.on_one_line() }}`) are not recognized as built-ins by `is_reserved_docx_label`**:
+     * In [`is_reserved_docx_label`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L6871-L6876), suffixed DOCX variables only return `True` if `prefix in allow_singular_suffixes` (which is only `["trial_court"]`) or `label_parts[0][0].endswith("]")`.
+     * Consequently, for singleton `ALIndividual` variables (`client`, `tenant`, `landlords_attorney`, `ssa_office`), `client.name.first` and `client.address.address` remain `DAFieldGroup.CUSTOM` (visible in [`validation/variable-recognition-corpus.json`](file:///home/quinten/docassemble-ALWeaver/validation/variable-recognition-corpus.json#L142) at lines 142, 250, 440, and 452, and reproducible in [`test_existing_singleton_name_and_address_stays_a_person`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/test_expanded_variables.py#L336-L343)).
+     * Because those fields remain `CUSTOM`:
+       * [`baseline_question_specs`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/question_library.py#L178-L190) only inspects `all_fields.builtins()`, so it **never generates a `baseline_address` (`client.address_fields()`) block** for the singleton.
+       * `auto_group_fields()` creates a custom plain-text question screen asking for `ssa_office.name.first` and `ssa_office.address.address` on the same screen.
+       * Worse, [`interview_order_list`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L3426) only emits the custom screen's **first** field (`ssa_office.name.first`) in `interview_order`. At runtime, Docassemble satisfies `ssa_office.name.first` using the `id: ssa office name` block (`ssa_office.name_fields()`), completely skipping the custom screen and **never asking for `ssa_office.address.address` at all** until `ssa_office.address_block()` fails on the download screen.
+
+---
+
+### Bug 3 (High): Standalone `ALAddress` fails on `{{ property_address.address }}` in DOCX, fails on all dotted labels in PDFs, and swallows unsupported methods in DOCX
+* **Where**:
+  * [`_settable_docx_variable`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L6717-L6734)
+  * [`DAField.fill_in_pdf_attributes`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L1264)
+  * [`DAInterview.apply_object_types`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L3715-L3770)
+* **Mechanism & Reproduction**:
+  1. **DOCX `{{ property_address.address }}` fails**:
+     * In [`_settable_docx_variable`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L6717-L6721), `if ".address" in possible_var: return re.sub(r"\.address.*", ".address.address", possible_var)` rewrites `"property_address.address"` to `field.variable = "property_address.address.address"` (assuming the prefix is a person).
+     * Then [`apply_object_types`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L3758-L3761) checks `display[len(name) + 1 :] in supported` where `display = field.final_display_var or field.variable`. Because `field.final_display_var` was never set before `apply_object_types`, `display` is `"property_address.address.address"`, its suffix `"address.address"` is not in `supported`, and `{{ property_address.address }}` is left as a broken custom field (`property_address.address.address`) despite being listed as supported in [`variable-support.md`](file:///home/quinten/docassemble-ALWeaver/variable-support.md#L50).
+  2. **PDF dotted labels (`property_address.city`, `property_address.block()`) fail**:
+     * Both [`apply_object_types`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L3718) (*"Dotted labels are accepted in PDF and DOCX"*) and [`variable-support.md`](file:///home/quinten/docassemble-ALWeaver/variable-support.md#L52) (*"Dotted PDF expressions also work"*) claim dotted PDF field names work for declared `ALAddress` objects.
+     * However, [`DAField.fill_in_pdf_attributes`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L1264) runs `varname(name_for_variable)`, which strips `.` and `()`, turning a PDF field named `property_address.city` into `field.variable = "property_addresscity"` and `field.final_display_var = "property_addresscity"`. Because `apply_object_types` never checks `field.raw_field_names`, dotted PDF labels never match `name + "."` or `name + "_"` and become custom variables (`property_addresscity`).
+  3. **DOCX unsupported method calls (`{{ property_address.unsupported_method() }}`) are silently rewritten to `property_address.block()`**:
+     * [`_settable_docx_variable`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L6733) strips any `.method()` call (`re.sub(r"\.\w+\(.*?\)$", "", possible_var)`), turning `property_address.geolocate()` into `field.variable = "property_address"`.
+     * [`apply_object_types`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L3744-L3749) sees `display == name` (`"property_address"`), rewrites `field.final_display_var = "property_address.block()"`, and marks it `DAFieldGroup.BUILT_IN`, contradicting [`variable-support.md`](file:///home/quinten/docassemble-ALWeaver/variable-support.md#L56) (*"Unsupported attributes still need authored questions"*).
+
+---
+
+### Bug 4 (Medium): Review screen emits duplicate `Edit: <addr>.address` blocks with misleading component titles when multiple `ALAddress` fields appear in a template
+* **Where**:
+  * [`DAField._get_parent_variable`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L1720-L1751)
+  * [`find_parent_collections`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L2605-L2639)
+  * [`_primitive_expression`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/review_screen.py#L107-L109) and [`build_review_entries`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/review_screen.py#L288-L289)
+* **Mechanism & Reproduction**:
+  * [`DAField._get_parent_variable`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L1720-L1751) does not recognize `standalone_address` / `object_types` objects, so it returns `(field.final_display_var, "primitive")` for each field (e.g., `("property_address.city", "primitive")` and `("property_address.block()", "primitive")`).
+  * [`find_parent_collections`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L2612) groups by `var_name`, creating a separate `"primitive"` `ParentCollection` for every distinct component of the standalone address used in the template.
+  * [`build_review_entries`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/review_screen.py#L288-L289) then emits a separate `ReviewEntry` for every one of those collections, each with `edit_var="property_address.address"` and each displaying the full `${ property_address.block() if defined('property_address.address') else '' }` under the individual component's label (`**Property address city**`, `**Property address block**`, etc.). In [`test_declared_address_pdf_and_docx`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/test_expanded_variables.py#L319-L333), the generated review screen contains two identical `Edit: property_address.address` entries.
+
+---
+
+### Bug 5 (Medium): PDF `*_name_and_address_block` fails to trigger `.gather()` when preceded by another `.address` field for the same person
+* **Where**:
+  * [`DAInterview.draft_screen_order`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L3802-L3813)
+  * [`DAQuestionList.interview_order_list`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L3441-L3451)
+* **Mechanism & Reproduction**:
+  * For a PDF with `users1_name_and_address_block` (and no separate `users1_name` field), `field.final_display_var` is `"users[0].address_block()"` and `field.trigger_gather()` is `"users[0].address.address"`.
+  * [`interview_order_list`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L3441-L3451) relies on seeing a screen item in `screens` (`interview.screen_reordered`) whose `final_display_var` ends with `.address_block()` so that it can emit `users.gather()` before `users[0].address.address`.
+  * However, [`draft_screen_order`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L3810-L3812) deduplicates built-in fields by `field.trigger_gather()`.
+  * If a PDF has any residential address field before `users1_name_and_address_block`—for example, `["users1_address_city", "users1_name_and_address_block"]`—`draft_screen_order()` keeps the first field (`users1_address_city`, whose `final_display_var` is `users[0].address.city`) and drops `users1_name_and_address_block` because both share `trigger_gather() == "users[0].address.address"`.
+  * As a result, `interview_order_list()` never sees `.address_block()` in `screens` and omits `users.gather()` from the `interview_order` block!
+
+---
+
+### Bug 6 (Medium): DOCX `for` loops using `.address_block()` omit `name.first` from `get_docx_loop_attribute_hints`
+* **Where**:
+  * [`get_docx_loop_attribute_hints`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L6320-L6340)
+  * [`DAQuestionList._docx_list_completion_specs`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L2015-L2068)
+* **Mechanism & Reproduction**:
+  * While [`docx_variables_in_order`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L6673-L6676) was updated to synthesize `.name.first` when `.address_block()` appears in a DOCX, [`get_docx_loop_attribute_hints`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L6320-L6340) only calls `_settable_docx_variable(chain)`, which maps `party.address_block()` solely to `"address.address"`.
+  * **Case A**: In a DOCX with `{%p for party in other_parties %}{{ party.address_block() }}{%p endfor %}`, `loop_attributes["other_parties"]` is `["address.address"]` (length 1). Because [`_docx_list_completion_specs`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L2056) requires `len(attributes) > 1`, no `.complete` block is generated, so only `other_parties[0].address.address` is gathered in `interview_order` and `other_parties[1].address` is never asked before the loop renders.
+  * **Case B**: In a DOCX with `{%p for party in other_parties %}{{ party.address_block() }} {{ party.email }}{%p endfor %}`, `loop_attributes["other_parties"]` is `["address.address", "email"]` (missing `"name.first"`). The generated `other_parties[i].complete` block overrides `ALIndividual.complete` and only asks for `other_parties[i].address.address` and `other_parties[i].email`, **skipping `other_parties[i].name.first` entirely**!
+
+---
+
+## 2. Independent Judgment of `validation/variable-recognition-corpus.json`
+
+The corpus audit in [`validation/variable-recognition-corpus.json`](file:///home/quinten/docassemble-ALWeaver/validation/variable-recognition-corpus.json) reports 8 changed templates out of 66:
+
+1. **The 3 PDF templates (`209A_impoundment.pdf`, `affidavit_of_indigency.pdf`, `affidavit-supplement-indigency.pdf`) — Valid Improvement**:
+   * Previously, `signature_date` was misclassified into `other_parties` / `people_lists` because `"signature"` is in `PEOPLE_SUFFIXES` (or via person prefix matching). Adding `"signature_date"` to [`RESERVED_WHOLE_WORDS`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/generator_constants.py#L194) and [`CREATE_USER_ROLE`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/generator_constants.py#L206) rightly makes `signature_date` a built-in date field triggered in `interview_order` and removes the bogus `signature: ALPeopleList` declaration.
+2. **The 5 DOCX templates (`equitable-adjustment.docx`, `TransferNotice.docx`, `include_SignatureBlock.docx`, `prs_complaint_language_access.docx`, `ssa_report_change.docx`) — Semantically Right Intent, Regression in Generated Interviews**:
+   * **Semantic classification**: In the source repositories (`MassAccess`, `HousingCodeChecklist`, `MADE`, `EdLaw`, `SSAOvPay`), `client`, `tenant`, `landlords_attorney`, and `student` are indeed singletons (`ALIndividual`) rather than `ALPeopleList`. Recognizing `{{ client }}` + `{{ client.attr }}` as a singleton matches author intent.
+   * **Actual output quality (Regression)**: As detailed in **Bug 2** above, the corpus JSON itself exposes that switching these 5 templates from `ALPeopleList` to `ALIndividual` breaks their generated interviews:
+     * In `equitable-adjustment.docx` and `prs_complaint_language_access.docx`, `"trigger": "client"` and `"trigger": "student"` ([lines 29 and 325](file:///home/quinten/docassemble-ALWeaver/validation/variable-recognition-corpus.json#L29)) do not trigger `client.name.first` / `student.name.first` in Docassemble because `client` and `student` are already defined `ALIndividual` objects.
+     * In `TransferNotice.docx`, `include_SignatureBlock.docx`, and `ssa_report_change.docx`, `"tenant.address.address"`, `"landlords_attorney.address.address"`, and `"client.name.first"` / `"client.address.address"` fell out of `BUILT_IN` into `custom` ([lines 142, 250, 440, 452](file:///home/quinten/docassemble-ALWeaver/validation/variable-recognition-corpus.json#L142)), losing their `address_fields()` baseline questions and generating broken plain-text custom screens.
+
+---
+
+## 3. Documented Release Limitations vs. Regressions
+
+* **Documented / Intentional Scope Boundaries (Not Regressions)**:
+  * **`name_and_address` PDF getter stays Weaver-only**: Mapping `*_name_and_address` / `*_name_and_address_block` in Weaver to `.address_block()` while saving the upstream `ALIndividual.name_and_address()` method in [`patches/assemblyline-name-and-address.patch`](file:///home/quinten/docassemble-ALWeaver/patches/assemblyline-name-and-address.patch) is clean and avoids requiring a simultaneous AssemblyLine release.
+  * **Heuristic avoidance for standalone addresses**: Requiring explicit `object_types` / Question Library declaration for standalone `ALAddress` objects (rather than guessing whether `employer_address` is a person or a place) is a sound design boundary documented in [`variable-support.md`](file:///home/quinten/docassemble-ALWeaver/variable-support.md#L58-L62).
+  * **No `service_address` / `service_method` templates in `question_library.mako`**: Relying on `ql_baseline.yml` in `docassemble.AssemblyLine` (when `copy_baseline_questions=False`, the default) works for `users` and `other_parties`, though see **Untested Risks** below regarding `copy_baseline_questions=True` and non-party person lists.
+* **Regressions / Broken Claims**:
+  * **Bugs 1–6** above are genuine correctness bugs or direct contradictions of [`variable-support.md`](file:///home/quinten/docassemble-ALWeaver/variable-support.md) and docstrings, not documented limitations.
+
+---
+
+## 4. Untested Risks
+
+1. **`service_address` / `service_method` on custom person lists or with `copy_baseline_questions=True`**:
+   * In `docassemble.AssemblyLine`'s `ql_baseline.yml`, `service_address` and `service_method` are defined **only** for `other_parties[i]` and `users[i]`—there is no `generic object: ALPeopleList` or `ALIndividual` block for `x[i].service_address` or `x[i].service_method`.
+   * However, Weaver's [`is_reserved_label`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/interview_generator.py#L6490) and [`RESERVED_PERSON_ATTS_MAP`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/generator_constants.py#L316-L326) mark `_service_address` and `_service_method` as `DAFieldGroup.BUILT_IN` for **any** person prefix (e.g., `witnesses1_service_address`, `attorneys1_service_method`), and [`question_library.py`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/question_library.py#L58-L68) (`_ATTRIBUTE_KINDS`) has no templates for `service_address` or `service_method`. If a template uses `attorneys1_service_address` or `witnesses1_service_method`, Weaver suppresses custom question generation while AssemblyLine has no baseline question to satisfy `attorneys[0].service_address.address`, causing an undefined-variable error at runtime.
+2. **Author-written custom object expressions alongside `apply_object_types`**:
+   * While [`api_editor.py`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/api_editor.py#L10103-L10154) and [`question_library.py`](file:///home/quinten/docassemble-ALWeaver/docassemble/ALWeaver/question_library.py#L306-L333) carefully preserve author-written `.using(...)` declarations in existing YAML files, there is no test covering `generate_interview_from_path` when `interview_overrides={"object_types": {"property_address": "ALAddress"}}` is combined with ordinary custom fields on the same form (which would have caught **Bug 1**'s duplicate custom screens and stale `DAQuestion` block).

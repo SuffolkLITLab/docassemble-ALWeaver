@@ -44,6 +44,8 @@ ${ baseline_names(var, singular, plural) }\
 ${ baseline_there_is_another(var, singular) }\
 % elif kind == "name":
 ${ baseline_name(var) }\
+% elif kind == "standalone_address":
+${ baseline_standalone_address(var, singular) }\
 % elif kind == "address":
 ${ baseline_address(var, item, singular) }\
 % elif kind == "mailing_address":
@@ -390,4 +392,21 @@ question: |
 fields:
   - Email: ${ item }.email
     datatype: email
+</%def>\
+
+<%def name="baseline_standalone_address(var, singular)">\
+---
+id: ${ fix_id(var + " address") }
+sets:
+  - ${ var }.address
+  - ${ var }.city
+  - ${ var }.state
+  - ${ var }.zip
+  - ${ var }.unit
+  - ${ var }.country
+question: |
+  What is the ${ singular }?
+fields:
+  - code: |
+      ${ var }.address_fields(country_code=AL_DEFAULT_COUNTRY, default_state=AL_DEFAULT_STATE)
 </%def>\

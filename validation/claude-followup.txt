@@ -1,0 +1,43 @@
+I rechecked all six items. Items 4 and 6's service recipe are fixed; items 1, 2, 3 and 5 each still have an edge case, and item 6's address detection has two gaps.
+
+**1. Regrouping after `object_types`: mostly fixed, one gap when the author supplies screens**
+`interview_generator.py:9878` now clears and regroups the questions once, and only when no screens were supplied. The remaining problem is with authored screens. `create_questions_from_screen_list` (`:5838-5850`) gives each screen its own field objects, and `apply_object_types` (`:3750`) only renames the fields in `all_fields`. So with PDF names and screens that refer to `property_address_city`:
+- the PDF fills from `property_address.city`;
+- the authored screen asks for `property_address_city`, which nothing uses;
+- the generated `address_fields` screen asks for the address a second time.
+
+No test covers `object_types` together with authored screens.
+
+**2. Explicit addresses: mostly fixed**
+- County works (tested at `test_expanded_variables.py:163`).
+- Dotted PDF labels are read from the raw names (`:3754-3762`).
+- A DOCX `.address.address` becomes the street string (`:3772-3776`).
+
+Two smaller issues:
+- `county` isn't in `supported` (`:3779`), so `property_address.county` becomes a separate custom question, review row and review edit. The address is therefore asked on two screens.
+- `apply_object_types` never clears an existing `singleton_person` marker. `trigger_gather` checks `standalone_address` first (`:1599`), but `get_settable_var` checks `singleton_person` first (`:1680`). If the person heuristic had marked a bare DOCX `{{ property_address }}` as a singleton, the trigger would be `property_address.address` while review and edit would use `property_address.name.first`. That depends on the heuristic flagging the name, which I didn't confirm. Clearing `field.singleton_person` when `standalone_address` is set would remove the risk either way.
+
+**3. Singleton marker and shared review collection: fixed, with the county exception above**
+- The trigger and settable variable both use `.name.first` (`:1601`, `:1681`).
+- Fields with `standalone_address` are grouped into one collection (`:2634`) and edited through `.address` (`review_screen.py:175-185`).
+- County is the exception: it has no `standalone_address`, so `_get_parent_variable` treats it as a separate primitive.
+
+**4. Dependencies keyed by trigger: fixed**
+- Dependencies are keyed by `field.trigger_gather()` (`:3419`), so deduplication can no longer hide them.
+- `get_docx_loop_attribute_hints` adds `name.first` (`:6376`).
+- Tests at `:207` and `:211` cover both.
+- One weakness: in `test_name_dependency_survives_address_trigger_deduplication`, `users.gather()` could also come from the `has_user` path. Using a custom list name instead of `users` would make it a real check.
+
+**5. Circuit and `service_address`**
+- **Field definitions: fixed.** An authored field definition makes the field custom (`:8149`).
+- **Screens: still broken.** If `trial_court_circuit` appears only on an authored screen with no field definition, `_ensure_field_in_interview` (`:9877`) keeps the existing built-in field. `unasked_court_attributes` (`:3933-3940`) then still emits the `court circuit` block (`output.mako:429-437`), so two blocks define `trial_court_circuit` and the generated one probably overrides the author's label and `required`.
+- **`service_address` boundary: fixed.** The match at `:6745` stops at a segment boundary (tested at `:184`). The neighbouring `.mailing_address`, `.address` and `.name` checks (`:6752-6770`) still match substrings, e.g. `x.mailing_addresses` or `x.name_of_court`. That's older code, but it's the same class of bug.
+
+**6. Editor library detection and service recipe**
+- **Service recipe: fixed.** `service-recipients.yml` now uses `use objects: True` with `question`/`document` entries, matching `ql_baseline.yml:565`. That works with the generic `ALIndividual` service address and service method questions at `:523` and `:553`.
+- **Detection: two gaps.**
+  - **Missed questions:** `_question_library_catalog` (`api_editor.py:9949-9959`) skips any `fields` item whose first key is `code`. A typical authored address question has only `fields: - code: property_address.address_fields(...)` and no `sets:`, so it isn't detected and the library offers a duplicate. Reading the `code` value for `<name>.address_fields(` would fix it.
+  - **False positives:** `library_catalog` (`question_library.py:490-495`) marks the address question present if any field starts with `name.`. A question asking only `property_address.county` hides the address question even though nothing sets `property_address.address`. Checking for `.address` (or the members of `sets`) would be more accurate.
+  - Detection also only covers `standalone_address`; address questions on people (`ALIndividual`/`ALPeopleList`) still rely on block ids. That may be intended.
+
+I didn't run the tests; this is from reading the code.

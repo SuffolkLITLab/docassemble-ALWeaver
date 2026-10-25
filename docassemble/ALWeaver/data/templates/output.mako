@@ -414,15 +414,26 @@ ${ field_entry_yaml(field, variable=list_item_variable(completion, field.get_set
     % endfor
   % endif
 % endfor
-% if court_attributes:
+% if any(variable != "trial_court_circuit" for label, variable in court_attributes):
 ---
 id: court details
 question: |
   Tell us more about the court
 fields:
   % for label, variable in court_attributes:
+    % if variable != "trial_court_circuit":
   - "${ label }": ${ variable }
+    % endif
   % endfor
+% endif
+% if any(variable == "trial_court_circuit" for label, variable in court_attributes):
+---
+id: court circuit
+question: |
+  Which circuit is the court in?
+fields:
+  - "Circuit (leave blank if not applicable)": trial_court_circuit
+    required: False
 % endif
 % if generate_download_screen and signature_field_triggers:
 ---

@@ -179,7 +179,10 @@ def baseline_question_specs(
 
     attributes_by_prefix: Dict[str, Set[str]] = {}
     for field in builtins:
-        parsed = _split_variable(str(getattr(field, "final_display_var", "") or ""))
+        variable = str(getattr(field, "final_display_var", "") or "")
+        if variable.endswith(".address_block()"):
+            variable = variable[: -len(".address_block()")] + ".address.address"
+        parsed = _split_variable(variable)
         if parsed is None:
             continue
         prefix, _indexed, attribute = parsed
@@ -195,7 +198,7 @@ def baseline_question_specs(
         is_list = object_type in PERSON_LIST_CLASSES
         # A `DADict` of answers, or a list of vehicles, has no name or address
         # to ask for; those lists bring their own questions
-        if not is_list and object_type not in PERSON_CLASSES:
+        if not is_list and object_type not in PERSON_CLASSES + ADDRESS_CLASSES:
             continue
 
         common = {
@@ -207,6 +210,14 @@ def baseline_question_specs(
 
         kinds = _gather_kinds(params) if is_list else ["name"]
         kinds.extend(_attribute_kinds_for(attributes_by_prefix.get(name, set())))
+        if object_type in ADDRESS_CLASSES:
+            kinds = ["standalone_address"]
+            if any(
+                field.get_settable_var() == name + ".address"
+                for question in interview.questions
+                for field in question.field_list
+            ):
+                kinds = []
 
         for kind in kinds:
             specs.append({"kind": kind, **common})
@@ -230,12 +241,19 @@ def baseline_question_specs(
 # has no baseline question to copy, so it is left out of the catalog.
 PERSON_LIST_CLASSES: Tuple[str, ...] = ("ALPeopleList",)
 PERSON_CLASSES: Tuple[str, ...] = ("ALIndividual",)
+ADDRESS_CLASSES: Tuple[str, ...] = ("ALAddress",)
+LIBRARY_CLASSES = PERSON_LIST_CLASSES + PERSON_CLASSES + ADDRESS_CLASSES
 
 
 # kind -> (group, label, what the question does).  ``{singular}`` and
 # ``{plural}`` are filled in with the object's own words, so the catalog reads
 # "Is there another child?" rather than "there_is_another".
 _KIND_DESCRIPTIONS: Dict[str, Tuple[str, str, str]] = {
+    "standalone_address": (
+        "gather",
+        "{singular}",
+        "Collects an address without a person name.",
+    ),
     "there_are_any": (
         "gather",
         "Are there any {plural}?",
@@ -415,6 +433,7 @@ def library_catalog(
     objects: Sequence[Any],
     references: Optional[Dict[str, Set[str]]] = None,
     existing_ids: Iterable[str] = (),
+    existing_fields: Iterable[str] = (),
 ) -> List[Dict[str, Any]]:
     """Every baseline question that can be copied for a file's own objects.
 
@@ -434,6 +453,7 @@ def library_catalog(
     taken = {
         str(block_id).strip() for block_id in existing_ids if str(block_id).strip()
     }
+    defined_fields = set(existing_fields)
     catalog: List[Dict[str, Any]] = []
     for spec in objects or []:
         normalized = _normalize_object(spec)
@@ -442,7 +462,7 @@ def library_catalog(
         name, class_name, params = normalized
         if class_name in PERSON_LIST_CLASSES:
             is_list = True
-        elif class_name in PERSON_CLASSES:
+        elif class_name in PERSON_CLASSES + ADDRESS_CLASSES:
             is_list = False
         else:
             continue
@@ -453,6 +473,10 @@ def library_catalog(
         attribute_kinds = [kind for _segment, kind in _ATTRIBUTE_KINDS]
         used_attributes = (references or {}).get(name, set())
         recommended_attributes = set(_attribute_kinds_for(used_attributes))
+
+        if class_name in ADDRESS_CLASSES:
+            gather_kinds = ["standalone_address"]
+            attribute_kinds = []
 
         questions: List[Dict[str, Any]] = []
         for kind in gather_kinds + attribute_kinds:
@@ -468,7 +492,11 @@ def library_catalog(
                     "summary": summary.format(singular=singular, plural=plural),
                     "question_id": question_id,
                     "yaml": block_yaml,
-                    "present": bool(question_id) and question_id in taken,
+                    "present": (bool(question_id) and question_id in taken)
+                    or (
+                        kind == "standalone_address"
+                        and any(field == name + ".address" for field in defined_fields)
+                    ),
                     "recommended": group == "gather" or kind in recommended_attributes,
                 }
             )

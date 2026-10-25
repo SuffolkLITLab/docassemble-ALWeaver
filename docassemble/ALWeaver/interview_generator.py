@@ -1596,6 +1596,11 @@ class DAField(DAObject):
           custom_plurals: a list of variables strs that users have marked as being lists of people
         """
 
+        if getattr(self, "standalone_address", None):
+            return self.standalone_address + ".address"
+        if getattr(self, "singleton_person", None):
+            return self.singleton_person + ".name.first"
+
         GATHER_CALL = ".gather()"
         # AssemblyLine asks whether there are exhibits, then for each upload
         if getattr(self, "exhibit_document", None):
@@ -1657,7 +1662,11 @@ class DAField(DAObject):
                 ]
             ):
                 return prefix + GATHER_CALL
-            elif first_attribute == ".address" or first_attribute == ".mailing_address":
+            elif first_attribute in (
+                ".address",
+                ".mailing_address",
+                ".service_address",
+            ):
                 return var_parts[0][0] + first_attribute + ".address"
             else:
                 return var_parts[0][0] + first_attribute
@@ -1668,6 +1677,12 @@ class DAField(DAObject):
         self,
         display_to_settable_suffix=generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX,
     ):
+        if getattr(self, "singleton_person", None):
+            return self.singleton_person + ".name.first"
+        if getattr(self, "standalone_address", None):
+            if not self.final_display_var.endswith("()"):
+                return self.final_display_var
+            return self.standalone_address + ".address"
         return substitute_suffix(self.final_display_var, display_to_settable_suffix)
 
     def _get_attributes(
@@ -1698,6 +1713,7 @@ class DAField(DAObject):
             if (
                 settable_attribute == "address"
                 or settable_attribute == "mailing_address"
+                or settable_attribute == "service_address"
             ):
                 settable_attribute += ".address"
             plain_att = re.findall(r"([^.]*)(\..*)*", settable_attribute)[0][0]
@@ -1955,6 +1971,8 @@ class ParentCollection(object):
         # this base var is more complex than a simple primitive type
         if self.var_type != "primitive":
             for field in self.fields:
+                if field.final_display_var.endswith(".address_block()"):
+                    self.attribute_map["name"] = ("name_full()", "name.first")
                 plain_att, disp_att, settable_att = field._get_attributes()
                 if plain_att:
                     self.attribute_map[plain_att] = (disp_att, settable_att)
@@ -2613,6 +2631,8 @@ class DAFieldList(DAList):
                 field.final_display_var,
                 custom_plurals=self.custom_people_plurals.values(),
             )
+            if getattr(field, "standalone_address", None):
+                parent_var_and_type = (field.standalone_address, "standalone_address")
             parent_coll_map[parent_var_and_type].append(field)
 
         return [
@@ -2888,6 +2908,13 @@ class DAFieldList(DAList):
                 if new_field.group in [DAFieldGroup.BUILT_IN, DAFieldGroup.RESERVED]:
                     new_field.label = new_field.variable_name_guess
 
+        # A checkbox bearing this ambiguous label is still a checkbox.
+        for field in self.elements:
+            if field.final_display_var == "trial_court_circuit" and getattr(
+                field, "field_type_guess", "text"
+            ) not in {"text", "area"}:
+                field.group = DAFieldGroup.CUSTOM
+
         self.consolidate_options()
         self.consolidate_radios()
         self.consolidate_duplicate_fields(document_type)
@@ -3015,6 +3042,13 @@ class DAFieldList(DAList):
                         guessed[prefix].add(suffix)
 
         for prefix, suffixes_seen in guessed.items():
+            # Service labels describe an event as often as a person. They may
+            # extend an established person, but do not establish one alone.
+            if all(
+                suffix.startswith(("_service_", ".service_"))
+                for suffix in suffixes_seen
+            ):
+                continue
             if unlikely_person_prefix(prefix):
                 continue
             if person_prefix_needs_corroboration(prefix) and len(suffixes_seen) < 2:
@@ -3097,9 +3131,11 @@ class DAFieldList(DAList):
             or field.variable.startswith(name + "[")
             or field.variable.startswith(name + "_")
         ]
-        return bool(uses) and all(
+        # A bare reference prints the same singleton's name; it is not evidence
+        # of a list. Require at least one dotted reference and reject any index.
+        return any(field.variable.startswith(name + ".") for field in uses) and all(
             getattr(field, "source_document_type", "") == "docx"
-            and field.variable.startswith(name + ".")
+            and (field.variable == name or field.variable.startswith(name + "."))
             for field in uses
         )
 
@@ -3107,6 +3143,12 @@ class DAFieldList(DAList):
         """Scan the list of fields and see if any of them should be renamed
         or marked as built-ins given the list of new, custom prefixes."""
         people_list = list(people_list)
+        singleton_names = {
+            name for name in people_list if self._is_single_docx_person(name)
+        }
+        for field in self:
+            if field.variable in singleton_names:
+                field.singleton_person = field.variable
         self.custom_people_plurals = {
             var_name: var_name
             for var_name in people_list
@@ -3126,6 +3168,10 @@ class DAFieldList(DAList):
                 "the generated interview."
             )
         for field in self:
+            if field.variable == "trial_court_circuit" and getattr(
+                field, "field_type_guess", "text"
+            ) not in {"text", "area"}:
+                continue
             if field.source_document_type == "pdf":
                 if is_reserved_label(field.variable, reserved_prefixes=people_list):
                     field.group = DAFieldGroup.BUILT_IN
@@ -3365,6 +3411,14 @@ class DAQuestionList(DAList):
         # Each entry is (line, counts_as_a_screen).  Only the screens count
         # toward progress; navigation and bookkeeping lines do not.
         logic_list: List[Tuple[str, bool]] = []
+        name_address_dependencies = {}
+        for field in all_fields.builtins():
+            if field.final_display_var.endswith(".address_block()"):
+                person = field.final_display_var[: -len(".address_block()")]
+                match = INDEXED_LIST_REFERENCE.match(person)
+                name_address_dependencies[field.trigger_gather()] = (
+                    match.group(1) + ".gather()" if match else person + ".name.first"
+                )
 
         saved_answer_name_flag = False
         current_section: Optional[str] = None
@@ -3406,6 +3460,10 @@ class DAQuestionList(DAList):
                     question in all_fields.builtins()
                     and trigger_gather.endswith(".signature")
                 ):
+                    if trigger_gather in name_address_dependencies:
+                        name_trigger = name_address_dependencies[trigger_gather]
+                        if (name_trigger, True) not in logic_list:
+                            logic_list.append((name_trigger, True))
                     logic_list.append((trigger_gather, True))
                     # set the saved answer name so it includes the user's name in saved
                     # answer list
@@ -3665,7 +3723,101 @@ class DAInterview(DAObject):
             result.append(
                 _PersonObjectSpec(name=name, type="DADict", params=dict_params)
             )
+        for name, object_type in getattr(self, "object_types", {}).items():
+            result = [spec for spec in result if spec.name != name]
+            result.append(_PersonObjectSpec(name=name, type=object_type))
         return result
+
+    def apply_object_types(self) -> None:
+        """Apply explicit standalone address types before drafting questions.
+
+        Dotted labels are accepted in PDF and DOCX. For PDFs, an explicitly
+        declared address also accepts ``property_address_city`` and
+        ``property_address_block``. Declarations win over person heuristics.
+        """
+        object_types = getattr(self, "object_types", {})
+        for name, object_type in object_types.items():
+            if not name.isidentifier() or keyword.iskeyword(name):
+                raise ValueError(
+                    "Object types require a top-level Python variable name"
+                )
+            if name in _AL_MANAGED_OBJECTS:
+                raise ValueError(f"AssemblyLine manages {name}")
+            if object_type != "ALAddress":
+                raise ValueError(
+                    "object_types currently supports standalone ALAddress declarations"
+                )
+            for field in self.all_fields:
+                raw = field.variable
+                display = field.final_display_var
+                if field.source_document_type == "pdf":
+                    for original in field.raw_field_names:
+                        dotted = remove_multiple_appearance_indicator(original)
+                        if re.fullmatch(
+                            re.escape(name)
+                            + r"\.(?:[A-Za-z_]\w*|(?:block|line_one|line_two|on_one_line)\(\))",
+                            dotted,
+                        ):
+                            display = dotted
+                            break
+                if field.source_document_type == "pdf" and raw.startswith(name + "_"):
+                    suffix = raw[len(name) :]
+                    mapped = generator_constants.PEOPLE_SUFFIXES_MAP.get(
+                        "_address" + suffix
+                    )
+                    if mapped:
+                        display = name + mapped[len(".address") :]
+                # The untyped DOCX extractor treats `.address` as a person's
+                # address object. Here it is the ALAddress's street string.
+                if (
+                    field.source_document_type == "docx"
+                    and display == name + ".address.address"
+                ):
+                    display = name + ".address"
+                if display == name:
+                    display = name + ".block()"
+                supported = {
+                    "address",
+                    "unit",
+                    "city",
+                    "state",
+                    "zip",
+                    "country",
+                    "block()",
+                    "line_one()",
+                    "line_two()",
+                    "on_one_line()",
+                }
+                if display.startswith(name + "."):
+                    # Extra attributes still belong to the declared address.
+                    field.final_display_var = display
+                    if display[len(name) + 1 :] in supported:
+                        field.standalone_address = name
+                        field.singleton_person = None
+                        field.group = DAFieldGroup.BUILT_IN
+                    else:
+                        field.group = DAFieldGroup.CUSTOM
+            self.all_fields.custom_people_plurals = {
+                singular: plural
+                for singular, plural in self.all_fields.custom_people_plurals.items()
+                if singular != name
+                and plural != name
+                and any(
+                    field.final_display_var.startswith(plural + "[")
+                    for field in self.all_fields
+                )
+            }
+
+        # Authored screens own separate DAField instances. Keep their labels
+        # and input settings while applying the same explicit output mapping.
+        by_variable = {field.variable: field for field in self.all_fields}
+        for question in self.questions:
+            for field in question.field_list:
+                mapped = by_variable.get(field.variable)
+                if mapped is not None and getattr(mapped, "standalone_address", None):
+                    field.final_display_var = mapped.final_display_var
+                    field.standalone_address = mapped.standalone_address
+                    field.singleton_person = None
 
     def _referenced_dicts(self) -> Dict[str, bool]:
         """Names the interview only ever looks up by a string key.
@@ -3779,19 +3931,22 @@ class DAInterview(DAObject):
             List[Tuple[str, str]]: (label, variable) for each attribute.
         """
         includes = self.dependency_choices()
-        if any(
+        has_court_details = any(
             choice.get("court_details") and choice.get("include_name") in includes
             for choice in get_full_dep_details("jurisdiction")
-        ):
-            return []
+        )
         wanted = {
             "trial_court.department": "Department",
             "trial_court.division": "Division",
             "trial_court.address.county": "County",
         }
+        if has_court_details:
+            wanted = {}
+        wanted["trial_court_circuit"] = "Circuit (leave blank if not applicable)"
         used = {
             substitute_suffix(field.final_display_var, {r"\(\)$": ""})
             for field in self.all_fields
+            if field.group == DAFieldGroup.BUILT_IN
         }
         return [
             (label, variable) for variable, label in wanted.items() if variable in used
@@ -6230,6 +6385,8 @@ def get_docx_loop_attribute_hints(text: str) -> Dict[str, List[str]]:
         if not settable or not settable.startswith(prefix):
             continue
         attributes = found.setdefault(list_match.group(1), [])
+        if chain.endswith(".address_block()") and "name.first" not in attributes:
+            attributes.append("name.first")
         attribute = settable[len(prefix) :]
         if attribute and attribute not in attributes:
             attributes.append(attribute)
@@ -6566,6 +6723,10 @@ def docx_variables_in_order(text: str) -> List[str]:
     """
     fields: Dict[str, None] = {}
     for possible_var in _raw_variables_from_template(text):
+        if possible_var.endswith(".address_block()"):
+            fields.setdefault(
+                possible_var[: -len(".address_block()")] + ".name.first", None
+            )
         settable_var = _settable_docx_variable(possible_var)
         if settable_var:
             fields.setdefault(settable_var)
@@ -6592,6 +6753,13 @@ def _settable_docx_variable(possible_var: str) -> Optional[str]:
     # Filter out non-identifiers (invalid variable names), like functions
     if not prefix_root.isidentifier():
         return None
+
+    if re.search(r"\.service_address(?:\.|$)", possible_var):
+        if possible_var.endswith(".service_address.county"):
+            return possible_var
+        return re.sub(
+            r"\.service_address(?:\..*)?$", ".service_address.address", possible_var
+        )
 
     if ".mailing_address" in possible_var:  # a mailing address
         if ".mailing_address.county" in possible_var:  # a county is special
@@ -7990,6 +8158,8 @@ def _apply_field_definitions_to_interview(
         if created:
             added_fields = True
         _apply_field_definition(field, field_def)
+        if field.final_display_var == "trial_court_circuit":
+            field.group = DAFieldGroup.CUSTOM
     interview.all_fields.gathered = True
     return added_fields
 
@@ -9709,13 +9879,20 @@ def generate_interview_from_path(
         interview.help_source_text = str(interview.help_source_text or "")
 
     added_fields = _apply_field_definitions_to_interview(interview, field_definitions)
+    if getattr(interview, "object_types", {}):
+        interview.apply_object_types()
     if screen_definitions:
         for screen in merged_screens or []:
             for field_entry in screen.get("fields", []) or []:
                 field_name = field_entry.get("field")
                 if field_name:
                     _ensure_field_in_interview(interview, field_name)
-    elif added_fields:
+                    if field_name == "trial_court_circuit":
+                        for existing in interview.all_fields:
+                            if existing.variable == field_name:
+                                existing.group = DAFieldGroup.CUSTOM
+    elif added_fields or field_definitions or getattr(interview, "object_types", {}):
+        interview.questions.clear()
         interview.auto_group_fields()
 
     llm_enabled = bool(getattr(interview, "use_llm_assist", False))
