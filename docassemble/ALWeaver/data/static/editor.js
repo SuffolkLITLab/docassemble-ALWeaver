@@ -18671,6 +18671,182 @@
     if (nodes.createButton) nodes.createButton.disabled = false;
   }
 
+  function _labelingChoice(title, body, acceptLabel, declineLabel) {
+    return new Promise(function (resolve) {
+      var element = document.createElement('div');
+      element.className = 'modal fade';
+      element.tabIndex = -1;
+      element.setAttribute('aria-label', title);
+      element.innerHTML =
+        '<div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">' +
+        '<div class="modal-header"><h2 class="modal-title fs-5">' +
+        esc(title) +
+        '</h2></div>' +
+        '<div class="modal-body">' +
+        body +
+        '</div>' +
+        '<div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-label-choice="no">' +
+        esc(declineLabel) +
+        '</button>' +
+        '<button type="button" class="btn btn-primary" data-label-choice="yes">' +
+        esc(acceptLabel) +
+        '</button></div></div></div>';
+      document.body.appendChild(element);
+      var modal = new bootstrap.Modal(element, {
+        backdrop: 'static',
+        keyboard: false,
+      });
+      var accepted = false;
+      element.addEventListener('click', function (event) {
+        var button = event.target.closest('[data-label-choice]');
+        if (!button) return;
+        accepted = button.dataset.labelChoice === 'yes';
+        modal.hide();
+      });
+      element.addEventListener(
+        'hidden.bs.modal',
+        function () {
+          modal.dispose();
+          element.remove();
+          resolve(accepted);
+        },
+        { once: true },
+      );
+      modal.show();
+    });
+  }
+
+  async function _reviewTemplateLabels(formData) {
+    var originals = formData.getAll('files');
+    var acceptedFiles = [];
+    for (var file of originals) {
+      var acceptedFile = file;
+      try {
+        var check = new FormData();
+        check.append('file', file, file.name);
+        check.append('action', 'inspect');
+        _setUploadProgressMessage(
+          'Checking field labels in ' + file.name + '.',
+        );
+        var response = await apiUploadDetailed('/api/field-labeling', check);
+        var assessment = response.body.data;
+        if (!response.body.success)
+          throw new Error(response.body.error.message);
+        if (assessment.issues.length) {
+          _hideUploadProgressModal();
+          var issueRows = assessment.issues
+            .map(function (issue) {
+              return (
+                '<tr><td>' +
+                esc(issue.field || '(document)') +
+                '</td><td>' +
+                esc(issue.message) +
+                '</td></tr>'
+              );
+            })
+            .join('');
+          var useLabeler = await _labelingChoice(
+            'Review field labels: ' + file.name,
+            (assessment.suggest_labeling
+              ? '<p>Would you like ALDashboard to suggest field labels before Weaver drafts this interview? Custom names may be intentional. You will review the suggestions before using them.</p>'
+              : '<p>These findings need review in a PDF editor. Relabeling cannot correct the field types. Continue with this document?</p>') +
+              '<table class="table table-sm"><thead><tr><th>Field</th><th>Finding</th></tr></thead><tbody>' +
+              issueRows +
+              '</tbody></table>',
+            assessment.suggest_labeling
+              ? 'Suggest labels with ALDashboard'
+              : 'Continue',
+            assessment.suggest_labeling
+              ? 'Keep original labels'
+              : 'Cancel drafting',
+          );
+          if (!assessment.suggest_labeling) {
+            if (!useLabeler)
+              return Promise.reject(new Error('Drafting canceled'));
+            useLabeler = false;
+          }
+          _showUploadProgressModal('Preparing ' + file.name + '.');
+          if (useLabeler) {
+            check.set('action', 'propose');
+            check.set('author_requested', 'true');
+            response = await apiUploadDetailed('/api/field-labeling', check);
+            if (!response.body.success)
+              throw new Error(response.body.error.message);
+            var labelingJob = await _pollNewProjectJob(
+              response.body.job_url,
+              file.name,
+            );
+            var proposal = labelingJob.data.result;
+            var rows = proposal.mappings
+              .map(function (mapping) {
+                return (
+                  '<tr><td>' +
+                  esc(mapping.old_name) +
+                  '</td><td>' +
+                  esc(mapping.new_name) +
+                  '</td></tr>'
+                );
+              })
+              .concat(
+                proposal.added_fields.map(function (name) {
+                  return (
+                    '<tr><td>(new field)</td><td>' + esc(name) + '</td></tr>'
+                  );
+                }),
+              )
+              .join('');
+            _hideUploadProgressModal();
+            var useProposal = await _labelingChoice(
+              'Use these field labels?',
+              '<p>Weaver will draft questions and attachment mappings from these labels. Your uploaded original remains unchanged.</p>' +
+                '<table class="table table-sm"><thead><tr><th>Original</th><th>Proposed</th></tr></thead><tbody>' +
+                rows +
+                '</tbody></table>' +
+                proposal.assessment.issues
+                  .map(function (issue) {
+                    return (
+                      '<p>' + esc(issue.field + ': ' + issue.message) + '</p>'
+                    );
+                  })
+                  .join(''),
+              'Use proposed labels',
+              'Keep original labels',
+            );
+            if (useProposal) {
+              var decoded = atob(proposal.content_base64);
+              var bytes = Uint8Array.from(decoded, function (character) {
+                return character.charCodeAt(0);
+              });
+              acceptedFile = new File([bytes], file.name, { type: file.type });
+            }
+            _showUploadProgressModal('Preparing interview generation.');
+          }
+        }
+      } catch (error) {
+        _hideUploadProgressModal();
+        var keepOriginal = await _labelingChoice(
+          'Field labeling was unavailable',
+          '<p>' +
+            esc(error.message || 'The document could not be labeled.') +
+            '</p><p>Continue drafting with the original document?</p>',
+          'Continue with original',
+          'Cancel drafting',
+        );
+        if (!keepOriginal)
+          throw new Error(
+            'Drafting canceled. Your uploaded originals are unchanged.',
+          );
+        _showUploadProgressModal('Preparing interview generation.');
+      }
+      acceptedFiles.push(acceptedFile);
+    }
+    formData.delete('files');
+    acceptedFiles.forEach(function (file) {
+      formData.append('files', file, file.name);
+    });
+    return formData;
+  }
+
   function _newProjectGenerationWarnings(jobData) {
     var result = jobData.result || jobData;
     return Array.isArray(result.warnings)
@@ -24276,7 +24452,10 @@
         _uploadedFiles.forEach(function (f) {
           formData.append('files', f, f.name);
         });
-        apiUploadDetailed('/api/new-project', formData)
+        _reviewTemplateLabels(formData)
+          .then(function (reviewed) {
+            return apiUploadDetailed('/api/new-project', reviewed);
+          })
           .then(function (response) {
             var payload = response.body || {};
             if (

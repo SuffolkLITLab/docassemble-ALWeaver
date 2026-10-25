@@ -163,8 +163,11 @@ def build_agent_context(
     runtime_available: bool = False,
 ) -> Dict[str, Any]:
     """Assemble everything the model may see about the current candidate."""
+    from .field_labeling import attached_template_names
+
     return {
         "filename": filename,
+        "template_filenames": attached_template_names(raw_source),
         "metadata": metadata_summary(raw_source),
         "outline": interview_outline(filename, raw_source),
         "selected_block_id": selected_block_id,
