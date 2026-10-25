@@ -828,6 +828,45 @@
       renderRepairOffer(log);
       panel.appendChild(log);
 
+      if (
+        session &&
+        session.template_changes &&
+        session.template_changes.length
+      ) {
+        var templateReview = element('div', 'editor-agent-template-review');
+        templateReview.appendChild(
+          element(
+            'p',
+            '',
+            'Apply will save labeled template copies and update this interview. Original templates are preserved.',
+          ),
+        );
+        session.template_changes.forEach(function (change) {
+          templateReview.appendChild(
+            element('h4', 'h6', change.original_filename),
+          );
+          var table = element('table', 'table table-sm');
+          var heading = element('tr');
+          heading.appendChild(element('th', '', 'Original field'));
+          heading.appendChild(element('th', '', 'Proposed field'));
+          table.appendChild(heading);
+          (change.mappings || []).forEach(function (mapping) {
+            var row = element('tr');
+            row.appendChild(element('td', '', mapping.old_name));
+            row.appendChild(element('td', '', mapping.new_name));
+            table.appendChild(row);
+          });
+          (change.added_fields || []).forEach(function (name) {
+            var row = element('tr');
+            row.appendChild(element('td', '', '(new field)'));
+            row.appendChild(element('td', '', name));
+            table.appendChild(row);
+          });
+          templateReview.appendChild(table);
+        });
+        panel.appendChild(templateReview);
+      }
+
       if (busy) {
         var working = element('div', 'editor-agent-working');
         working.setAttribute('role', 'status');

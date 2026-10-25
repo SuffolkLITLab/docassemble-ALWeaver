@@ -123,6 +123,7 @@ class AgentCandidate:
     raw_source: str
     revision: str
     applied_commands: List[Dict[str, Any]] = field(default_factory=list)
+    template_assets: List[Dict[str, Any]] = field(default_factory=list)
     diagnostics: List[Dict[str, Any]] = field(default_factory=list)
 
     @classmethod
@@ -248,6 +249,7 @@ class WeaverAgentSession:
     # ``owner_user_id`` is the developer having the conversation. In a shared
     # Playground the file belongs to someone else; None means their own.
     playground_user_id: Optional[int] = None
+    template_assets: List[Dict[str, Any]] = field(default_factory=list)
 
     @property
     def storage_user_id(self) -> int:
@@ -264,10 +266,12 @@ class WeaverAgentSession:
             raw_source=self.candidate_source,
             revision=self.candidate_revision,
             applied_commands=list(self.command_history),
+            template_assets=list(self.template_assets),
         )
         return candidate
 
     def store_candidate(self, candidate: AgentCandidate) -> None:
+        self.template_assets = list(candidate.template_assets)
         self.candidate_source = candidate.raw_source
         self.candidate_revision = candidate.revision
         self.command_history = candidate.applied_commands[-MAX_COMMAND_HISTORY:]
@@ -291,6 +295,7 @@ class WeaverAgentSession:
         self.candidate_source = baseline
         self.candidate_revision = source_revision(baseline)
         self.command_history = []
+        self.template_assets = []
         self.messages = []
         self.cancelled = False
         self.turn_count = 0
@@ -315,6 +320,10 @@ class WeaverAgentSession:
             "max_turns": MAX_TURNS_PER_SESSION,
             "messages": list(self.messages),
             "command_history": list(self.command_history),
+            "template_changes": [
+                {key: value for key, value in asset.items() if key != "content_base64"}
+                for asset in self.template_assets
+            ],
             "created_at": self.created_at,
             "last_accessed_at": self.last_accessed_at,
         }
@@ -331,6 +340,34 @@ MAX_PROGRESS_EVENTS = 60
 # long the worker running it is gone — a recycled process, say — and the record
 # must not be believed to be alive forever.
 PROGRESS_STALE_SECONDS = 120
+
+
+def progress_heartbeat(callback):
+    """Keep a Celery worker's progress live during a blocking provider call.
+
+    This does not execute turns in web-server threads: the worker still owns
+    the entire operation, and only its transient progress timestamp is touched.
+    """
+    from contextlib import contextmanager
+    import threading
+
+    @contextmanager
+    def running():
+        stopped = threading.Event()
+
+        def heartbeat():
+            while not stopped.wait(30):
+                callback()
+
+        thread = threading.Thread(target=heartbeat, daemon=True)
+        thread.start()
+        try:
+            yield
+        finally:
+            stopped.set()
+            thread.join(timeout=1)
+
+    return running()
 
 
 def progress_is_live(progress: Optional[Dict[str, Any]]) -> bool:

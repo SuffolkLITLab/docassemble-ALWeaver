@@ -337,3 +337,35 @@ Run Python maintenance or diagnostic scripts inside the Docassemble container as
 `docassemble.webapp.server` runs startup code that rebuilds generated Playground
 module packages. Running that import as root can leave root-owned directories
 that later prevent normal worker startup from copying modules.
+
+## Field labeling and interview remapping
+
+Run the real-file integration and author-choice tests with:
+
+```sh
+scripts/run_unit_tests.sh docassemble/ALWeaver/test_field_labeling.py docassemble/ALWeaver/test_editor_field_labeling.py docassemble/ALWeaver/test_editor_agent_rename.py
+node docassemble/ALWeaver/test_editor_field_labeling.js
+```
+
+These tests use real PDF and DOCX files and ALDashboard's writers, with deterministic
+AI responses. They cover missing modules, unlabeled documents, signature field
+warnings, split Word runs, field identity collisions, generated PDF mapping lists,
+question/review/order remapping, staged template copies, stale originals, and
+session reset. The browser-side test checks both author decisions and failure
+recovery without calling a model.
+
+For a live smoke test, deploy to a test server with the Weaver Celery module and
+ALDashboard configured. In **Create project**, upload a PDF with fields named
+`First Name` and `Last Name`, accept the ALDashboard offer, review the mapping
+table, and create the draft. Repeat with a DOCX containing unlabeled blanks.
+Declining either the offer or the proposal should retain the original upload.
+
+Create another draft keeping the original PDF labels. Ask the Assistant to
+relabel the attached PDF with ALDashboard and consolidate the name variables into
+`users[0].name.first` and `users[0].name.last`. Review the field table and source
+diff, then Apply and Save. Confirm the original template is unchanged, the
+attachment uses the new labeled copy, the questions and review refer to the new
+variables, and the order calls `users.gather()`. Run the resulting interview and
+verify that the entered names appear in the downloaded form. Ambiguous mappings
+or dependencies in other interviews/templates must be reported without accepting
+a partial relabel.

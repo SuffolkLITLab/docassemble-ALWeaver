@@ -249,3 +249,16 @@ def weaver_editor_ai_task(
 
         if not _run_ai_job_with_capacity(job_id, uid, operation, payload):
             raise self.retry(countdown=random.randint(5, 10))
+
+
+@workerapp.task(
+    name="docassemble.ALWeaver.api_weaver_worker.weaver_editor_field_labeling_task"
+)
+def weaver_editor_field_labeling_task(
+    *, job_id: str, filename: str, content: bytes
+) -> None:
+    """Run optional ALDashboard labeling outside the web request."""
+    with bg_context():
+        from .api_editor import _complete_field_labeling_job
+
+        _complete_field_labeling_job(job_id=job_id, filename=filename, content=content)

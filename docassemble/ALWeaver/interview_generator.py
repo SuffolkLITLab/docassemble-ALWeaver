@@ -9579,6 +9579,17 @@ def generate_interview_from_path(
     da_files: List[Union[DAFile, DAStaticFile]] = []
     for template_input in template_inputs:
         template_name = str(template_input.exact_name)
+        from .field_labeling import assess_template
+
+        try:
+            assessment = assess_template(template_input.path)
+            template_notes.extend(
+                f"{template_name}: {issue['field']}: {issue['message']}"
+                for issue in assessment["issues"]
+                if issue["code"] == "signature_type"
+            )
+        except Exception as exc:
+            log(f"Unable to assess template field labels: {exc!r}")
         (
             template_renames,
             template_renames_applied,

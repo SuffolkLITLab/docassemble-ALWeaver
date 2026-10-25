@@ -260,6 +260,43 @@ def _top_level_key(source_block: SourceBlock, offset: int) -> Optional[str]:
     return None
 
 
+def _is_pdf_field_key(block: SourceBlock, offset: int) -> bool:
+    """A PDF mapping key names a widget, not an interview variable."""
+    import yaml
+
+    node = yaml.compose(block.raw_text)
+    if not isinstance(node, yaml.MappingNode):
+        return False
+    roots = {key.value: value for key, value in node.value}
+    attachments = roots.get("attachment") or roots.get("attachments")
+    if attachments is None:
+        return False
+    entries = (
+        attachments.value
+        if isinstance(attachments, yaml.SequenceNode)
+        else [attachments]
+    )
+    for entry in entries:
+        if not isinstance(entry, yaml.MappingNode):
+            continue
+        attrs = {key.value: value for key, value in entry.value}
+        if "pdf template file" not in attrs:
+            continue
+        fields = attrs.get("fields")
+        pairs = fields.value if isinstance(fields, yaml.MappingNode) else []
+        if isinstance(fields, yaml.SequenceNode):
+            pairs = [
+                pair
+                for field in fields.value
+                if isinstance(field, yaml.MappingNode)
+                for pair in field.value
+            ]
+        for key, _value in pairs:
+            if key.start_mark.index <= offset - block.start_offset < key.end_mark.index:
+                return True
+    return False
+
+
 def _classify(
     raw_yaml: str,
     source_block: Optional[SourceBlock],
@@ -285,6 +322,10 @@ def _classify(
 
     if source_block is None or not source_block.supported:
         occurrence.reason = REASON_UNSUPPORTED_BLOCK
+        return occurrence
+
+    if _is_pdf_field_key(source_block, start):
+        occurrence.reason = REASON_DISPLAY_TEXT
         return occurrence
 
     following = raw_yaml[end : end + 1]

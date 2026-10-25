@@ -250,6 +250,15 @@ class ToolContext:
     runtime: Any = None
     runtime_session_started: bool = False
     scenario_seeded: bool = False
+    playground_user_id: Optional[int] = None
+
+    @property
+    def storage_user_id(self) -> int:
+        return (
+            self.owner_user_id
+            if self.playground_user_id is None
+            else self.playground_user_id
+        )
 
 
 @dataclass
@@ -627,7 +636,7 @@ def _variable_catalog(raw_source: str) -> List[Dict[str, Any]]:
                 continue
             # docassemble field shorthand is `{<label>: <variable>}`, so the
             # variable is the value rather than a `field:` key.
-            if len(entry) == 1:
+            if entry:
                 key, value = next(iter(entry.items()))
                 if isinstance(value, str) and str(key).lower() not in {
                     "note",
@@ -1358,6 +1367,51 @@ def _tool_replace_order_steps(
     )
 
 
+def _tool_inspect_template_labels(
+    context: ToolContext, arguments: Dict[str, Any]
+) -> AgentToolResult:
+    from .editor_agent_labeling import inspect_template
+    from .field_labeling import LabelingError
+
+    try:
+        return _ok(
+            "inspect_template_labels",
+            "Checked template labels",
+            inspect_template(context, arguments["template_filename"]),
+        )
+    except LabelingError as exc:
+        return _reject("inspect_template_labels", "labeling_unavailable", str(exc))
+
+
+def _tool_relabel_template(
+    context: ToolContext, arguments: Dict[str, Any]
+) -> AgentToolResult:
+    from .editor_agent_labeling import stage_relabel
+    from .field_labeling import LabelingError
+
+    if not arguments.get("author_requested"):
+        return _reject(
+            "relabel_template",
+            "author_choice_required",
+            "Ask the author whether to use ALDashboard to relabel this template first.",
+        )
+    try:
+        source, asset, proposal = stage_relabel(context, arguments["template_filename"])
+    except LabelingError as exc:
+        return _reject("relabel_template", "unsafe_relabel", str(exc))
+    result = _commit(
+        context,
+        "relabel_template",
+        arguments,
+        source,
+        "Proposed template labels and remapped interview references",
+        proposal,
+    )
+    if result.status == TOOL_STATUS_SUCCESS:
+        context.candidate.template_assets.append(asset)
+    return result
+
+
 def _tool_suggest_object_conversion(
     context: ToolContext, arguments: Dict[str, Any]
 ) -> AgentToolResult:
@@ -1385,6 +1439,24 @@ def _tool_rename_variables(
     )
 
     renames = arguments["renames"]
+    for asset in context.candidate.template_assets:
+        if not asset["filename"].lower().endswith(".docx"):
+            continue
+        template_names = [item["new_name"] for item in asset["mappings"]] + asset[
+            "added_fields"
+        ]
+        if any(
+            name == rename["old_name"]
+            or name.startswith(rename["old_name"] + ".")
+            or name.startswith(rename["old_name"] + "[")
+            for name in template_names
+            for rename in renames
+        ):
+            return _reject(
+                "rename_variables",
+                "staged_template_reference",
+                "This rename would leave an old variable in the staged Word template. Review or reset the labeling proposal before changing those variable names.",
+            )
     analyses, problems = check_rename_batch(
         filename=context.filename,
         raw_yaml=context.candidate.raw_source,
@@ -1411,6 +1483,11 @@ def _tool_rename_variables(
     operations = plan_rename_operations(analyses)
     try:
         proposed = _apply_operations(context.candidate.raw_source, operations)
+        from .field_remapping import consolidate_people
+
+        proposed = consolidate_people(
+            proposed, context.filename, [item.new_name for item in analyses]
+        )
     except ValueError as exc:
         return _reject("rename_variables", "overlapping_rename", str(exc))
 
@@ -1733,6 +1810,42 @@ _REVIEW_ITEM_SCHEMA = {
 
 
 def _register_all() -> None:
+    for name, handler, mutating, description in (
+        (
+            "inspect_template_labels",
+            _tool_inspect_template_labels,
+            False,
+            "Inspect a project's PDF/DOCX attachment for missing labels, naming problems, expected nouns and signature field types. Read only. Ask the author whether to use ALDashboard before relabeling.",
+        ),
+        (
+            "relabel_template",
+            _tool_relabel_template,
+            True,
+            "After the author requests ALDashboard labeling, stage a labeled PDF/DOCX copy and remap attachments, questions, review references and order together. Consolidates person scalars into people lists and gather calls. Returns old/new field mappings for author review. No original file is overwritten; Apply accepts the candidate. Refuses ambiguous mappings.",
+        ),
+    ):
+        properties = {
+            "template_filename": {"type": "string", "minLength": 1, "maxLength": 255}
+        }
+        required = ["template_filename"]
+        if mutating:
+            properties["author_requested"] = {"type": "boolean"}
+            required.append("author_requested")
+        register_tool(
+            AgentToolSpec(
+                name=name,
+                risk=RISK_MEDIUM if mutating else RISK_LOW,
+                mutating=mutating,
+                description=description,
+                schema={
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": required,
+                    "properties": properties,
+                },
+                handler=handler,
+            )
+        )
     register_tool(
         AgentToolSpec(
             name="get_interview_outline",

@@ -8254,19 +8254,24 @@ def _run_agent_turn_in_background(
             publish_progress(True)
 
         candidate = session.candidate()
-        result = run_agent_turn(
-            session=session,
-            candidate=candidate,
-            user_message=message,
-            llms_module=llms,
-            model_name=model_name,
-            runtime_enabled=runtime_enabled,
-            read_only=read_only,
-            runtime=runtime,
-            selected_block_id=selected_block_id,
-            should_cancel=should_cancel,
-            on_event=on_event,
-        )
+        from .editor_agent_models import progress_heartbeat
+
+        with progress_heartbeat(lambda: publish_progress(True)):
+            result = run_agent_turn(
+                session=session,
+                candidate=candidate,
+                user_message=message,
+                llms_module=llms,
+                model_name=model_name,
+                runtime_enabled=runtime_enabled,
+                read_only=read_only,
+                runtime=runtime,
+                selected_block_id=selected_block_id,
+                should_cancel=should_cancel,
+                on_event=on_event,
+            )
+        if load_agent_session(r, session_id, owner_user_id) is None:
+            return
         record_turn(session, result)
         store_agent_session(r, session)
 
@@ -8569,8 +8574,8 @@ def editor_api_agent_reset(session_id: str) -> Response:
 def editor_api_agent_apply(session_id: str) -> Response:
     """Hand the candidate back to the browser as unsaved editor state.
 
-    This endpoint never writes to the Playground. The developer applies, looks
-    at the result, and then saves through the editor's existing Save path.
+    Staged templates are saved as new immutable copies. YAML remains unsaved
+    until the developer uses the editor's existing Save path.
     """
     request_id = str(uuid.uuid4())
     if not _editor_auth_check():
@@ -8606,6 +8611,24 @@ def editor_api_agent_apply(session_id: str) -> Response:
                 422,
             )
 
+        if session.template_assets:
+            from .editor_agent_labeling import materialize_templates
+
+            with ExitStack() as locks:
+                for original_filename in sorted(
+                    {item["original_filename"] for item in session.template_assets}
+                ):
+                    locks.enter_context(
+                        _source_file_lock(
+                            session.storage_user_id,
+                            session.project,
+                            original_filename,
+                            "templates",
+                        )
+                    )
+                materialize_templates(
+                    session.storage_user_id, session.project, session.template_assets
+                )
         candidate = session.candidate()
         _log_agent_event(
             request_id=request_id,
@@ -11316,6 +11339,13 @@ TEMPLATE_IMPORT_JOB = _EditorJobKind(
 )
 
 
+FIELD_LABELING_JOB = _EditorJobKind(
+    key_prefix="da:alweaver:editor:field-labeling:",
+    celery_task="docassemble.ALWeaver.api_weaver_worker.weaver_editor_field_labeling_task",
+    expire_seconds=60 * 60,
+)
+
+
 AI_JOB = _EditorJobKind(
     key_prefix="da:alweaver:editor:ai-job:",
     celery_task="docassemble.ALWeaver.api_weaver_worker.weaver_editor_ai_task",
@@ -12789,6 +12819,225 @@ def _new_project_from_template(uid: int, request_id: str) -> Response:
                 "template_id": template_id,
                 "test_filename": test_filename,
             },
+        }
+    )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/field-labeling", methods=["POST"])
+def editor_api_field_labeling() -> Response:
+    """Inspect an upload, or propose a labeled copy after an explicit choice.
+
+    Nothing is stored in the project. The browser reviews the proposal and
+    submits the accepted copy through the normal, validated upload path.
+    """
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    from .field_labeling import assess_template, propose_labels, LabelingError
+
+    try:
+        upload = request.files.get("file")
+        if upload is None:
+            raise ValueError("A PDF or DOCX is required.")
+        content = upload.stream.read(MAX_TEMPLATE_REPLACEMENT_BYTES + 1)
+        if len(content) > MAX_TEMPLATE_REPLACEMENT_BYTES:
+            raise ValueError("The template exceeds the 50 MiB limit.")
+        filename, _ = validate_upload_metadata(
+            filename=upload.filename or "",
+            content_bytes=content,
+            mimetype=upload.mimetype,
+        )
+        validate_document_content(filename, content)
+        action = request.form.get("action", "inspect")
+        if action not in {"inspect", "propose"}:
+            raise ValueError("Unknown labeling action.")
+        if action == "propose" and not parse_bool(
+            request.form.get("author_requested"), default=False
+        ):
+            raise ValueError(
+                "Choose whether to use ALDashboard before requesting labels."
+            )
+        if action == "propose":
+            from .field_labeling import MAX_LABELING_BYTES
+
+            if len(content) > MAX_LABELING_BYTES:
+                raise LabelingError(
+                    "AI labeling supports templates up to 10 MiB. Keep the original or use a smaller copy."
+                )
+            if not _editor_async_is_configured():
+                raise LabelingError(
+                    "Background labeling is not configured. Configure the Weaver Celery module, or keep the original labels."
+                )
+            job_id = str(uuid.uuid4())
+            owner_id = _actor_user_id()
+            if not r.set(
+                AI_JOB_OWNER_PREFIX + str(owner_id),
+                job_id,
+                nx=True,
+                ex=AI_JOB_QUEUE_SECONDS + 660,
+            ):
+                return jsonify_with_status(
+                    {
+                        "success": False,
+                        "error": {
+                            "code": "ai_job_in_progress",
+                            "message": "An AI task is already queued or running for your account. Wait for it to finish.",
+                        },
+                    },
+                    429,
+                )
+            _store_job_state(
+                FIELD_LABELING_JOB,
+                job_id,
+                {
+                    "status": "queued",
+                    "owner_user_id": owner_id,
+                    "celery_task_id": job_id,
+                    "queued_at": time.time(),
+                    "message": "Queued ALDashboard field labeling.",
+                    "progress": 0,
+                },
+            )
+            try:
+                workerapp.send_task(
+                    FIELD_LABELING_JOB.celery_task,
+                    task_id=job_id,
+                    kwargs={"job_id": job_id, "filename": filename, "content": content},
+                    soft_time_limit=540,
+                    time_limit=600,
+                    expires=AI_JOB_QUEUE_SECONDS,
+                )
+            except Exception:
+                _release_ai_owner(owner_id, job_id)
+                _update_job_state(
+                    FIELD_LABELING_JOB,
+                    job_id,
+                    status="failed",
+                    error={
+                        "message": "Unable to queue field labeling. Keep the original or try again."
+                    },
+                )
+                raise LabelingError(
+                    "Unable to queue field labeling. Keep the original or try again."
+                ) from None
+            return jsonify_with_status(
+                {
+                    "success": True,
+                    "request_id": request_id,
+                    "status": "queued",
+                    "job_url": f"{EDITOR_BASE_PATH}/api/field-labeling/jobs/{job_id}",
+                },
+                202,
+            )
+        with tempfile.TemporaryDirectory(prefix="weaver-label-") as directory:
+            path = os.path.join(directory, filename)
+            with open(path, "wb") as stream:
+                stream.write(content)
+            return jsonify(
+                {
+                    "success": True,
+                    "request_id": request_id,
+                    "data": assess_template(path),
+                }
+            )
+    except (ValueError, LabelingError) as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"code": "labeling_unavailable", "message": str(exc)},
+            },
+            422,
+        )
+    except Exception:
+        log("ALWeaver: template labeling failed", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "code": "labeling_failed",
+                    "message": "The template could not be inspected. Your original is unchanged.",
+                },
+            },
+            422,
+        )
+
+
+def _complete_field_labeling_job(*, job_id: str, filename: str, content: bytes) -> None:
+    from .field_labeling import propose_labels, LabelingError
+
+    owner_id = (_load_job_state(FIELD_LABELING_JOB, job_id) or {}).get("owner_user_id")
+    try:
+        _update_job_state(
+            FIELD_LABELING_JOB,
+            job_id,
+            status="running",
+            started_at=time.time(),
+            progress=20,
+            message="ALDashboard is suggesting field labels.",
+        )
+        with tempfile.TemporaryDirectory(prefix="weaver-label-") as directory:
+            path = os.path.join(directory, filename)
+            output = os.path.join(directory, "labeled_" + filename)
+            with open(path, "wb") as stream:
+                stream.write(content)
+            proposal = propose_labels(path, output)
+            with open(output, "rb") as stream:
+                proposal["content_base64"] = base64.b64encode(stream.read()).decode(
+                    "ascii"
+                )
+            proposal["filename"] = filename
+        _update_job_state(
+            FIELD_LABELING_JOB,
+            job_id,
+            status="succeeded",
+            progress=100,
+            result=proposal,
+            finished_at=time.time(),
+            message="Labels are ready for review.",
+        )
+    except Exception as exc:
+        message = (
+            str(exc)
+            if isinstance(exc, LabelingError)
+            else "Field labeling failed. Keep the original labels or try again."
+        )
+        _update_job_state(
+            FIELD_LABELING_JOB,
+            job_id,
+            status="failed",
+            finished_at=time.time(),
+            error={"message": message},
+        )
+    finally:
+        if owner_id is not None:
+            _release_ai_owner(int(owner_id), job_id)
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/field-labeling/jobs/<job_id>", methods=["GET"])
+def editor_api_field_labeling_job(job_id: str) -> Response:
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    state = _load_job_state(FIELD_LABELING_JOB, job_id)
+    if not state or state.get("owner_user_id") != _actor_user_id():
+        return jsonify_with_status(
+            {"success": False, "error": {"message": "Job not found."}}, 404
+        )
+    state = _reconcile_job_state(
+        FIELD_LABELING_JOB,
+        job_id,
+        state,
+        success_message="Labels are ready for review.",
+        failure_message="Field labeling failed or expired.",
+    )
+    return jsonify(
+        {
+            "success": True,
+            "request_id": request_id,
+            "status": state.get("status"),
+            "data": state,
         }
     )
 

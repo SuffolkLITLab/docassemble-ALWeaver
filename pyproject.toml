@@ -122,6 +122,10 @@ module = "formfyxer"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = ["docassemble.ALDashboard", "docassemble.ALDashboard.pdf_field_labeler", "docassemble.ALDashboard.docx_wrangling"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = "docassemble.ALDashboard.interview_linter"
 ignore_missing_imports = true
 

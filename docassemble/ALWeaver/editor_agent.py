@@ -93,6 +93,13 @@ SYSTEM_PROMPT = textwrap.dedent("""
 
     Minimize unrelated changes.
 
+    For mislabeled or unlabeled PDF/DOCX attachments, call inspect_template_labels.
+    Use the exact filename in template_filenames; do not infer it from the interview title.
+    Ask clearly whether the author wants ALDashboard to suggest labels. Only
+    after their affirmative request call relabel_template with author_requested
+    true. Show its old/new mappings and explain that Apply accepts the staged
+    template and source changes together. Never claim a rejected relabel succeeded.
+
     To rename a variable, always use rename_variables. Editing blocks one at a
     time leaves references behind and corrupts the interview. To turn a family
     of flat names like persons1_name into object attributes, call
@@ -404,6 +411,7 @@ def run_agent_turn(
         project=session.project,
         filename=session.filename,
         owner_user_id=session.owner_user_id,
+        playground_user_id=session.storage_user_id,
         candidate=candidate,
         runtime_enabled=runtime_enabled,
         read_only=read_only,
