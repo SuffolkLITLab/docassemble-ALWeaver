@@ -1,0 +1,71 @@
+I found two high-severity problems. One is a new-feature bug in explicit `object_types` declarations. The other is a regression risk for existing repositories that comes from the companion AssemblyLine patch. I made no edits and ran nothing: no tests, no generation, no corpus. Everything below comes from reading the code, so the "Repro" lines describe what the code should produce, not output I saw.
+
+## Findings
+
+**1. High (new feature): an explicit `object_types` declaration leaves stale, duplicated screens in the generated YAML**
+- **Where:** `interview_generator.py:9825-9828`.
+- **Cause:** `auto_assign_attributes()` already grouped the fields into screens through `_process_fields_and_group` (line 4111). `auto_group_fields()` (5841) only appends to `self.questions` and never clears it, and `rendered_questions` takes every entry in `interview.questions` (9000). So after `apply_object_types()` the second grouping adds to the first instead of replacing it.
+  - Fields that were custom before the declaration stay on a first-pass screen. They now render through `get_settable_var()`, which returns `property_address.address` for every component.
+  - Every other custom field gets two screens with the same title. That should produce the same `id:` twice, which docassemble rejects when it loads the interview.
+- **Repro:** DOCX containing `{{ property_address.city }}`, `{{ property_address.block() }}` and `{{ case_notes }}`, with `object_types={"property_address": "ALAddress"}`. Expect one screen whose two fields are both `property_address.address` (labelled as the city and the block), plus two `id: case notes` screens. A PDF with `incident_location_city` and `incident_location_zip` would do the same, because neither label is a person suffix.
+- **Why the test misses it:** `test_declared_address_pdf_and_docx` only uses property fields and only checks that strings are present. Adding a field like `case_notes` and asserting each `id:` is unique would catch it. The existing `elif added_fields:` path (9835) has the same append-only pattern.
+
+**2. High (regression risk for existing repos, mostly in the companion patch): `address_block()` output changes for existing DOCX templates**
+- **Current behaviour:** released `ALIndividual.address_block()` returns the address only in DOCX. Outside DOCX it returns the name only, because of an operator-precedence bug: the `+ " [NEWLINE] " + address` belongs to the `else` branch.
+- **What the patch does:** both contexts would print name plus address.
+- **Evidence from your corpus report:** all 8 changed documents are `.docx`. In three of them the same person also appears as a bare `{{ X }}`: `TransferNotice` (`landlords_attorney`), `include_SignatureBlock` (`tenant`) and `ssa_report_change` (`client`). That suggests the name is printed separately, probably right above the block, so after the patch it would likely print twice. I couldn't open the DOCX files to confirm the layout.
+- **On the Weaver side:** `docx_variables_in_order` (6673) now collects `.name.first` for DOCX `address_block()`, a name the released runtime never prints in DOCX. For a singleton it becomes a CUSTOM one-field "first name" screen (`ssa_office.name.first`, `tenant.name.first`).
+- **Suggestion:**
+  - Add a new runtime method (e.g. `name_and_address_block()`) and map `_name_and_address_block` to it.
+  - Leave DOCX `address_block()` meaning address only, and add no DOCX name dependency for it.
+  - Fix the non-DOCX precedence bug on its own; that one is a real fix (e.g. `PayeeNameAndAddress` in ssareportchangesletter).
+
+**3. Medium: in PDFs the explicit type doesn't fully beat person inference**
+- **Where:** `apply_object_types` (3715).
+- **Cause:** it only remaps the components in its `supported` set. Any other field keeps the person mapping it already received. Separately, `custom_people_plurals` only drops entries equal to the declared name, so the inferred `property` survives.
+- **Repro:** PDF with `property_address_city` and `property_address_county`, declared `property_address: ALAddress`. `county` stays `property[0].address.county`, so the interview gets a `property: ALPeopleList` that is gathered and asked about. That contradicts the doc's "explicit type wins over person inference".
+
+**4. Medium (needs a server check): the newly reachable "bare singleton" state**
+- **Where:** `_is_single_docx_person` (3110).
+- **What changes:** in the five corrected cases, the bare `client`/`tenant`/`student` field is still BUILT_IN.
+  - Its trigger is now `client` (corpus "after"). As a line in the interview order that does nothing, so the name is only asked lazily, when the document is assembled.
+  - `_get_parent_variable` now treats it as a primitive, so `_collection_entry` emits `Edit: client`, a review edit target that is an object declared in `objects:` rather than a question. Depending on how docassemble resolves that, it either errors or re-initializes the person.
+- **Suggestion:** map a bare singleton to `client.name.first` for both the trigger and the edit target.
+- **The type correction itself is right:** the list declarations made `client.address` unreachable.
+
+**5. Medium (preserving existing source): the question library now covers existing `ALAddress` declarations**
+- **Cause:** for an `ALAddress`, `library_catalog` marks `standalone_address` as `recommended` (group "gather"). The editor pre-ticks recommended questions (`editor.js:1429`). `present` only matches block ids.
+- **Effect:** in an existing interview with `incident_location: ALAddress` and an authored address question under a different id, adding any library question also adds a generic address block. Docassemble prefers the later block, so the author's wording could be overridden. People already had this pattern; it now reaches many more existing files.
+
+**6. Low–Medium: `trial_court_circuit` ignores author field definitions**
+- It is now BUILT_IN, and `court_attributes` filters on group only. Labels, `required` or "skip this field" set through field definitions no longer reach the question, so the fixed optional fallback is still emitted and triggered.
+- The checkbox guard only looks at `field_type_guess`, not at an author-set `field_type`.
+- Nothing in the corpus uses this label. `~/docassemble-MLHDivorceAndCustody` does (`documents.yml`, `trial_court_circuit: ${the_court.number}`) and would be a better test.
+
+**7. Low: `_service_address` resolves to the street line only**
+- `generator_constants.py:284` maps it to `.service_address.address`, but `_mailing_address` maps to the whole `.mailing_address`.
+- So a PDF field `users1_service_address` would print only the street. Mapping it to `.service_address.on_one_line()` or `.service_address` would match the mailing behaviour.
+
+**8. Low: DOCX substring overmatch**
+- `_settable_docx_variable` (6704) checks `".service_address" in possible_var`, so `{{ notice.service_addresses }}` or `x.service_address_confirmed` become `….service_address.address`.
+- The existing `.address` branch has the same flaw, and the corpus shows no hits.
+
+**9. Low: review entries for a standalone address are duplicated**
+- Each component field is its own primitive collection (`property_address.city`, `property_address.block()`), so the review screen gets one identical `Edit: property_address.address` / `block()` row per component.
+
+**10. Low (verify): the `service-recipients.yml` example's choices may be reversed**
+- `al_service_methods` is a plain list of `{Label: value}` pairs, consumed through `code:`. If I remember docassemble correctly, code choices read `{value: label}`, which would show "mail"/"in_person" and store "Mail"/"In person". I couldn't check against the docassemble source here.
+- AssemblyLine's own `language: es` block would also still take over for Spanish sessions.
+
+## Judging the corpus changes
+- **The five list → `ALIndividual` changes** are correct; the original YAML backs this up. The only cost is the trigger and review gap in finding 4.
+- **The eight name dependencies:**
+  - The four indexed ones (`users`, `other_parties`, `debt_collectors`, `additional_tenants`) change nothing in practice, since `gather()` already collects names.
+  - The singleton ones add a screen asking only for a first name. With released AssemblyLine, DOCX never prints that name; with the patch, the output changes (finding 2).
+
+## Gaps in the validation
+- The corpus script calls only `trigger_gather`. It never runs `interview_order_list` (where the new name trigger lives), output rendering, review entries, the court questions or `object_types`, so it couldn't catch findings 1, 3, 4 or 6.
+- The corpus contains no `trial_court_circuit` and no `_service_*` labels.
+- Not exercised anywhere: organisation names containing `&` or `<` going through the patch's raw-XML DOCX path; `object_types` together with AI-assisted grouping; a `trial_court_name_and_address_block` label (it would add `trial_court.name.first`, which doesn't fit a court object).
+
+Documented limitations, and not counted against the branch: nested people and row-wizard parity, the legacy wizard's lack of an address-type selector, county not being asked, and pending server, release and version-minimum work.

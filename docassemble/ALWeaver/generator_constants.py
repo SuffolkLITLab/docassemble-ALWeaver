@@ -30,6 +30,7 @@ generator_constants = GeneratorConstantObject()
 # Words that are reserved exactly as they are
 generator_constants.RESERVED_WHOLE_WORDS = [
     "signature_date",
+    "trial_court_circuit",
     "docket_number",
     "case_number",
     "user_needs_interpreter",
@@ -51,6 +52,8 @@ generator_constants.RESERVED_PREFIXES = [
     "users",
     "other_parties",
     "children",
+    "grandchildren",
+    "grandchild",
     "plaintiffs",
     "defendants",
     "petitioners",
@@ -103,6 +106,8 @@ generator_constants.RESERVED_PERSON_PLURALIZERS_MAP = {
     "users": "users",
     "other_parties": "other_parties",
     "children": "children",
+    "grandchildren": "grandchildren",
+    "grandchild": "grandchildren",
     "plaintiffs": "plaintiffs",
     "defendants": "defendants",
     "petitioners": "petitioners",
@@ -192,6 +197,7 @@ generator_constants.PEOPLE_SUFFIXES_MAP = {
     # AssemblyLine asks pronouns as checkboxes; list_pronouns() prints the chosen ones
     "_pronouns": ".list_pronouns()",
     "_phones": ".phone_numbers()",
+    "_name_and_address_block": ".address_block()",
     "_address_block": ".address.block()",
     # TODO: deprecate street and street2 from existing forms and documentation
     "_address_street": ".address.address",
@@ -264,6 +270,19 @@ generator_constants.PEOPLE_SUFFIXES_MAP = {
     "_no_consent_attached_explanation": ".no_consent_attached_explanation",
 }
 
+# Preserve the same component and formatting vocabulary for service addresses.
+generator_constants.PEOPLE_SUFFIXES_MAP.update(
+    {
+        key.replace("_address", "_service_address", 1): value.replace(
+            ".address", ".service_address", 1
+        )
+        for key, value in list(generator_constants.PEOPLE_SUFFIXES_MAP.items())
+        if key.startswith("_address_")
+    }
+)
+generator_constants.PEOPLE_SUFFIXES_MAP["_service_method"] = ".service_method"
+generator_constants.PEOPLE_SUFFIXES_MAP["_service_address"] = ".service_address.address"
+
 generator_constants.PEOPLE_SUFFIXES = list(
     generator_constants.PEOPLE_SUFFIXES_MAP.values()
 ) + [".name.full()", ".name", ".name_full()"]
@@ -294,10 +313,12 @@ generator_constants.DOCX_ONLY_SUFFIXES = [
 ]
 
 generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX = {
+    r"\.address_block\(\)$": ".address.address",
     r"\.address.block\(\)$": ".address.address",
     r"\.address.line_one\(\)$": ".address.address",
     r"\.address.line_two\(\)$": ".address.address",
     r"\.address.on_one_line\(\)$": ".address.address",
+    r"\.service_address\.(?:block|line_one|line_two|on_one_line)\(\)$": ".service_address.address",
     r"\.age_in_years\(\)$": ".birthdate",
     r"\.birthdate.format\(.*\)$": ".birthdate",
     r"\.familiar_or\(\)$": ".name.first",
@@ -319,6 +340,7 @@ generator_constants.DISPLAY_SUFFIX_TO_SETTABLE_SUFFIX = {
 generator_constants.FULL_DISPLAY = {
     r"\.name$": ".name_full()",
     r"\.address$": ".address.block()",
+    r"\.service_address$": ".service_address.block()",
     r"\.mailing_address$": ".mailing_address.block()",
     r"\.pronouns$": ".list_pronouns()",
 }

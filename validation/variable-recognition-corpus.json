@@ -1,0 +1,569 @@
+{
+  "baseline_commit": "cbc16e38489dc67d45bb748a25f3a32fbe077a87",
+  "corpus": "/home/quinten/all_interviews/repos",
+  "documents": 195,
+  "fields_before": 4546,
+  "fields_after": 4554,
+  "errors_before": {},
+  "errors_after": {},
+  "changed_documents": {
+    "docassemble-HelpForChildSupportObligors/docassemble/HelpForChildSupportObligors/data/templates/equitable-adjustment.docx": {
+      "fields": [
+        {
+          "before": {
+            "raw": [
+              "client"
+            ],
+            "display": "client",
+            "type": "text",
+            "group": "DAFieldGroup.BUILT_IN",
+            "trigger": "client.gather()"
+          },
+          "after": {
+            "raw": [
+              "client"
+            ],
+            "display": "client",
+            "type": "text",
+            "group": "DAFieldGroup.BUILT_IN",
+            "trigger": "client.name.first"
+          }
+        }
+      ],
+      "objects": {
+        "before": [
+          {
+            "name": "client",
+            "type": "ALPeopleList",
+            "params": {}
+          },
+          {
+            "name": "users",
+            "type": "ALPeopleList",
+            "params": {
+              "there_are_any": "True"
+            }
+          }
+        ],
+        "after": [
+          {
+            "name": "client",
+            "type": "ALIndividual",
+            "params": {}
+          },
+          {
+            "name": "users",
+            "type": "ALPeopleList",
+            "params": {
+              "there_are_any": "True"
+            }
+          }
+        ]
+      }
+    },
+    "docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/templates/Repair_Demand_Letter.docx": {
+      "fields": [
+        {
+          "before": null,
+          "after": {
+            "raw": [
+              "other_parties[0].name.first"
+            ],
+            "display": "other_parties[0].name.first",
+            "type": "text",
+            "group": "DAFieldGroup.BUILT_IN",
+            "trigger": "other_parties.gather()"
+          }
+        }
+      ]
+    },
+    "docassemble-HousingCodeChecklist/docassemble/HousingCodeChecklist/data/templates/tenant_repair_letter.docx": {
+      "fields": [
+        {
+          "before": null,
+          "after": {
+            "raw": [
+              "other_parties[0].name.first"
+            ],
+            "display": "other_parties[0].name.first",
+            "type": "text",
+            "group": "DAFieldGroup.BUILT_IN",
+            "trigger": "other_parties.gather()"
+          }
+        }
+      ]
+    },
+    "docassemble-MADebtCollectionLetter/docassemble/MADebtCollectionLetter/data/templates/debt-collection-proof-letter.docx": {
+      "fields": [
+        {
+          "before": null,
+          "after": {
+            "raw": [
+              "debt_collectors[0].name.first"
+            ],
+            "display": "debt_collectors[0].name.first",
+            "type": "text",
+            "group": "DAFieldGroup.BUILT_IN",
+            "trigger": "debt_collectors.gather()"
+          }
+        }
+      ]
+    },
+    "docassemble-MAEvictionDefense/docassemble/MAEvictionDefense/data/templates/TransferNotice.docx": {
+      "fields": [
+        {
+          "before": {
+            "raw": [
+              "landlords_attorney"
+            ],
+            "display": "landlords_attorney",
+            "type": "text",
+            "group": "DAFieldGroup.BUILT_IN",
+            "trigger": "landlords_attorney.gather()"
+          },
+          "after": {
+            "raw": [
+              "landlords_attorney"
+            ],
+            "display": "landlords_attorney",
+            "type": "text",
+            "group": "DAFieldGroup.BUILT_IN",
+            "trigger": "landlords_attorney.name.first"
+          }
+        },
+        {
+          "before": null,
+          "after": {
+            "raw": [
+              "landlords_attorney.name.first"
+            ],
+            "display": "landlords_attorney.name.first",
+            "type": "text",
+            "group": "DAFieldGroup.CUSTOM",
+            "trigger": "landlords_attorney.name.first"
+          }
+        }
+      ],
+      "objects": {
+        "before": [
+          {
+            "name": "court",
+            "type": "ALIndividual",
+            "params": {}
+          },
+          {
+            "name": "landlord",
+            "type": "ALIndividual",
+            "params": {}
+          },
+          {
+            "name": "landlords_attorney",
+            "type": "ALPeopleList",
+            "params": {}
+          },
+          {
+            "name": "tenant",
+            "type": "ALIndividual",
+            "params": {}
+          },
+          {
+            "name": "users",
+            "type": "ALPeopleList",
+            "params": {
+              "there_are_any": "True"
+            }
+          }
+        ],
+        "after": [
+          {
+            "name": "court",
+            "type": "ALIndividual",
+            "params": {}
+          },
+          {
+            "name": "landlord",
+            "type": "ALIndividual",
+            "params": {}
+          },
+          {
+            "name": "landlords_attorney",
+            "type": "ALIndividual",
+            "params": {}
+          },
+          {
+            "name": "tenant",
+            "type": "ALIndividual",
+            "params": {}
+          },
+          {
+            "name": "users",
+            "type": "ALPeopleList",
+            "params": {
+              "there_are_any": "True"
+            }
+          }
+        ]
+      }
+    },
+    "docassemble-MAEvictionDefense/docassemble/MAEvictionDefense/data/templates/include_SignatureBlock.docx": {
+      "fields": [
+        {
+          "before": {
+            "raw": [
+              "tenant"
+            ],
+            "display": "tenant",
+            "type": "text",
+            "group": "DAFieldGroup.BUILT_IN",
+            "trigger": "tenant.gather()"
+          },
+          "after": {
+            "raw": [
+              "tenant"
+            ],
+            "display": "tenant",
+            "type": "text",
+            "group": "DAFieldGroup.BUILT_IN",
+            "trigger": "tenant.name.first"
+          }
+        },
+        {
+          "before": null,
+          "after": {
+            "raw": [
+              "additional_tenants[0].name.first"
+            ],
+            "display": "additional_tenants[0].name.first",
+            "type": "text",
+            "group": "DAFieldGroup.BUILT_IN",
+            "trigger": "additional_tenants.gather()"
+          }
+        },
+        {
+          "before": null,
+          "after": {
+            "raw": [
+              "tenant.name.first"
+            ],
+            "display": "tenant.name.first",
+            "type": "text",
+            "group": "DAFieldGroup.CUSTOM",
+            "trigger": "tenant.name.first"
+          }
+        }
+      ],
+      "objects": {
+        "before": [
+          {
+            "name": "additional_tenants",
+            "type": "ALPeopleList",
+            "params": {}
+          },
+          {
+            "name": "tenant",
+            "type": "ALPeopleList",
+            "params": {}
+          },
+          {
+            "name": "tenants_attorney",
+            "type": "ALIndividual",
+            "params": {}
+          },
+          {
+            "name": "users",
+            "type": "ALPeopleList",
+            "params": {
+              "there_are_any": "True"
+            }
+          }
+        ],
+        "after": [
+          {
+            "name": "additional_tenants",
+            "type": "ALPeopleList",
+            "params": {}
+          },
+          {
+            "name": "tenant",
+            "type": "ALIndividual",
+            "params": {}
+          },
+          {
+            "name": "tenants_attorney",
+            "type": "ALIndividual",
+            "params": {}
+          },
+          {
+            "name": "users",
+            "type": "ALPeopleList",
+            "params": {
+              "there_are_any": "True"
+            }
+          }
+        ]
+      }
+    },
+    "docassemble-StudentEvaluations/docassemble/StudentEvaluations/data/templates/prs_complaint_language_access.docx": {
+      "fields": [
+        {
+          "before": {
+            "raw": [
+              "student"
+            ],
+            "display": "student",
+            "type": "text",
+            "group": "DAFieldGroup.BUILT_IN",
+            "trigger": "student.gather()"
+          },
+          "after": {
+            "raw": [
+              "student"
+            ],
+            "display": "student",
+            "type": "text",
+            "group": "DAFieldGroup.BUILT_IN",
+            "trigger": "student.name.first"
+          }
+        }
+      ],
+      "objects": {
+        "before": [
+          {
+            "name": "meetings",
+            "type": "ALIndividual",
+            "params": {}
+          },
+          {
+            "name": "parent",
+            "type": "ALIndividual",
+            "params": {}
+          },
+          {
+            "name": "requestor",
+            "type": "ALIndividual",
+            "params": {}
+          },
+          {
+            "name": "school",
+            "type": "ALIndividual",
+            "params": {}
+          },
+          {
+            "name": "student",
+            "type": "ALPeopleList",
+            "params": {}
+          },
+          {
+            "name": "translated_documents",
+            "type": "ALIndividual",
+            "params": {}
+          },
+          {
+            "name": "users",
+            "type": "ALPeopleList",
+            "params": {
+              "there_are_any": "True"
+            }
+          }
+        ],
+        "after": [
+          {
+            "name": "meetings",
+            "type": "ALIndividual",
+            "params": {}
+          },
+          {
+            "name": "parent",
+            "type": "ALIndividual",
+            "params": {}
+          },
+          {
+            "name": "requestor",
+            "type": "ALIndividual",
+            "params": {}
+          },
+          {
+            "name": "school",
+            "type": "ALIndividual",
+            "params": {}
+          },
+          {
+            "name": "student",
+            "type": "ALIndividual",
+            "params": {}
+          },
+          {
+            "name": "translated_documents",
+            "type": "ALIndividual",
+            "params": {}
+          },
+          {
+            "name": "users",
+            "type": "ALPeopleList",
+            "params": {
+              "there_are_any": "True"
+            }
+          }
+        ]
+      }
+    },
+    "docassemble-ssareportchangesletter/docassemble/ssareportchangesletter/data/templates/ssa_report_change.docx": {
+      "fields": [
+        {
+          "before": {
+            "raw": [
+              "client"
+            ],
+            "display": "client",
+            "type": "text",
+            "group": "DAFieldGroup.BUILT_IN",
+            "trigger": "client.gather()"
+          },
+          "after": {
+            "raw": [
+              "client"
+            ],
+            "display": "client",
+            "type": "text",
+            "group": "DAFieldGroup.BUILT_IN",
+            "trigger": "client.name.first"
+          }
+        },
+        {
+          "before": null,
+          "after": {
+            "raw": [
+              "client.name.first"
+            ],
+            "display": "client.name.first",
+            "type": "text",
+            "group": "DAFieldGroup.CUSTOM",
+            "trigger": "client.name.first"
+          }
+        },
+        {
+          "before": null,
+          "after": {
+            "raw": [
+              "ssa_office.name.first"
+            ],
+            "display": "ssa_office.name.first",
+            "type": "text",
+            "group": "DAFieldGroup.CUSTOM",
+            "trigger": "ssa_office.name.first"
+          }
+        }
+      ],
+      "objects": {
+        "before": [
+          {
+            "name": "change_details",
+            "type": "DADict",
+            "params": {
+              "object_type": "DAObject",
+              "auto_gather": "False",
+              "gathered": "True"
+            }
+          },
+          {
+            "name": "changes",
+            "type": "ALIndividual",
+            "params": {}
+          },
+          {
+            "name": "client",
+            "type": "ALPeopleList",
+            "params": {}
+          },
+          {
+            "name": "employer_jobs",
+            "type": "ALPeopleList",
+            "params": {}
+          },
+          {
+            "name": "self_jobs",
+            "type": "ALPeopleList",
+            "params": {}
+          },
+          {
+            "name": "ssa_office",
+            "type": "ALIndividual",
+            "params": {}
+          },
+          {
+            "name": "users",
+            "type": "ALPeopleList",
+            "params": {
+              "there_are_any": "True"
+            }
+          }
+        ],
+        "after": [
+          {
+            "name": "change_details",
+            "type": "DADict",
+            "params": {
+              "object_type": "DAObject",
+              "auto_gather": "False",
+              "gathered": "True"
+            }
+          },
+          {
+            "name": "changes",
+            "type": "ALIndividual",
+            "params": {}
+          },
+          {
+            "name": "client",
+            "type": "ALIndividual",
+            "params": {}
+          },
+          {
+            "name": "employer_jobs",
+            "type": "ALPeopleList",
+            "params": {}
+          },
+          {
+            "name": "self_jobs",
+            "type": "ALPeopleList",
+            "params": {}
+          },
+          {
+            "name": "ssa_office",
+            "type": "ALIndividual",
+            "params": {}
+          },
+          {
+            "name": "users",
+            "type": "ALPeopleList",
+            "params": {
+              "there_are_any": "True"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "timing_note": "Not a controlled speed benchmark.",
+  "review": {
+    "unchanged_documents": 187,
+    "added_fields": 8,
+    "removed_fields": 0,
+    "newly_inferred_objects": 0,
+    "singleton_corrections": 5,
+    "conclusion": "Changed labels are name dependencies of existing address_block() calls and corrections from lists to singleton people; no unrelated field mappings changed.",
+    "source_confirmation": {
+      "HelpForChildSupportObligors client": "ChildSupportObligors_umbrella.yml:100 (Individual)",
+      "MAEvictionDefense landlords_attorney": "eviction.yml:147 (Person)",
+      "MAEvictionDefense tenant": "eviction.yml:140 (Individual)",
+      "StudentEvaluations student": "prs_complaint_interview.yml:85 (ALIndividual)",
+      "ssareportchangesletter client": "ssa_report_change.yml:89 (Individual)"
+    },
+    "limitations": [
+      "The requested ~/all_repos path was not present; used ~/all_interviews/repos, pending user correction.",
+      "Corpus comparison covers import/inference. Separate synthetic localhost interviews validate rendering and review; the corpus interviews were not all executed.",
+      "Service-only fields require targeted tests because the corpus does not exercise every new alias."
+    ],
+    "final_replay": "195 successful imports, zero errors; includes corrected singleton name gathering triggers."
+  }
+}

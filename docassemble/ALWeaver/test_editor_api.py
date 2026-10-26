@@ -4777,6 +4777,41 @@ class TestEditorQuestionLibraryApi(unittest.TestCase):
             response = api_editor.editor_api_question_library_object()
         return response, written.get("content")
 
+    def test_existing_address_question_is_not_overridden_by_library(self):
+        source = "objects:\n  - incident_location: ALAddress\n---\nid: custom wording\nquestion: Where did it happen?\nfields:\n  - Street: incident_location.address\n"
+        for fields, present in [
+            ("  - Street: incident_location.address", True),
+            ("  - County: incident_location.county", False),
+            ("  - code: incident_location.address_fields()", True),
+        ]:
+            with (
+                self.subTest(fields=fields),
+                patch.object(
+                    api_editor,
+                    "parse_interview_yaml",
+                    side_effect=self._real_editor_utils().parse_interview_yaml,
+                ),
+            ):
+                candidate = source.split("fields:")[0] + "fields:\n" + fields + "\n"
+                catalog = api_editor._question_library_catalog(candidate)
+                self.assertEqual(catalog[0]["questions"][0]["present"], present)
+
+    def test_address_declaration_preserves_authored_source(self):
+        source = "# Authored preamble\nobjects:\n  - owner: ALIndividual  # keep this\n---\nid: note\nquestion: 'Keep my quotes'\n"
+        response, written = self._declare(
+            source=source, name="property_address", class_name="ALAddress"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("  - property_address: ALAddress", written)
+        self.assertIn("# Authored preamble", written)
+        self.assertIn("  - owner: ALIndividual  # keep this", written)
+        self.assertIn("question: 'Keep my quotes'", written)
+        offered = response.get_json()["data"]["objects"]
+        address = next(item for item in offered if item["var"] == "property_address")
+        self.assertEqual(
+            [q["kind"] for q in address["questions"]], ["standalone_address"]
+        )
+
     def test_a_new_list_joins_the_block_that_already_declares_people(self):
         response, written = self._declare(
             name="witnesses",

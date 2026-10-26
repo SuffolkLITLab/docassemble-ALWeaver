@@ -104,6 +104,9 @@ def _primitive_expression(field: Any) -> str:
     variable that was never asked.
     """
     variable = str(getattr(field, "final_display_var", "") or "")
+    if getattr(field, "standalone_address", None):
+        address = field.standalone_address
+        return f"{address}.block() if defined({(address + '.address')!r}) else ''"
     field_type = getattr(field, "field_type", None)
     if field_type in ("yesno", "yesnomaybe", "yesnoradio", "yesnowide", "noyes"):
         return f"word(yesno({variable})) if defined({variable!r}) else ''"
@@ -168,6 +171,18 @@ def _collection_entry(collection: Any) -> Optional[ReviewEntry]:
     ]
     if not fields:
         return None
+
+    if var_type == "standalone_address":
+        return ReviewEntry(
+            edit_var=var_name + ".address",
+            title=_humanize(var_name),
+            rows=[
+                ReviewRow(
+                    label=_humanize(var_name),
+                    expression=_primitive_expression(fields[0]),
+                )
+            ],
+        )
 
     if var_type == "object":
         rows = _object_rows(collection)
@@ -251,6 +266,20 @@ def build_review_entries(
     for collection in collections:
         for field in getattr(collection, "fields", []):
             collection_for_field.setdefault(id(field), collection)
+
+    # Authored screens have independent field instances; resolve those to the
+    # same collection by their settable variable instead of object identity.
+    collections_by_variable = {
+        field.get_settable_var(): collection
+        for collection in collections
+        for field in getattr(collection, "fields", [])
+    }
+    screens = list(screens or [])
+    for screen in screens:
+        for field in getattr(screen, "field_list", []):
+            collection = collections_by_variable.get(field.get_settable_var())
+            if collection is not None:
+                collection_for_field.setdefault(id(field), collection)
 
     entries: List[ReviewEntry] = []
     emitted: Set[str] = set()

@@ -1,0 +1,63 @@
+---
+include:
+  - docassemble.AssemblyLine:assembly_line.yml
+---
+metadata:
+  title: Select existing service recipients
+---
+objects:
+  - parties: ALPeopleList.using(ask_number=True, target_number=2)
+---
+mandatory: True
+code: |
+  parties.gather()
+  service_recipients
+  service_date
+  for recipient in service_recipients:
+    recipient.service_method
+    recipient.service_address.address
+  service_summary
+---
+id: service-recipients screen 1
+question: |
+  Who will receive these documents?
+fields:
+  - Recipients: service_recipients
+    datatype: object_checkboxes
+    choices: parties
+---
+id: service-recipients screen 2
+question: |
+  On what date will you send or deliver these documents?
+fields:
+  - Date: service_date
+    datatype: date
+---
+# Illustrative choices only: supply the methods appropriate for this interview.
+variable name: al_service_methods
+use objects: True
+data:
+  mail:
+    question: Mail
+    document: mail
+  in_person:
+    question: In person
+    document: in person
+---
+event: service_summary
+id: service-recipients screen 3
+question: |
+  Selected recipients
+subquestion: |
+  Date: ${ service_date }
+
+  % for recipient in service_recipients:
+  * ${ recipient }: ${ recipient.service_method }, ${ recipient.service_address.on_one_line() }
+  % endfor
+review:
+  - Edit: service_recipients
+    button: |
+      Recipients: ${ service_recipients }
+  - Edit: service_date
+    button: |
+      Date: ${ service_date }

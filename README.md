@@ -275,3 +275,5 @@ your docassemble configuration.
 open ai:
   key: ...
 ```
+
+See [expanded variable support](variable-support.md) for the unreleased label contracts, standalone address authoring, and service examples.

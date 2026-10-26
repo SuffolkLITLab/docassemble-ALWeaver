@@ -208,7 +208,7 @@ from .assemblyline_settings import read_settings, update_settings
 from .question_library import (
     attribute_references,
     library_catalog,
-    PERSON_CLASSES,
+    LIBRARY_CLASSES,
     PERSON_LIST_CLASSES,
 )
 from .generator_constants import generator_constants
@@ -9935,7 +9935,35 @@ def _question_library_catalog(content: str) -> List[Dict[str, Any]]:
     model = parse_interview_yaml(content)
     objects: List[Dict[str, Any]] = []
     existing_ids: List[str] = []
+    existing_fields: Set[str] = set()
     for block in model["blocks"]:
+        data = block.get("data") or {}
+        if isinstance(data, dict) and not data.get("_commented") and "question" in data:
+            declared_sets = data.get("sets", [])
+            if isinstance(declared_sets, str):
+                existing_fields.add(declared_sets)
+            elif isinstance(declared_sets, list):
+                existing_fields.update(
+                    value for value in declared_sets if isinstance(value, str)
+                )
+            authored_fields = data.get("fields", []) or []
+            if isinstance(authored_fields, dict):
+                authored_fields = [authored_fields]
+            for field in authored_fields:
+                if isinstance(field, dict):
+                    if isinstance(field.get("code"), str):
+                        match = re.match(
+                            r"^\s*([A-Za-z_]\w*)\.address_fields\s*\(", field["code"]
+                        )
+                        if match:
+                            existing_fields.add(match.group(1) + ".address")
+                    if isinstance(field.get("field"), str):
+                        existing_fields.add(field["field"])
+                    elif field and next(iter(field)) not in {"code", "note", "html"}:
+                        first = next(iter(field.values()))
+                        if isinstance(first, str):
+                            existing_fields.add(first)
+
         block_id = str(block.get("id") or "").strip()
         if block_id:
             existing_ids.append(block_id)
@@ -9946,6 +9974,7 @@ def _question_library_catalog(content: str) -> List[Dict[str, Any]]:
         objects,
         references=attribute_references(content),
         existing_ids=existing_ids,
+        existing_fields=existing_fields,
     )
 
 
@@ -10111,16 +10140,16 @@ _PEOPLE_LIST_PARAMS: Dict[str, type] = {
 
 
 def _person_declaration(class_name: str, using_args: str) -> str:
-    """Compose the ``objects:`` expression for a new person or list of people.
+    """Compose a supported person, people-list, or standalone address declaration.
 
     The expression is rebuilt from the parameters rather than passed through:
     what arrives is a quantity choice from a radio group, and an ``objects:``
     entry is a Python expression the interview evaluates.
     """
-    if class_name not in PERSON_LIST_CLASSES + PERSON_CLASSES:
+    if class_name not in LIBRARY_CLASSES:
         raise ValueError(
-            "The question library declares people: "
-            f"{', '.join(PERSON_LIST_CLASSES + PERSON_CLASSES)}"
+            "The question library declares these object types: "
+            f"{', '.join(LIBRARY_CLASSES)}"
         )
     text = str(using_args or "").strip()
     if not text:
@@ -10183,7 +10212,7 @@ def _question_library_object_target(
         if not is_objects:
             continue
         for row in block.get("editor_objects") or []:
-            if str(row.get("class_name") or "") in PERSON_LIST_CLASSES + PERSON_CLASSES:
+            if str(row.get("class_name") or "") in LIBRARY_CLASSES:
                 return str(block.get("id") or "").strip(), None
     return None, anchor
 

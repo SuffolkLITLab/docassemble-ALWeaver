@@ -1,0 +1,39 @@
+---
+include:
+  - docassemble.AssemblyLine:assembly_line.yml
+---
+metadata:
+  title: Standalone address example
+---
+objects:
+  - property_address: ALAddress
+---
+mandatory: True
+code: |
+  property_address.address
+  address_summary
+---
+id: standalone-address screen 1
+sets:
+  - property_address.address
+  - property_address.city
+  - property_address.state
+  - property_address.zip
+  - property_address.unit
+  - property_address.country
+question: |
+  Where is the property?
+fields:
+  - code: |
+      property_address.address_fields(country_code=AL_DEFAULT_COUNTRY, default_state=AL_DEFAULT_STATE)
+---
+event: address_summary
+id: standalone-address screen 2
+question: |
+  Property address
+subquestion: |
+  ${ property_address.block() }
+review:
+  - Edit: property_address.address
+    button: |
+      ${ property_address.block() }
