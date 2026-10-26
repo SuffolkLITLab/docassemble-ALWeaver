@@ -8260,8 +8260,15 @@
   }
 
   function createOrderStep(kind) {
+    // Time and randomness alone can collide when steps are created together.
+    createOrderStep.sequence = (createOrderStep.sequence || 0) + 1;
     var uniqueId =
-      'step-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+      'step-' +
+      Date.now() +
+      '-' +
+      Math.floor(Math.random() * 1000) +
+      '-' +
+      createOrderStep.sequence;
     if (kind === 'loop')
       return {
         id: uniqueId,

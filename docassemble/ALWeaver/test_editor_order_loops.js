@@ -28,6 +28,9 @@ const context = {
   _lastInsertedOrderStepId: null,
 };
 vm.createContext(context);
+// Steps created in the same millisecond must remain distinct even if the
+// random suffix repeats. This previously made inline edits target a sibling.
+vm.runInContext('Date.now = () => 123456789; Math.random = () => 0.5;', context);
 for (const name of [
   'createOrderStep',
   'findStepRecord',
