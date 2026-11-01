@@ -6195,6 +6195,18 @@ body {
   display: none;
 }
 .editor-location nav { min-width: 0; }
+.editor-location .btn-link {
+  --bs-btn-color: var(--editor-primary);
+  --bs-btn-hover-color: var(--editor-accent);
+  --bs-btn-active-color: var(--editor-accent);
+}
+.editor-location .breadcrumb a {
+  color: var(--editor-primary);
+}
+.editor-location .breadcrumb a:hover,
+.editor-location .breadcrumb a:focus-visible {
+  color: var(--editor-accent);
+}
 .editor-location .btn { white-space: normal; text-align: left; }
 
 
