@@ -65,7 +65,6 @@ function testUnmappedValidationOpensFullYamlAndKeepsCrlfEdits() {
     validationOpen: true,
     validationDock: 'bottom',
     canvasMode: 'full-yaml',
-    fullYamlTab: 'full',
     fullYamlStash: {},
   };
   const calls = [];
@@ -87,6 +86,10 @@ function testUnmappedValidationOpensFullYamlAndKeepsCrlfEdits() {
     },
     document: { querySelector: () => ({}) },
     setActiveTopTab() {},
+    rememberWorkspace() {},
+    searchInput: { value: '' },
+    syncJumpSelect() {},
+    renderOutline() {},
     renderCanvas() {
       calls.push('canvas');
     },
@@ -94,10 +97,11 @@ function testUnmappedValidationOpensFullYamlAndKeepsCrlfEdits() {
       calls.push('drawer');
     },
   });
+  vm.runInContext(extractFunction('resetOutlineForFullFile'), context);
+  vm.runInContext(extractFunction('enterFullYaml'), context);
   vm.runInContext(extractFunction('openUnmappedValidationFinding'), context);
   context.openUnmappedValidationFinding();
   assert.equal(state.canvasMode, 'full-yaml');
-  assert.equal(state.fullYamlTab, 'full');
   assert.equal(state.fullYamlStash.full, editedSource);
   assert.ok(!/(^|[^\r])\n/.test(state.fullYamlStash.full));
   assert.deepEqual(calls, [
@@ -119,7 +123,7 @@ function testUnmappedValidationOpensFullYamlAndKeepsCrlfEdits() {
     markup,
     /<li><button type="button" class="editor-validation-item/,
   );
-  assert.match(markup, /Open full YAML: /);
+  assert.match(markup, /Open full file YAML: /);
   assert.match(markup, /data-source-filename=/);
   assert.match(markup, /err\.block_id && err\.line_number/);
   assert.match(source, /target\.closest\('\.editor-validation-item'\)/);

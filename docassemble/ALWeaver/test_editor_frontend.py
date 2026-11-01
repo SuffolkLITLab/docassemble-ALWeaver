@@ -36,6 +36,7 @@ NODE_TESTS = (
     "test_editor_fake_filler.js",
     "test_editor_router.js",
     "test_editor_route_navigation.js",
+    "test_editor_workspace_navigation.js",
     "test_editor_validation_navigation.js",
     "test_editor_ai_assist.js",
 )
@@ -146,7 +147,7 @@ class TestEditorFrontend(unittest.TestCase):
         source = (self.package_dir / "data/static/editor.js").read_text()
         css = (self.package_dir / "data/static/editor.css").read_text()
         self.assertIn('<li><button type="button" class="editor-validation-item', source)
-        self.assertIn("Open full YAML: ", source)
+        self.assertIn("Open full file YAML: ", source)
         self.assertIn("data-source-filename=", source)
         self.assertIn("target.closest('.editor-validation-item')", source)
         self.assertIn("sourceFilename !== state.filename", source)
@@ -367,7 +368,7 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("modifierOrNotice(", logic)
         self.assertIn("sourceOnlyModifierNotice(key)", logic)
         self.assertIn("the source value <code>", logic)
-        self.assertIn("Edit it in Full YAML.", logic)
+        self.assertIn("Edit it in Block YAML.", logic)
         self.assertIn("(default)", logic)
         self.assertIn(">Yes</option>", logic)
         self.assertIn(">No</option>", logic)
@@ -733,6 +734,19 @@ class TestEditorFrontend(unittest.TestCase):
                         f"{relative_path}:{index + 1} uses the magic icon "
                         "without using AI: " + line.strip(),
                     )
+
+    def test_full_yaml_is_first_interview_menu_destination(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        for marker in (
+            'aria-labelledby="interview-menu">',
+            'id="editor-interview-submenu">',
+        ):
+            with self.subTest(menu=marker):
+                menu = template.split(marker, 1)[1].split("</ul>", 1)[0]
+                first_item = menu.split("</li>", 1)[0]
+                self.assertIn('data-action="open-full-yaml"', first_item)
+                self.assertIn("Edit full-file YAML", first_item)
+                self.assertIn("dropdown-divider", menu.split("</li>", 2)[1])
 
     def test_scrollable_source_editors_have_focusable_content(self):
         editor = (self.package_dir / "data/static/editor.js").read_text()

@@ -46,6 +46,8 @@
               <button type="button" class="editor-section-submenu-toggle" data-section-submenu="editor-interview-submenu" aria-controls="editor-interview-submenu" aria-expanded="false" aria-label="Interview menu"><i class="fa-solid fa-angle-right" aria-hidden="true"></i></button>
             </div>
             <ul class="editor-section-submenu-list d-none" id="editor-interview-submenu">
+              <li><button type="button" class="dropdown-item" data-action="open-full-yaml"><i class="fa-solid fa-code fa-fw me-2" aria-hidden="true"></i>Edit full-file YAML</button></li>
+              <li><hr class="dropdown-divider"></li>
               <li><button type="button" class="dropdown-item" data-action="open-interview-order"><i class="fa-solid fa-list-ol fa-fw me-2" aria-hidden="true"></i>Interview Order</button></li>
               <li><hr class="dropdown-divider"></li>
 <li><button type="button" class="dropdown-item" data-action="open-interview-flow-report"><i class="fa-solid fa-file-lines fa-fw me-2" aria-hidden="true"></i>Flow report</button></li>
@@ -57,7 +59,6 @@
 <li><button type="button" class="dropdown-item" data-action="run-style-check"><i class="fa-solid fa-ruler fa-fw me-2" aria-hidden="true"></i>Style check</button></li>
               <li><button type="button" class="dropdown-item" data-action="run-style-check-ai"><i class="fa-solid fa-wand-magic-sparkles fa-fw me-2" aria-hidden="true"></i>Style check + AI suggestions</button></li>
               <li><hr class="dropdown-divider"></li>
-              <li><button type="button" class="dropdown-item" data-action="open-full-yaml"><i class="fa-solid fa-code fa-fw me-2" aria-hidden="true"></i>YAML source</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-assemblyline-settings"><i class="fa-solid fa-sliders fa-fw me-2" aria-hidden="true"></i>AssemblyLine settings</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-standard-playground"><i class="fa-solid fa-flask fa-fw me-2" aria-hidden="true"></i>Open in Playground</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-tests-overview"><i class="fa-solid fa-vial-circle-check fa-fw me-2" aria-hidden="true"></i>Tests</button></li>
@@ -100,6 +101,8 @@
             <button type="button" class="nav-link editor-top-tab active" data-view="interview" aria-current="page">Interview</button>
             <button type="button" class="editor-top-tab-caret" id="interview-menu" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false" aria-label="Interview menu"><i class="fa-solid fa-angle-down" aria-hidden="true"></i></button>
             <ul class="dropdown-menu" data-bs-theme="light" aria-labelledby="interview-menu">
+              <li><button type="button" class="dropdown-item" data-action="open-full-yaml"><i class="fa-solid fa-code fa-fw me-2" aria-hidden="true"></i>Edit full-file YAML</button></li>
+              <li><hr class="dropdown-divider"></li>
               <li><button type="button" class="dropdown-item" data-action="open-interview-order"><i class="fa-solid fa-list-ol fa-fw me-2" aria-hidden="true"></i>Interview Order</button></li>
               <li><hr class="dropdown-divider"></li>
 <li><button type="button" class="dropdown-item" data-action="open-interview-flow-report"><i class="fa-solid fa-file-lines fa-fw me-2" aria-hidden="true"></i>Flow report</button></li>
@@ -111,7 +114,6 @@
 <li><button type="button" class="dropdown-item" data-action="run-style-check"><i class="fa-solid fa-ruler fa-fw me-2" aria-hidden="true"></i>Style check</button></li>
               <li><button type="button" class="dropdown-item" data-action="run-style-check-ai"><i class="fa-solid fa-wand-magic-sparkles fa-fw me-2" aria-hidden="true"></i>Style check + AI suggestions</button></li>
               <li><hr class="dropdown-divider"></li>
-              <li><button type="button" class="dropdown-item" data-action="open-full-yaml"><i class="fa-solid fa-code fa-fw me-2" aria-hidden="true"></i>YAML source</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-assemblyline-settings"><i class="fa-solid fa-sliders fa-fw me-2" aria-hidden="true"></i>AssemblyLine settings</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-standard-playground"><i class="fa-solid fa-flask fa-fw me-2" aria-hidden="true"></i>Open in Playground</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-tests-overview"><i class="fa-solid fa-vial-circle-check fa-fw me-2" aria-hidden="true"></i>Tests</button></li>
@@ -238,11 +240,13 @@
         <span class="editor-tiny">Block outline</span>
         <button type="button" class="btn btn-sm btn-outline-secondary editor-order-builder-btn" id="btn-order-builder" title="Interview order" aria-label="Interview order"><i class="fa-solid fa-diagram-project" aria-hidden="true"></i><span>Interview order</span></button>
       </div>
+      <div id="outline-current-hidden" class="small p-2" role="status" hidden><button type="button" class="btn btn-sm btn-link" data-action="reveal-current-block">Show current block</button></div>
       <div class="editor-outline-list" id="outline-list"></div>
     </aside>
 
     <!-- MAIN CANVAS -->
     <main class="editor-main" id="main-canvas">
+      <div id="editor-location" class="editor-location" hidden></div>
       <div class="editor-canvas" id="canvas-content">
         <div class="text-center py-5 text-muted">
           <p>Select a project and file to begin editing.</p>

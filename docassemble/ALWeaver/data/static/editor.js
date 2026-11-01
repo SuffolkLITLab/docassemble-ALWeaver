@@ -48,7 +48,6 @@
     },
     rawYaml: '',
     revision: null,
-    metadataRawYaml: '',
     assistantOpen: false,
     selectedBlockId: null,
     currentView: 'interview',
@@ -61,7 +60,6 @@
     reviewMetaOpen: false,
     openReviewItemIndex: null,
     jumpTarget: 'questions',
-    fullYamlTab: 'full',
     searchQuery: '',
     projectSearchQuery: '',
     sectionFiles: {
@@ -253,6 +251,7 @@
   }
 
   async function applyEditorRoute(route) {
+    workspaceReturn = null;
     var sequence = ++routeSequence;
     function isCurrentDestination() {
       return (
@@ -276,10 +275,10 @@
     state.project = route.project || null;
     state.currentView = route.view || 'interview';
     state.canvasMode = route.mode === 'documents' ? 'question' : route.mode;
+    if (state.canvasMode === 'full-yaml') resetOutlineForFullFile();
     state.templatesMode = route.mode === 'documents' ? 'documents' : 'files';
     state.searchQuery = '';
     searchInput.value = '';
-    state.fullYamlTab = 'full';
     state.questionEditMode = 'preview';
     if (state.currentView === 'interview') {
       state.filename = route.filename || null;
@@ -303,7 +302,7 @@
         }
         if (!isCurrentDestination()) return;
         if (!routeError && sameInterview && !route.blockId) {
-          state.selectedBlockId = getDefaultVisibleBlockId();
+          state.selectedBlockId = getDefaultBlockId();
         }
         if (!routeError && route.blockId) {
           var requestedBlock = getBlockById(route.blockId);
@@ -709,6 +708,8 @@
   // Source editor adapter
   // -------------------------------------------------------------------------
   var _sourceEditors = {};
+  var sourceWorkspacePositions = {};
+  var workspaceReturn = null;
   var expressionEditor = null;
   var expressionViews = [];
   var _outlineSortable = null;
@@ -767,11 +768,20 @@
     }
     var view = bundle.ev;
     var subscribers = [];
+    var blockMenu = null;
     var originalDispatch = view.dispatch.bind(view);
     view.dispatch = function () {
       var before = view.state.doc.toString();
+      var selectionBefore = view.state.selection;
       originalDispatch.apply(view, arguments);
       var after = view.state.doc.toString();
+      if (blockMenu) blockMenu.update();
+      if (
+        options.onSelectionChange &&
+        (after !== before || !view.state.selection.eq(selectionBefore))
+      ) {
+        options.onSelectionChange(after, view.state.selection.main.from);
+      }
       if (after !== before) {
         subscribers.slice().forEach(function (callback) {
           callback(after);
@@ -789,7 +799,22 @@
       // scrollable-region-focusable without it.
       view.contentDOM.setAttribute('tabindex', '0');
     }
+    var identity = sourceWorkspaceIdentity(containerId);
     var editor = {
+      identity: identity,
+      reveal: function (from, to) {
+        view.dispatch({
+          selection: { anchor: from, head: to },
+          // The selection head is the block's end. Scrolling the selection
+          // hides its beginning on upward jumps and for blocks taller than
+          // the viewport, so reveal the start explicitly while highlighting all.
+          effects: view.constructor.scrollIntoView(from, {
+            y: 'start',
+            yMargin: 8,
+          }),
+        });
+        view.focus();
+      },
       getValue: function () {
         return view.state.doc.toString();
       },
@@ -815,7 +840,18 @@
         };
       },
       dispose: function () {
+        sourceWorkspacePositions[identity] = {
+          anchor: view.state.selection.main.anchor,
+          head: view.state.selection.main.head,
+          scrollTop: view.scrollDOM.scrollTop,
+          documentLength: view.state.doc.length,
+          scrollSnapshot:
+            typeof view.scrollSnapshot === 'function'
+              ? view.scrollSnapshot()
+              : null,
+        };
         subscribers = [];
+        if (blockMenu) blockMenu.dispose();
         view.destroy();
         if (_sourceEditors[containerId] === editor)
           delete _sourceEditors[containerId];
@@ -823,6 +859,20 @@
     };
     if (options.onChange) editor.onChange(options.onChange);
     _sourceEditors[containerId] = editor;
+    var position = sourceWorkspacePositions[identity];
+    if (position) {
+      var restoreScroll =
+        position.documentLength === view.state.doc.length &&
+        position.scrollSnapshot;
+      view.dispatch({
+        effects: restoreScroll ? [restoreScroll] : [],
+        selection: {
+          anchor: Math.min(position.anchor, view.state.doc.length),
+          head: Math.min(position.head, view.state.doc.length),
+        },
+      });
+      if (!restoreScroll) view.scrollDOM.scrollTop = position.scrollTop;
+    }
     if (
       expressionEditor &&
       options.expressions !== false &&
@@ -862,7 +912,103 @@
         );
       });
     }
+    if (
+      containerId === 'full-source-editor' ||
+      containerId === 'block-source-editor'
+    ) {
+      blockMenu = attachSourceBlockMenu(container, view);
+    }
     return editor;
+  }
+
+  function attachSourceBlockMenu(container, view) {
+    var wrapper = document.createElement('div');
+    wrapper.className = 'editor-source-block-wrapper';
+    container.before(wrapper);
+    wrapper.appendChild(container);
+    var host = document.createElement('div');
+    host.className = 'editor-source-block-actions';
+    wrapper.appendChild(host);
+    var frame = null;
+    var renderedBlockId;
+    var rangeDocument, rangeBlock, range;
+    function positionMenu() {
+      frame = null;
+      if (!container.isConnected) return;
+      var block = getBlockById(
+        state.canvasMode === 'full-yaml'
+          ? sourceCursorBlockId
+          : state.selectedBlockId,
+      );
+      // CodeMirror documents are immutable: scrolling alone cannot change ranges.
+      if (view.state.doc !== rangeDocument || block !== rangeBlock) {
+        rangeDocument = view.state.doc;
+        rangeBlock = block;
+        range =
+          block &&
+          (state.canvasMode === 'full-yaml'
+            ? sourceBlockRange(
+                rangeDocument.toString(),
+                block,
+                (block.yaml || '').replace(/\r\n?/g, '\n'),
+              )
+            : { from: 0, to: rangeDocument.length });
+      }
+      host.hidden =
+        !range ||
+        range.to < view.viewport.from ||
+        range.from > view.viewport.to;
+      if (host.hidden) return;
+      if (renderedBlockId !== block.id) {
+        disposeDropdown();
+        host.innerHTML = sourceBlockMenu();
+        renderedBlockId = block.id;
+      }
+      var bounds = wrapper.getBoundingClientRect();
+      var scroll = view.scrollDOM.getBoundingClientRect();
+      var start = view.coordsAtPos(range.from);
+      var end = view.coordsAtPos(range.to);
+      if (
+        (start && start.top >= scroll.bottom) ||
+        (end && end.bottom <= scroll.top)
+      ) {
+        host.hidden = true;
+        return;
+      }
+      var coords = view.coordsAtPos(Math.max(range.from, view.viewport.from));
+      host.style.top =
+        Math.max(
+          scroll.top - bounds.top,
+          Math.min(
+            (coords ? coords.top : scroll.top) - bounds.top,
+            scroll.bottom - bounds.top - 44,
+          ),
+        ) + 'px';
+    }
+    function disposeDropdown() {
+      var toggle = host.querySelector('[data-bs-toggle="dropdown"]');
+      if (toggle && window.bootstrap) {
+        var dropdown = window.bootstrap.Dropdown.getInstance(toggle);
+        if (dropdown) dropdown.dispose();
+      }
+    }
+    function update() {
+      if (frame === null) frame = requestAnimationFrame(positionMenu);
+    }
+    view.scrollDOM.addEventListener('scroll', update);
+    window.addEventListener('resize', update);
+    update();
+    return {
+      update: update,
+      dispose: function () {
+        if (frame !== null) cancelAnimationFrame(frame);
+        view.scrollDOM.removeEventListener('scroll', update);
+        window.removeEventListener('resize', update);
+        disposeDropdown();
+        wrapper.before(container);
+        wrapper.remove();
+      },
+    };
   }
 
   function parseGuidedExpression(source, context) {
@@ -1098,6 +1244,23 @@
           host.querySelector('[data-md-more-menu]').prepend(menuItem);
         }
       });
+  }
+
+  function sourceWorkspaceIdentity(containerId) {
+    if (containerId === 'section-file-source-editor') {
+      return JSON.stringify([
+        state.project,
+        state.currentView,
+        state.sectionSelectedFile[state.currentView],
+        containerId,
+      ]);
+    }
+    return JSON.stringify([
+      state.project,
+      state.filename,
+      containerId,
+      containerId === 'full-source-editor' ? null : state.selectedBlockId,
+    ]);
   }
 
   function getSourceEditorValue(containerId) {
@@ -1767,7 +1930,6 @@
       activeOrderBlockId: state.activeOrderBlockId,
       rawYaml: state.rawYaml,
       revision: state.revision,
-      metadataRawYaml: state.metadataRawYaml,
     });
   }
 
@@ -1783,12 +1945,10 @@
     state.activeOrderBlockId = model.activeOrderBlockId || null;
     state.rawYaml = typeof model.rawYaml === 'string' ? model.rawYaml : '';
     state.revision = model.revision || null;
-    state.metadataRawYaml =
-      typeof model.metadataRawYaml === 'string' ? model.metadataRawYaml : '';
     state.orderDirty = false;
     state.fullYamlStash = {};
     if (!state.selectedBlockId || !getBlockById(state.selectedBlockId)) {
-      state.selectedBlockId = getDefaultVisibleBlockId();
+      state.selectedBlockId = getDefaultBlockId();
     }
     dirtyState.activate(state.filename, state.selectedBlockId);
     updateTopbarSaveState();
@@ -1816,7 +1976,6 @@
     state.rawYaml =
       typeof data.raw_yaml === 'string' ? data.raw_yaml : state.rawYaml;
     state.revision = data.revision || state.revision;
-    state.metadataRawYaml = data.metadata_raw_yaml || '';
     var nextOrderBlockId = state.activeOrderBlockId;
     if (!nextOrderBlockId || !getBlockById(nextOrderBlockId)) {
       nextOrderBlockId = getDefaultOrderBlockId();
@@ -1831,16 +1990,16 @@
       options.selectedBlockId ||
       data.inserted_block_id ||
       state.selectedBlockId;
-    if (
-      !state.selectedBlockId ||
-      !getBlockById(state.selectedBlockId) ||
-      !isBlockVisibleInOutline(getBlockById(state.selectedBlockId))
-    ) {
-      state.selectedBlockId = getDefaultVisibleBlockId();
+    if (!state.selectedBlockId || !getBlockById(state.selectedBlockId)) {
+      state.selectedBlockId = getDefaultBlockId();
     }
-    state.canvasMode = 'question';
-    state.questionEditMode = 'preview';
-    state.advancedOpen = false;
+    // Saving preserves the workspace; inserting explicitly opens the new block.
+    if (data.inserted_block_id) {
+      state.canvasMode = 'question';
+      state.questionEditMode = 'preview';
+      state.questionBlockTab = 'screen';
+      state.advancedOpen = false;
+    }
     state.fullYamlStash = {};
     var savedModel = captureInterviewModel();
     if (options.savedBlockId) {
@@ -1891,7 +2050,6 @@
     state.orderStepMap = data.order_step_map || {};
     state.rawYaml = data.raw_yaml;
     state.revision = data.saved_revision || state.revision;
-    state.metadataRawYaml = data.metadata_raw_yaml || '';
     state.fullYamlStash = {};
     state.orderDirty = false;
     state.canvasMode = 'question';
@@ -1904,8 +2062,8 @@
         : data.order_steps || [],
     );
     var selected = getBlockById(state.selectedBlockId);
-    if (!selected || !isBlockVisibleInOutline(selected)) {
-      state.selectedBlockId = getDefaultVisibleBlockId();
+    if (!selected) {
+      state.selectedBlockId = getDefaultBlockId();
     }
     dirtyState.activate(state.filename, state.selectedBlockId);
     dirtyState.markSourceDirty(
@@ -6070,7 +6228,7 @@
       if (file.section === 'interview') {
         state.currentView = 'interview';
         state.filename = file.filename;
-        state.canvasMode = 'full-yaml';
+        enterFullYaml();
         populateFiles();
         var interviewTab = document.querySelector(
           '.editor-top-tab[data-view="interview"]',
@@ -7938,12 +8096,11 @@
 
   function markInterviewDirty(commandId) {
     dirtyState.activate(state.filename, state.selectedBlockId);
-    if (state.canvasMode === 'full-yaml' && state.fullYamlTab !== 'order') {
+    if (state.canvasMode === 'full-yaml') {
       dirtyState.markSourceDirty(commandId);
     } else {
       dirtyState.markBlockDirty(
-        state.canvasMode === 'order-builder' ||
-          (state.canvasMode === 'full-yaml' && state.fullYamlTab === 'order')
+        state.canvasMode === 'order-builder'
           ? state.activeOrderBlockId
           : state.selectedBlockId,
         commandId,
@@ -7961,8 +8118,8 @@
     // Hydration temporarily replaces the form with a loading message. Reading
     // that DOM as a question would mistake absent field rows for deleted fields.
     if (routeApplying) return;
-    _stashFullYamlContent();
     if (!isInterviewView()) return;
+    _stashFullYamlContent();
     if (state.canvasMode === 'order-builder') {
       if (syncInlineOrderEdit()) markOrderDirty();
       syncActiveOrderStepMap();
@@ -9709,9 +9866,13 @@
       return yaml;
     }
 
-    var label =
-      String(field.label || field.question || 'Field').trim() || 'Field';
-    var variable = String(field.field || field.variable || '').trim();
+    var noLabelBinding = typeof field['no label'] === 'string';
+    var label = noLabelBinding
+      ? 'no label'
+      : String(field.label || field.question || 'Field').trim() || 'Field';
+    var variable = String(
+      noLabelBinding ? field['no label'] : field.field || field.variable || '',
+    ).trim();
     var datatype =
       String(field.datatype || field.type || 'text').trim() || 'text';
     var hasChoices =
@@ -9724,6 +9885,7 @@
     keys.forEach(function (key) {
       if (
         reserved[key] ||
+        (key === 'no label' && noLabelBinding) ||
         key === 'label' ||
         key === 'question' ||
         key === 'field' ||
@@ -9738,7 +9900,9 @@
       extraMods.push(key);
     });
 
-    if (
+    if (label === 'no label') {
+      yaml += '  - no label: ' + escapeYamlStr(variable) + '\n';
+    } else if (
       label.indexOf('\n') !== -1 ||
       datatype !== 'text' ||
       hasChoices ||
@@ -10405,7 +10569,12 @@
       (extraHandled || []).forEach(function (key) {
         if (key) handled.push(key);
       });
-      var variableName = original.field || original.variable;
+      var variableName =
+        original.field ||
+        original.variable ||
+        (typeof original['no label'] === 'string'
+          ? original['no label']
+          : null);
       var copied = false;
       Object.keys(original).forEach(function (key) {
         if (
@@ -10538,8 +10707,9 @@
         continue;
       }
       // Use expanded label:/field: format for round-trip fidelity with modifiers
-      var fieldObj = { label: label };
-      if (variable) fieldObj.field = variable;
+      var fieldObj =
+        label === 'no label' ? { 'no label': variable } : { label: label };
+      if (variable && label !== 'no label') fieldObj.field = variable;
       if (type && type !== 'text') fieldObj.datatype = type;
       if (hasChoices) {
         var originalChoices = (previousFields[rowIdx] || {}).choices;
@@ -11089,11 +11259,10 @@
         state.orderStepMap = d.order_step_map || {};
         state.rawYaml = d.raw_yaml || '';
         state.revision = d.revision || null;
-        state.metadataRawYaml = d.metadata_raw_yaml || '';
         state.fullYamlStash = {};
         state.selectedBlockId = getBlockById(selectedBlockId)
           ? selectedBlockId
-          : getDefaultVisibleBlockId();
+          : getDefaultBlockId();
         setActiveOrderBlock(getDefaultOrderBlockId(), d.order_steps || []);
         loadedInterviewKey = interviewKey();
         dirtyState.setFileSaved(
@@ -11474,28 +11643,23 @@
       'd-none',
       !isInterviewView() || counts.total === 0,
     );
-    if (counts.hasSearch && counts.kindVisible < counts.total) {
-      countEl.textContent =
-        'Showing ' +
-        counts.visible +
-        ' of ' +
-        counts.kindVisible +
-        ' block' +
-        (counts.kindVisible === 1 ? '' : 's') +
-        ' (' +
-        counts.total +
-        ' total)';
-    } else {
-      var visible = counts.hasSearch ? counts.visible : counts.kindVisible;
-      countEl.textContent =
-        'Showing ' +
-        visible +
-        ' of ' +
-        counts.total +
-        ' block' +
-        (counts.total === 1 ? '' : 's');
-    }
-    showAllBtn.classList.toggle('d-none', counts.kindVisible >= counts.total);
+    countEl.textContent =
+      counts.visible +
+      ' of ' +
+      counts.total +
+      (counts.total === 1 ? ' block' : ' blocks');
+    var selected = getBlockById(state.selectedBlockId);
+    var currentHidden =
+      isInterviewView() &&
+      (state.canvasMode === 'question' || state.canvasMode === 'full-yaml') &&
+      selected &&
+      !isBlockVisibleInOutline(selected);
+    var hiddenCurrent = document.getElementById('outline-current-hidden');
+    if (hiddenCurrent) hiddenCurrent.hidden = !currentHidden;
+    showAllBtn.classList.toggle(
+      'd-none',
+      counts.kindVisible >= counts.total || Boolean(currentHidden),
+    );
   }
 
   function isBlockVisibleInOutline(block) {
@@ -11507,10 +11671,11 @@
     return false;
   }
 
-  function getDefaultVisibleBlockId() {
+  function getDefaultBlockId() {
     var visible = filteredBlocks();
     if (visible.length > 0) return visible[0].id;
-    return null;
+    // A list filter must not prevent a nonempty file from having a workspace.
+    return state.blocks.length ? state.blocks[0].id : null;
   }
 
   function blockQuickView(block, limit) {
@@ -11861,21 +12026,10 @@
   // Canvas dispatcher
   // -------------------------------------------------------------------------
   function getSelectedBlock() {
-    if (!state.selectedBlockId) {
-      var defaultId = getDefaultVisibleBlockId();
-      return defaultId ? getBlockById(defaultId) : null;
-    }
-    for (var i = 0; i < state.blocks.length; i++) {
-      if (state.blocks[i].id === state.selectedBlockId) {
-        if (!isBlockVisibleInOutline(state.blocks[i])) {
-          var visibleId = getDefaultVisibleBlockId();
-          return visibleId ? getBlockById(visibleId) : null;
-        }
-        return state.blocks[i];
-      }
-    }
-    var fallbackId = getDefaultVisibleBlockId();
-    return fallbackId ? getBlockById(fallbackId) : null;
+    // Selection belongs to the workspace, independently of the outline filter.
+    return (
+      getBlockById(state.selectedBlockId) || getBlockById(getDefaultBlockId())
+    );
   }
 
   function isQuestionEditorBlock(block) {
@@ -11966,35 +12120,12 @@
     var fileDirtyState = dirtyState.getFileState(state.filename);
     if (fileDirtyState && fileDirtyState.sourceDirty) {
       _stashFullYamlContent();
-      var sourceTab = state.fullYamlTab || 'full';
-      var hasStashedSource = Object.prototype.hasOwnProperty.call(
+      var sourceContent = Object.prototype.hasOwnProperty.call(
         state.fullYamlStash,
-        sourceTab,
-      );
-      var sourceContent = hasStashedSource
-        ? state.fullYamlStash[sourceTab]
+        'full',
+      )
+        ? state.fullYamlStash.full
         : state.rawYaml;
-      if (sourceTab === 'metadata') {
-        return apiPost('/api/file/metadata', {
-          project: state.project,
-          filename: state.filename,
-          raw_yaml: sourceContent,
-          expected_revision: state.revision,
-        })
-          .then(function (res) {
-            if (!res.success || !res.data) return false;
-            refreshFromFileResponse(res.data);
-            return true;
-          })
-          .catch(function (error) {
-            if (isSupersededRequest(error)) return false;
-            window.alert(
-              'Unable to save metadata safely: ' +
-                String((error && error.message) || error || 'Unknown error'),
-            );
-            return false;
-          });
-      }
       return apiPost('/api/file', {
         project: state.project,
         filename: state.filename,
@@ -12045,19 +12176,12 @@
           return false;
         });
     }
-    var editingRawOrder =
-      state.canvasMode === 'full-yaml' && state.fullYamlTab === 'order';
-    var block = editingRawOrder
-      ? getBlockById(state.activeOrderBlockId)
-      : getSelectedBlock();
+    var block = getSelectedBlock();
     if (!block) return Promise.resolve(true);
     var originalBlockId = block.id;
-    if (editingRawOrder) _stashFullYamlContent();
     var yamlVal;
     try {
-      yamlVal = editingRawOrder
-        ? state.fullYamlStash.order
-        : getBlockYamlForSave(block);
+      yamlVal = getBlockYamlForSave(block);
     } catch (error) {
       window.alert(error.message || 'Check the screen settings before saving.');
       return Promise.resolve(false);
@@ -12071,10 +12195,7 @@
       allow_empty_question: Boolean(
         state.blankQuestionAllowed[blankQuestionKey(block)],
       ),
-      edit_mode:
-        editingRawOrder || state.questionEditMode !== 'preview'
-          ? 'source'
-          : 'graphical',
+      edit_mode: state.questionEditMode !== 'preview' ? 'source' : 'graphical',
     })
       .then(function (res) {
         if (!res.success || !res.data) {
@@ -12487,22 +12608,13 @@
       hasUnsavedChanges: hasDirtySource || hasDirtyBlocks,
     };
 
-    if (hasDirtySource && state.fullYamlTab === 'full') {
+    if (hasDirtySource) {
       if (!Object.prototype.hasOwnProperty.call(state.fullYamlStash, 'full')) {
         throw new Error(
           'The unsaved full source buffer is not available. Reopen source mode and try again.',
         );
       }
       options.fullSource = state.fullYamlStash.full;
-    } else if (hasDirtySource && state.fullYamlTab === 'metadata') {
-      if (
-        !Object.prototype.hasOwnProperty.call(state.fullYamlStash, 'metadata')
-      ) {
-        throw new Error(
-          'The unsaved metadata buffer is not available. Reopen source mode and try again.',
-        );
-      }
-      options.metadataSource = state.fullYamlStash.metadata;
     }
 
     if (!hasDirtySource && hasDirtyBlocks) {
@@ -12510,10 +12622,7 @@
         var block = getBlockById(blockId);
         if (!block)
           throw new Error('Cannot find unsaved block ' + blockId + '.');
-        var isActiveBlock =
-          blockId === state.selectedBlockId ||
-          (state.fullYamlTab === 'order' &&
-            blockId === state.activeOrderBlockId);
+        var isActiveBlock = blockId === state.selectedBlockId;
         options.blockReplacements[blockId] = isActiveBlock
           ? getBlockYamlForSave(block)
           : block.yaml;
@@ -12721,11 +12830,9 @@
       dirtyState.markSourceDirty('open-validation-source');
       updateTopbarSaveState();
     }
-    state.currentView = 'interview';
+    enterFullYaml();
     state.validationOpen = true;
     if (state.validationDock === 'full') setValidationDock('side');
-    state.canvasMode = 'full-yaml';
-    state.fullYamlTab = 'full';
     var interviewTab = document.querySelector(
       '.editor-top-tab[data-view="interview"]',
     );
@@ -12909,7 +13016,7 @@
       if (err.filename) lineText += String(err.filename).split('/').pop();
       var findingLabel = err.block_id
         ? 'Open interview block ' + String(err.block_id) + ': '
-        : 'Open full YAML: ';
+        : 'Open full file YAML: ';
       html +=
         '<li><button type="button" class="editor-validation-item editor-validation-item-linked"' +
         (err.block_id
@@ -13070,7 +13177,7 @@
     html +=
       'The expression above lives in the <code>' +
       esc(blockId) +
-      '</code> block: open that block in the outline, or use YAML source, and edit it there. ';
+      '</code> block: open that block in the outline, or use Full file YAML, and edit it there. ';
     html += 'Saving here leaves it exactly as it is.';
     html += '</div>';
     return html;
@@ -13281,7 +13388,9 @@
     html +=
       '</h2><p class="text-muted small mb-0">Edit publishing metadata and predefined AssemblyLine variables without finding their YAML or code blocks.</p></div>';
     html +=
-      '<div class="d-flex gap-2"><button class="btn btn-sm btn-outline-secondary" id="close-assemblyline-settings">Back</button><button class="btn btn-sm btn-primary" id="save-assemblyline-settings"' +
+      '<div class="d-flex gap-2"><button class="btn btn-sm btn-outline-secondary" id="close-assemblyline-settings">' +
+      esc(workspaceReturnLabel()) +
+      '</button><button class="btn btn-sm btn-primary" id="save-assemblyline-settings"' +
       (state.assemblyLineSettingsDirty ? '' : ' disabled') +
       '>Save settings</button></div></div></div>';
     html +=
@@ -13426,8 +13535,399 @@
       });
   }
 
+  function blockRepresentationName(block, mode) {
+    if (block.type === 'commented') return 'Disabled block YAML';
+    if (mode === 'yaml') return 'Block YAML';
+    if (block.type === 'code') return 'Python';
+    if (
+      isQuestionEditorBlock(block) ||
+      isTemplateEditorBlock(block) ||
+      ['review', 'objects', 'attachment'].indexOf(block.type) !== -1
+    )
+      return 'Visual editor';
+    return 'Block YAML';
+  }
+
+  function blockRepresentationControls(visualLabel) {
+    return (
+      '<div class="btn-group" role="group" aria-label="Block representation">' +
+      ['preview', 'yaml']
+        .map(function (mode) {
+          var selected = state.questionEditMode === mode;
+          return (
+            '<button type="button" class="btn btn-sm ' +
+            (selected ? 'btn-primary' : 'btn-outline-secondary') +
+            '" aria-pressed="' +
+            selected +
+            '" data-question-mode="' +
+            mode +
+            '">' +
+            (mode === 'yaml' ? 'Block YAML' : visualLabel) +
+            '</button>'
+          );
+        })
+        .join('') +
+      '</div>'
+    );
+  }
+
+  function resetOutlineForFullFile() {
+    state.jumpTarget = 'all';
+    state.searchQuery = '';
+    searchInput.value = '';
+    syncJumpSelect();
+  }
+
+  function enterFullYaml() {
+    workspaceReturn = null;
+    state.currentView = 'interview';
+    state.canvasMode = 'full-yaml';
+    resetOutlineForFullFile();
+    renderOutline();
+  }
+
+  function rememberWorkspace() {
+    if (
+      !isInterviewView() ||
+      ['question', 'order-builder', 'full-yaml'].indexOf(state.canvasMode) ===
+        -1
+    )
+      return;
+    workspaceReturn = {
+      project: state.project,
+      filename: state.filename,
+      blockId: state.selectedBlockId,
+      mode: state.canvasMode,
+      representation: state.questionEditMode,
+      panel: state.questionBlockTab,
+      filter: state.jumpTarget,
+      search: state.searchQuery,
+      outlineScroll: outlineList.scrollTop,
+    };
+  }
+
+  function validWorkspaceReturn() {
+    return (
+      workspaceReturn &&
+      workspaceReturn.project === state.project &&
+      workspaceReturn.filename === state.filename &&
+      (['order-builder', 'full-yaml'].indexOf(workspaceReturn.mode) !== -1 ||
+        getBlockById(workspaceReturn.blockId))
+    );
+  }
+
+  function workspaceReturnLabel() {
+    if (!validWorkspaceReturn()) return 'Open blocks';
+    if (workspaceReturn.mode === 'order-builder')
+      return 'Return to Interview order';
+    if (workspaceReturn.mode === 'full-yaml') return 'Return to Full file YAML';
+    var block = getBlockById(workspaceReturn.blockId);
+    return (
+      'Return to ' +
+      (block.title || block.id) +
+      ' · ' +
+      blockRepresentationName(block, workspaceReturn.representation)
+    );
+  }
+
+  function restoreWorkspace() {
+    if (!validWorkspaceReturn()) {
+      state.canvasMode = 'question';
+      state.questionEditMode = 'preview';
+      if (!getBlockById(state.selectedBlockId))
+        state.selectedBlockId = getDefaultBlockId();
+      dirtyState.setActiveBlock(state.selectedBlockId);
+      renderOutline();
+      return;
+    }
+    state.canvasMode = workspaceReturn.mode;
+    state.selectedBlockId = workspaceReturn.blockId;
+    state.questionEditMode = workspaceReturn.representation;
+    state.questionBlockTab = workspaceReturn.panel;
+    state.jumpTarget = workspaceReturn.filter;
+    state.searchQuery = workspaceReturn.search;
+    searchInput.value = state.searchQuery;
+    syncJumpSelect();
+    dirtyState.setActiveBlock(state.selectedBlockId);
+    renderOutline();
+    outlineList.scrollTop = workspaceReturn.outlineScroll;
+  }
+
+  // One description supplies the persistent location trail and browser title.
+  function editingLocation() {
+    var interview = isInterviewView();
+    var documents =
+      state.currentView === 'templates' && state.templatesMode === 'documents';
+    var block = getSelectedBlock();
+    var filename =
+      interview || documents
+        ? state.filename
+        : state.sectionSelectedFile[state.currentView];
+    var names = {
+      'order-builder': 'Interview order',
+      'assemblyline-settings': 'Settings',
+      'tests-overview': 'Tests',
+      'runtime-inspector': 'Debug',
+    };
+    var resource = documents
+      ? 'Document setup'
+      : interview
+        ? names[state.canvasMode] || ''
+        : {
+            templates: 'Templates',
+            modules: 'Modules',
+            static: 'Static files',
+            data: 'Sources',
+          }[state.currentView] || '';
+    if (interview && state.canvasMode === 'question' && block) {
+      resource = block.title || block.id;
+    } else if (interview && state.canvasMode === 'full-yaml') {
+      resource = 'Full file YAML';
+    }
+    return {
+      filename: filename,
+      resource: resource,
+      fileMode:
+        interview &&
+        (state.canvasMode === 'full-yaml' ||
+          (state.canvasMode === 'question' &&
+            block &&
+            blockRepresentationName(block, state.questionEditMode) ===
+              'Block YAML'))
+          ? 'full-yaml'
+          : 'question',
+      readOnly:
+        interview &&
+        state.canvasMode === 'question' &&
+        block &&
+        block.type === 'commented',
+      interview: interview || documents,
+    };
+  }
+
+  function renderWorkspaceLocation() {
+    var host = document.getElementById('editor-location');
+    if (!host) return;
+    var location = editingLocation();
+    host.hidden =
+      !state.project ||
+      !location.filename ||
+      (isInterviewView() &&
+        ['project-selector', 'new-project'].indexOf(state.canvasMode) !== -1);
+    document.title =
+      [location.resource, location.filename, state.project]
+        .filter(Boolean)
+        .join(' · ') + ' — Weaver';
+    if (host.hidden) return;
+    var href = router.routeForState({
+      project: state.project,
+      filename: state.filename,
+      view: 'interview',
+      mode: location.fileMode,
+      blockId: location.fileMode === 'question' ? state.selectedBlockId : null,
+    });
+    host.innerHTML =
+      '<nav aria-label="Editing location"><ol class="breadcrumb mb-0">' +
+      '<li class="breadcrumb-item">' +
+      (location.interview
+        ? '<a href="' +
+          esc(href) +
+          '" data-action="' +
+          (location.fileMode === 'full-yaml'
+            ? 'open-full-yaml'
+            : 'open-block-workspace') +
+          '">' +
+          esc(location.filename) +
+          '</a>'
+        : esc(location.resource)) +
+      '</li><li class="breadcrumb-item active" aria-current="page">' +
+      esc(location.interview ? location.resource : location.filename) +
+      '</li></ol></nav>' +
+      (location.readOnly
+        ? '<span class="badge text-bg-secondary">Read only</span>'
+        : '') +
+      '<div class="d-flex align-items-center gap-1">' +
+      (isInterviewView() && state.canvasMode === 'question'
+        ? '<button type="button" class="btn btn-sm btn-link" data-action="open-full-yaml">Full file YAML</button>'
+        : isInterviewView() && state.canvasMode === 'full-yaml'
+          ? '<button type="button" class="btn btn-sm btn-link" id="back-to-question"' +
+            (sourceCursorBlockId ? '' : ' disabled') +
+            '>' +
+            esc(sourceBlockActionLabel()) +
+            '</button>'
+          : '') +
+      '</div>';
+  }
+
+  function sourceBlockMenu() {
+    var block = getBlockById(
+      state.canvasMode === 'full-yaml'
+        ? sourceCursorBlockId
+        : state.selectedBlockId,
+    );
+    var representation = block && blockRepresentationName(block, 'preview');
+    var editLabel =
+      representation === 'Visual editor'
+        ? 'Edit in visual mode'
+        : representation === 'Python'
+          ? 'Edit Python'
+          : 'Open block YAML';
+    return (
+      '<div class="dropdown">' +
+      '<button type="button" class="btn btn-sm btn-link text-secondary" id="source-block-actions" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Block actions" title="Block actions">' +
+      '<i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>' +
+      '<ul class="dropdown-menu dropdown-menu-end" aria-labelledby="source-block-actions">' +
+      '<li><button type="button" class="dropdown-item" data-action="edit-source-block"' +
+      (block ? '' : ' disabled') +
+      '>' +
+      editLabel +
+      '</button></li>' +
+      '<li><button type="button" class="dropdown-item" data-action="open-screen-preview"' +
+      (block && PREVIEWABLE_BLOCK_TYPES.indexOf(block.type) !== -1
+        ? ''
+        : ' disabled') +
+      '>Preview</button></li></ul></div>'
+    );
+  }
+
+  var sourceCursorBlockId = null;
+
+  function conciseBlockTitle(block) {
+    var text =
+      String(
+        (block.data && block.data.question) || block.title || block.id || '',
+      )
+        .replace(/<%[\s\S]*?%>/g, '')
+        .split('\n')
+        .filter(function (line) {
+          return line.trim() && !/^\s*(%|##)/.test(line);
+        })[0] ||
+      block.id ||
+      'block';
+    text = text
+      .replace(/\$\{[^}]*\}/g, '…')
+      .replace(/<[^>]+>/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (text.length > 48) {
+      var short = text.slice(0, 47);
+      var space = short.lastIndexOf(' ');
+      text = (space > 24 ? short.slice(0, space) : short) + '…';
+    }
+    return text;
+  }
+
+  function sourceBlockActionLabel() {
+    var block = getBlockById(sourceCursorBlockId);
+    if (!block) return 'Open block editor';
+    var title = conciseBlockTitle(block);
+    var representation = blockRepresentationName(block, 'preview');
+    if (representation === 'Visual editor')
+      return 'Edit ' + title + ' visually';
+    if (representation === 'Python') return 'Edit ' + title + ' in Python';
+    return 'Open ' + title + ' · ' + representation;
+  }
+
+  function updateSourceCursorBlock(content, position) {
+    var block = state.blocks.find(function (candidate) {
+      var range = sourceBlockRange(
+        content,
+        candidate,
+        (candidate.yaml || '').replace(/\r\n?/g, '\n'),
+      );
+      return range && position >= range.from && position <= range.to;
+    });
+    // Separators, trailing comments, and blank lines may be outside the
+    // parser's block spans. In the parsed buffer they belong to the nearest
+    // preceding block (or the first block before any block has started).
+    if (!block && content === state.rawYaml.replace(/\r\n?/g, '\n')) {
+      state.blocks.forEach(function (candidate) {
+        var range = sourceBlockRange(
+          content,
+          candidate,
+          (candidate.yaml || '').replace(/\r\n?/g, '\n'),
+        );
+        if (range && (!block || range.from <= position)) block = candidate;
+      });
+    }
+    var nextId = block ? block.id : null;
+    var changed =
+      nextId !== sourceCursorBlockId ||
+      (block && state.selectedBlockId !== nextId);
+    sourceCursorBlockId = nextId;
+    if (block) state.selectedBlockId = block.id;
+    if (!changed) return;
+    renderOutline();
+    renderWorkspaceLocation();
+  }
+
+  function sourceBlockRange(content, block, blockSource) {
+    // Server ranges identify even duplicate documents. Check the text as well
+    // before trusting offsets; older responses without ranges use a unique match.
+    // Cursor movement checks many blocks in the same buffer. Index line starts
+    // once rather than splitting and joining the whole file for each block.
+    var index = sourceBlockRange.lineIndex;
+    if (!index || index.content !== content) {
+      var starts = [0];
+      for (var i = 0; i < content.length; i++) {
+        if (content[i] === '\n') starts.push(i + 1);
+      }
+      index = { content: content, starts: starts };
+      sourceBlockRange.lineIndex = index;
+    }
+    if (
+      Number.isInteger(block.line_start) &&
+      Number.isInteger(block.line_end) &&
+      block.line_start > 0 &&
+      block.line_end >= block.line_start &&
+      block.line_end <= index.starts.length
+    ) {
+      var from = index.starts[block.line_start - 1];
+      var to =
+        block.line_end < index.starts.length
+          ? index.starts[block.line_end] - 1
+          : content.length;
+      if (content.slice(from, to).trim() === blockSource.trim())
+        return { from: from, to: to };
+    }
+    var start = blockSource ? content.indexOf(blockSource) : -1;
+    if (start < 0 || content.indexOf(blockSource, start + 1) !== -1)
+      return null;
+    return { from: start, to: start + blockSource.length };
+  }
+
+  function revealBlockInFullSource(blockId) {
+    var editor = _sourceEditors['full-source-editor'];
+    var block = getBlockById(blockId);
+    var status = document.getElementById('source-outline-status');
+    if (!editor || !block) return;
+    var content = editor.getValue();
+    // CodeMirror positions use LF regardless of the file's original line endings.
+    var parsedSource = state.rawYaml.replace(/\r\n?/g, '\n');
+    var blockSource = (block.yaml || '').replace(/\r\n?/g, '\n');
+    if (content !== parsedSource) {
+      if (status)
+        status.textContent =
+          'The outline shows the last parsed version. Save your YAML before navigating to a block in source.';
+      return;
+    }
+    var range = sourceBlockRange(content, block, blockSource);
+    if (!range) {
+      if (status)
+        status.textContent =
+          'This block cannot be located uniquely in the source. Use Blocks to open its block editor.';
+      return;
+    }
+    editor.reveal(range.from, range.to);
+    if (status) status.textContent = '';
+    // Also synchronize when revealing an already-selected range dispatches no
+    // selection change; the usual listener makes this call a no-op.
+    updateSourceCursorBlock(content, range.from);
+  }
+
   function renderCanvas() {
     scheduleEditorRoute();
+    renderWorkspaceLocation();
     disposeSourceEditors();
     window.WeaverMarkdown.dispose(canvasContent);
     // Runtime observations finish asynchronously. Every non-debugger render
@@ -13512,38 +14012,11 @@
   // -------------------------------------------------------------------------
   // Block canvas — type-specific renderers
   // -------------------------------------------------------------------------
-  // An empty canvas means one of three different things, and saying "No blocks
-  // in this file" for all of them contradicts the outline's own block count.
+  // Filters never empty the workspace: a nonempty file keeps a selected block.
   function emptyCanvasHtml() {
-    var counts = outlineFilterCounts();
-    if (counts.total === 0) {
+    if (!state.blocks.length) {
       return '<div class="text-center py-5 text-muted"><p>No blocks in this file. Click + in the outline to add one.</p></div>';
     }
-    if (counts.hasSearch) {
-      return (
-        '<div class="text-center py-5 text-muted">' +
-        '<p>No blocks match &ldquo;' +
-        esc(state.searchQuery.trim()) +
-        '&rdquo; in the current outline view.</p>' +
-        '<button type="button" class="btn btn-sm btn-outline-secondary" data-action="clear-block-search">Clear search</button>' +
-        '</div>'
-      );
-    }
-    var hidden = counts.total - counts.kindVisible;
-    if (counts.kindVisible === 0) {
-      return (
-        '<div class="text-center py-5 text-muted">' +
-        '<p>No blocks match the current outline view.</p>' +
-        '<p class="mb-3">' +
-        esc(String(hidden)) +
-        ' block' +
-        (hidden === 1 ? ' is' : 's are') +
-        ' hidden by the <strong>Show</strong> filter.</p>' +
-        '<button type="button" class="btn btn-sm btn-outline-secondary" data-action="show-all-blocks">Show all blocks</button>' +
-        '</div>'
-      );
-    }
-    // Blocks are visible but none is selected — a stale selection, not a filter.
     return '<div class="text-center py-5 text-muted"><p>Select a block in the outline to edit it.</p></div>';
   }
 
@@ -13581,7 +14054,7 @@
       canvasContent.innerHTML =
         '<div class="editor-center-bar"><h2 class="h5">' +
         esc(block.title) +
-        '</h2><button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">Edit YAML</button></div><div class="editor-card"><div class="editor-card-body"><p>Map template fields to interview values, including conditional Mako expressions.</p><button class="btn btn-primary" data-edit-attachment-mappings>Edit field mappings</button></div></div>';
+        '</h2><button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">Block YAML</button></div><div class="editor-card"><div class="editor-card-body"><p>Map template fields to interview values, including conditional Mako expressions.</p><button class="btn btn-primary" data-edit-attachment-mappings>Edit field mappings</button></div></div>';
     } else {
       renderGenericBlock(block);
     }
@@ -13598,7 +14071,7 @@
       esc(String(data.template || 'Template')) +
       '</div></div>';
     html +=
-      '<button class="btn btn-sm btn-outline-primary editor-template-action" id="toggle-edit-mode"><i class="fa-solid fa-code me-1" aria-hidden="true"></i>YAML</button></div>';
+      '<button class="btn btn-sm btn-outline-primary editor-template-action" id="toggle-edit-mode"><i class="fa-solid fa-code me-1" aria-hidden="true"></i>Block YAML</button></div>';
     html +=
       '<div class="editor-shell"><div class="editor-card"><div class="editor-card-body">';
     html += '<div class="editor-form-group">';
@@ -13963,6 +14436,7 @@
   function _screenPreviewData(block, notes) {
     if (block.type === 'question') {
       if (
+        state.canvasMode === 'question' &&
         state.questionEditMode === 'preview' &&
         syncFieldsToData(block) === false
       )
@@ -13994,7 +14468,10 @@
   }
 
   function openScreenPreview() {
-    var block = getSelectedBlock();
+    var block =
+      state.canvasMode === 'full-yaml'
+        ? getBlockById(sourceCursorBlockId)
+        : getSelectedBlock();
     if (!block || PREVIEWABLE_BLOCK_TYPES.indexOf(block.type) === -1) return;
     if (typeof ALWeaverScreenPreview === 'undefined') return;
 
@@ -14002,7 +14479,7 @@
     if (titleEl) titleEl.textContent = block.title || block.id || 'Screen';
 
     var notes = [];
-    if (state.questionEditMode === 'yaml') {
+    if (state.canvasMode === 'full-yaml' || state.questionEditMode === 'yaml') {
       // The YAML buffer is only re-parsed into block.data on save, so say so
       // rather than showing a stale screen as if it were current.
       notes.push(
@@ -14042,7 +14519,14 @@
     var stage = document.getElementById('screen-preview-stage');
     if (stage) stage.setAttribute('data-preview-width', _screenPreviewWidth);
     var frame = document.getElementById('screen-preview-frame');
-    if (frame) frame.srcdoc = doc;
+    if (frame) {
+      // Reusing srcdoc adds an iframe navigation to the browser's joint history
+      // and can discard Forward destinations after Back. Start a fresh preview
+      // browsing context so previewing a block does not change editor history.
+      var nextFrame = frame.cloneNode(false);
+      nextFrame.srcdoc = doc;
+      frame.replaceWith(nextFrame);
+    }
 
     var modal = getOrCreateBootstrapModal('screen-preview-modal');
     if (modal) modal.show();
@@ -14630,22 +15114,16 @@
     }
     var html = '';
 
-    // Header bar — matches Code / Objects pattern
-    html += '<div class="editor-center-bar">';
-    html += '<div>';
-    html += '<span class="editor-pill">Question</span>';
-    if (data.mandatory) html += ' <span class="editor-pill">mandatory</span>';
-    if (data.event)
-      html +=
-        ' <span class="editor-pill">event: ' +
-        esc(String(data.event)) +
-        '</span>';
-    html +=
-      '<div style="font-weight:600;font-size:1rem;margin-top:6px">' +
-      esc(block.title) +
-      '</div>';
-    html += '</div>';
-    html += '</div>';
+    if (data.mandatory || data.event) {
+      html += '<div class="editor-center-bar"><div>';
+      if (data.mandatory) html += '<span class="editor-pill">mandatory</span>';
+      if (data.event)
+        html +=
+          ' <span class="editor-pill">event: ' +
+          esc(String(data.event)) +
+          '</span>';
+      html += '</div></div>';
+    }
 
     html += '<div class="editor-shell">';
 
@@ -14669,7 +15147,7 @@
       (state.questionEditMode === 'yaml' ? 'active' : '') +
       '" id="toggle-edit-mode-tab" aria-controls="question-yaml-panel" aria-selected="' +
       (state.questionEditMode === 'yaml' ? 'true' : 'false') +
-      '" data-question-mode="yaml"><i class="fa-solid fa-code me-1" aria-hidden="true"></i>YAML</button></li>';
+      '" data-question-mode="yaml"><i class="fa-solid fa-code me-1" aria-hidden="true"></i>Block YAML</button></li>';
     html += '</ul>';
     if (isPreview && state.questionBlockTab === 'screen') {
       // Keep the editable ID beside the tabs, without a separate form row.
@@ -14854,7 +15332,8 @@
                       label = contentText;
                       varName = '';
                     } else if (firstKey === 'no label') {
-                      label = '(no label)';
+                      label = 'no label';
+                      dtype = f.datatype || 'text';
                       varName = typeof val === 'string' ? val : '';
                     } else {
                       varName = typeof val === 'string' ? val : '';
@@ -14899,6 +15378,7 @@
                       mk !== 'datatype' &&
                       mk !== 'choices' &&
                       mk !== 'code' &&
+                      !(mk === 'no label' && typeof f[mk] === 'string') &&
                       f[mk] !== undefined
                     ) {
                       fmods[mk] = f[mk];
@@ -15278,10 +15758,7 @@
       '<button type="button" class="btn btn-sm btn-outline-primary" data-action="open-screen-preview" title="See this screen the way Docassemble will draw it"><i class="fa-regular fa-eye me-1" aria-hidden="true"></i>Preview</button>';
     html +=
       '<button class="btn btn-sm btn-outline-secondary" id="draft-review-screen" title="Re-draft this review screen from the questions the interview asks today, including questions in files it includes"><i class="fa-solid fa-arrows-rotate me-1" aria-hidden="true"></i>Sync from questions</button>';
-    html +=
-      '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">' +
-      (isYaml ? 'Structured view' : 'Edit full YAML') +
-      '</button>';
+    html += blockRepresentationControls('Visual editor');
     html += '</div>';
     html += '</div>';
 
@@ -15592,8 +16069,7 @@
     }
     html +=
       '<button class="btn btn-sm btn-outline-secondary" id="code-to-order-builder">Interview order mode</button>';
-    html +=
-      '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">Edit full YAML</button>';
+    html += blockRepresentationControls('Python');
     html += '</div></div>';
 
     html += '<div class="editor-shell">';
@@ -15678,10 +16154,7 @@
       '</div>';
     html += '</div>';
     html += '<div class="d-flex gap-2">';
-    html +=
-      '<button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">' +
-      (state.questionEditMode === 'preview' ? 'Edit YAML' : 'Structured view') +
-      '</button>';
+    html += blockRepresentationControls('Visual editor');
     html += '</div></div>';
 
     html += '<div class="editor-shell">';
@@ -16271,7 +16744,7 @@
           esc(key) +
           ' ' +
           message +
-          ' Edit it in Full YAML.' +
+          ' Edit it in Block YAML.' +
           '</div>'
         );
       }
@@ -17471,109 +17944,58 @@
   // Full YAML source editor
   // -------------------------------------------------------------------------
   function _stashFullYamlContent() {
-    if (state.canvasMode !== 'full-yaml') return;
-    var content = getSourceEditorValue('full-source-editor');
+    if (!isInterviewView() || state.canvasMode !== 'full-yaml') return;
+    var editor = _sourceEditors['full-source-editor'];
+    if (
+      !editor ||
+      editor.identity !== sourceWorkspaceIdentity('full-source-editor')
+    )
+      return;
+    var content = editor.getValue();
     if (content !== undefined && content !== null) {
-      state.fullYamlStash[state.fullYamlTab] = content;
+      state.fullYamlStash.full = content;
     }
   }
 
   function renderFullYaml() {
-    var html = '<div class="editor-full-yaml-shell">';
-    html += '<div class="editor-full-yaml-header">';
-    html +=
-      '<div><h2 style="font-weight:700;font-size:1.125rem;margin:0">Full YAML</h2></div>';
-    html += '<div class="d-flex gap-2">';
-    var backLabel =
-      state._prevCanvasMode === 'order-builder'
-        ? '\u2190 Interview Order'
-        : 'Back to blocks';
-    html +=
-      '<button class="btn btn-sm btn-outline-secondary" id="back-to-question">' +
-      backLabel +
-      '</button>';
-    html += '</div></div>';
-
-    html += '<div class="editor-tab-bar">';
-    html +=
-      '<button class="btn ' +
-      (state.fullYamlTab === 'full' ? 'btn-primary' : 'btn-outline-secondary') +
-      '" data-yaml-tab="full">Full YAML</button>';
-    html +=
-      '<button class="btn ' +
-      (state.fullYamlTab === 'order'
-        ? 'btn-primary'
-        : 'btn-outline-secondary') +
-      '" data-yaml-tab="order">Interview order</button>';
-    html +=
-      '<button class="btn ' +
-      (state.fullYamlTab === 'metadata'
-        ? 'btn-primary'
-        : 'btn-outline-secondary') +
-      '" data-yaml-tab="metadata">Metadata</button>';
-    html += '</div>';
-
-    html += '<div class="editor-card"><div class="editor-card-body">';
-    var editorId = 'full-source-editor';
-    var activeOrderBlock = getBlockById(state.activeOrderBlockId);
-    if (state.fullYamlTab === 'order') {
-      var orderTargets = getOrderTargets();
-      if (orderTargets.length > 0) {
-        html += '<div class="editor-order-block-switcher mb-3">';
-        orderTargets.forEach(function (block) {
-          var isActive = activeOrderBlock && activeOrderBlock.id === block.id;
-          html +=
-            '<button type="button" class="btn btn-sm ' +
-            (isActive ? 'btn-primary' : 'btn-outline-secondary') +
-            '" data-order-block-id="' +
-            esc(block.id) +
-            '">';
-          html += esc(block.title || block.id);
-          if (block.tags && block.tags.indexOf('mandatory') !== -1)
-            html += ' <span class="editor-inline-meta">Order</span>';
-          html += '</button>';
-        });
-        html += '</div>';
-      }
-    }
-    html +=
-      '<div class="editor-source-container" id="' +
-      editorId +
-      '" style="height:600px"></div>';
-    html += '</div></div>';
-
-    html +=
-      '<div class="d-flex justify-content-end"><button class="btn btn-primary" id="save-full-yaml">Save</button></div>';
-    html += '</div>';
-    canvasContent.innerHTML = html;
-
-    // Use stashed content if available, otherwise build from state
-    var content = '';
-    if (
-      Object.prototype.hasOwnProperty.call(
-        state.fullYamlStash,
-        state.fullYamlTab,
-      )
-    ) {
-      content = state.fullYamlStash[state.fullYamlTab];
-    } else if (state.fullYamlTab === 'full') {
-      content = state.rawYaml;
-    } else if (state.fullYamlTab === 'order') {
-      if (activeOrderBlock) {
-        content = activeOrderBlock.yaml;
-      } else {
-        content = '# No interview-order block selected';
-      }
-    } else {
-      content = state.metadataRawYaml || '# No metadata blocks found';
-    }
-
+    canvasContent.innerHTML =
+      '<div class="editor-full-yaml-shell">' +
+      '<p id="source-outline-status" role="status"></p>' +
+      '<div class="editor-card"><div class="editor-card-body">' +
+      '<div class="editor-source-container" id="full-source-editor" style="height:600px"></div>' +
+      '</div></div><div class="d-flex justify-content-end">' +
+      '<button class="btn btn-primary" id="save-full-yaml">Save</button></div></div>';
+    var content = Object.prototype.hasOwnProperty.call(
+      state.fullYamlStash,
+      'full',
+    )
+      ? state.fullYamlStash.full
+      : state.rawYaml;
     initSourceEditor(function () {
-      createSourceEditor(editorId, content, 'yaml', {
+      var editor = createSourceEditor('full-source-editor', content, 'yaml', {
+        onSelectionChange: updateSourceCursorBlock,
         onChange: function () {
           markInterviewDirty();
         },
       });
+      var position = sourceWorkspacePositions[editor.identity];
+      var block = getSelectedBlock();
+      var range =
+        block &&
+        sourceBlockRange(
+          editor.getValue(),
+          block,
+          (block.yaml || '').replace(/\r\n?/g, '\n'),
+        );
+      if (!position && range) editor.reveal(range.from, range.to);
+      updateSourceCursorBlock(
+        editor.getValue(),
+        position
+          ? Math.min(position.anchor, position.head)
+          : range
+            ? range.from
+            : 0,
+      );
     });
   }
 
@@ -17977,7 +18399,7 @@
     html +=
       '<button class="btn btn-sm btn-outline-secondary" id="wrap-selected-order-steps">Wrap selected in if</button>';
     html +=
-      '<button class="btn btn-sm btn-outline-secondary" id="order-to-raw">Edit YAML</button>';
+      '<button class="btn btn-sm btn-outline-secondary" id="order-to-raw">Block YAML</button>';
     html +=
       '<button class="btn btn-sm btn-outline-secondary" id="open-interview-flow-report" title="Open a printable report: every screen in interview order, with a flowchart"><i class="fa-solid fa-file-lines me-1" aria-hidden="true"></i>Flow report</button>';
     if (activeOrderBlock) {
@@ -19172,8 +19594,7 @@
     var data = _reviewSync.data;
     if (!data || !data.full_yaml) return;
     closeBootstrapModal('review-sync-modal');
-    state.canvasMode = 'full-yaml';
-    state.fullYamlTab = 'full';
+    enterFullYaml();
     state.fullYamlStash.full = data.full_yaml;
     markInterviewDirty('sync-review-screen');
     renderCanvas();
@@ -21878,17 +22299,19 @@
       return;
     }
     if (uiAction === 'show-all-blocks') {
-      applyOutlineFilter('all', true);
+      applyOutlineFilter('all');
       return;
     }
-    if (uiAction === 'clear-block-search') {
+    if (uiAction === 'reveal-current-block') {
       state.searchQuery = '';
-      if (searchInput) searchInput.value = '';
-      if (!isBlockVisibleInOutline(getBlockById(state.selectedBlockId))) {
-        state.selectedBlockId = getDefaultVisibleBlockId();
+      searchInput.value = '';
+      applyOutlineFilter('all');
+      var currentRow = outlineList.querySelector('.editor-outline-item.active');
+      if (currentRow) {
+        currentRow.setAttribute('tabindex', '-1');
+        currentRow.scrollIntoView({ block: 'nearest' });
+        currentRow.focus();
       }
-      renderCanvas();
-      renderOutline();
       return;
     }
     if (
@@ -21909,6 +22332,16 @@
         var validationBlock = getBlockById(validationBlockId);
         if (!validationBlock) {
           openUnmappedValidationFinding();
+          return;
+        }
+        if (
+          isInterviewView() &&
+          state.canvasMode === 'question' &&
+          validationBlockId === state.selectedBlockId
+        ) {
+          state.validationOpen = true;
+          if (state.validationDock === 'full') setValidationDock('side');
+          renderValidationDrawer();
           return;
         }
         function openValidationBlock() {
@@ -21934,7 +22367,6 @@
           renderValidationDrawer();
         }
         if (
-          validationBlockId !== state.selectedBlockId &&
           deferNavigationForUnsavedChanges(
             'open the reported block',
             openValidationBlock,
@@ -21951,17 +22383,15 @@
     // View tabs
     if (topTab) {
       var nextView = topTab.getAttribute('data-view');
+      if (nextView === state.currentView) return;
       function changeTopView() {
         if (stashCurrentEditorState() === false) return;
         state.currentView = nextView;
         setActiveTopTab(topTab);
         if (state.currentView === 'interview') {
           state.canvasMode = state.project ? 'question' : 'project-selector';
-          if (
-            !state.selectedBlockId ||
-            !isBlockVisibleInOutline(getBlockById(state.selectedBlockId))
-          ) {
-            state.selectedBlockId = getDefaultVisibleBlockId();
+          if (!state.selectedBlockId || !getBlockById(state.selectedBlockId)) {
+            state.selectedBlockId = getDefaultBlockId();
           }
           renderOutline();
           renderCanvas();
@@ -22077,7 +22507,11 @@
           'data-section-filename',
         );
         if (
-          selectedSectionFilename !== state.sectionSelectedFile[viewForFile] &&
+          selectedSectionFilename === state.sectionSelectedFile[viewForFile] &&
+          (viewForFile !== 'templates' || state.templatesMode === 'files')
+        )
+          return;
+        if (
           deferNavigationForUnsavedChanges('open another file', function () {
             state.sectionSelectedFile[viewForFile] = selectedSectionFilename;
             if (viewForFile === 'templates') state.templatesMode = 'files';
@@ -22092,29 +22526,36 @@
         if (viewForFile === 'templates') state.templatesMode = 'files';
       } else {
         var nextBlockId = outlineItem.getAttribute('data-block-id');
+        if (state.canvasMode === 'full-yaml') {
+          revealBlockInFullSource(nextBlockId);
+          return;
+        }
         if (
-          nextBlockId !== state.selectedBlockId &&
-          deferNavigationForUnsavedChanges('open another block', function () {
-            state.selectedBlockId = nextBlockId;
-            dirtyState.setActiveBlock(nextBlockId);
-            state.canvasMode = 'question';
-            state.questionEditMode = 'preview';
-            state.questionBlockTab = 'screen';
-            state.advancedOpen = false;
-            state.advancedShowMore = false;
-            renderOutline();
-            renderCanvas();
-          })
+          state.canvasMode === 'question' &&
+          nextBlockId === state.selectedBlockId
         )
           return;
-        if (stashCurrentEditorState() === false) return;
-        state.selectedBlockId = nextBlockId;
-        dirtyState.setActiveBlock(nextBlockId);
-        state.canvasMode = 'question';
-        state.questionEditMode = 'preview';
-        state.questionBlockTab = 'screen';
-        state.advancedOpen = false;
-        state.advancedShowMore = false;
+        function openOutlineBlock() {
+          if (stashCurrentEditorState() === false) return;
+          state.selectedBlockId = nextBlockId;
+          dirtyState.setActiveBlock(nextBlockId);
+          state.canvasMode = 'question';
+          state.questionEditMode = 'preview';
+          state.questionBlockTab = 'screen';
+          state.advancedOpen = false;
+          state.advancedShowMore = false;
+          renderOutline();
+          renderCanvas();
+        }
+        if (
+          deferNavigationForUnsavedChanges(
+            'open another block',
+            openOutlineBlock,
+          )
+        )
+          return;
+        openOutlineBlock();
+        return;
       }
       renderOutline();
       renderCanvas();
@@ -23032,28 +23473,42 @@
       showNewProject();
       return;
     }
-    if (uiAction === 'open-full-yaml') {
-      function toggleFullYaml() {
-        if (stashCurrentEditorState() === false) return;
-        _stashFullYamlContent();
-        state.canvasMode =
-          state.canvasMode === 'full-yaml' ? 'question' : 'full-yaml';
+    if (uiAction === 'open-block-workspace') {
+      e.preventDefault();
+      if (isInterviewView() && state.canvasMode === 'question') return;
+      function openBlockWorkspace() {
         state.currentView = 'interview';
-        var interviewTab2 = document.querySelector(
-          '.editor-top-tab[data-view="interview"]',
-        );
-        if (interviewTab2) setActiveTopTab(interviewTab2);
+        state.canvasMode = 'question';
+        renderOutline();
         renderCanvas();
       }
-      if (deferNavigationForUnsavedChanges('switch editors', toggleFullYaml))
+      if (deferNavigationForUnsavedChanges('open blocks', openBlockWorkspace))
         return;
-      toggleFullYaml();
+      openBlockWorkspace();
+      return;
+    }
+    if (uiAction === 'open-full-yaml') {
+      e.preventDefault();
+      if (isInterviewView() && state.canvasMode === 'full-yaml') {
+        resetOutlineForFullFile();
+        renderOutline();
+        return;
+      }
+      function openFullYaml() {
+        if (stashCurrentEditorState() === false) return;
+        enterFullYaml();
+        renderCanvas();
+      }
+      if (deferNavigationForUnsavedChanges('switch editors', openFullYaml))
+        return;
+      openFullYaml();
       return;
     }
     if (uiAction === 'open-assemblyline-settings') {
       if (!state.project || !state.filename) return;
       function openAssemblyLineSettings() {
         if (stashCurrentEditorState() === false) return;
+        rememberWorkspace();
         state.canvasMode = 'assemblyline-settings';
         state.currentView = 'interview';
         renderCanvas();
@@ -23072,7 +23527,7 @@
     if (target.id === 'close-assemblyline-settings') {
       function closeAssemblyLineSettings() {
         state.assemblyLineSettingsDirty = false;
-        state.canvasMode = 'question';
+        restoreWorkspace();
         renderCanvas();
       }
       if (
@@ -23437,6 +23892,11 @@
     if (questionModeButton) {
       var qMode = questionModeButton.getAttribute('data-question-mode');
       var qTab = questionModeButton.getAttribute('data-question-tab');
+      if (
+        qMode === state.questionEditMode &&
+        (!qTab || qTab === state.questionBlockTab)
+      )
+        return;
       if (qMode === 'yaml' && state.questionEditMode !== 'yaml') {
         function openQuestionYaml() {
           state.questionEditMode = 'yaml';
@@ -23789,28 +24249,21 @@
       return;
     }
 
-    // Full YAML tabs
-    if (target.matches('[data-yaml-tab]')) {
-      var nextYamlTab = target.getAttribute('data-yaml-tab');
-      function switchYamlTab() {
-        _stashFullYamlContent();
-        state.fullYamlTab = nextYamlTab;
-        renderCanvas();
-      }
-      if (
-        nextYamlTab !== state.fullYamlTab &&
-        deferNavigationForUnsavedChanges('switch source tabs', switchYamlTab)
-      )
-        return;
-      switchYamlTab();
-      return;
-    }
-    if (target.id === 'back-to-question') {
+    if (target.id === 'back-to-question' || uiAction === 'edit-source-block') {
+      var sourceBlockId =
+        state.canvasMode === 'full-yaml'
+          ? sourceCursorBlockId
+          : state.selectedBlockId;
+      if (!getBlockById(sourceBlockId)) return;
       function leaveFullYaml() {
         _stashFullYamlContent();
-        var returnMode = state._prevCanvasMode || 'question';
-        state._prevCanvasMode = null;
-        state.canvasMode = returnMode;
+        state.canvasMode = 'question';
+        state.selectedBlockId = getBlockById(sourceBlockId)
+          ? sourceBlockId
+          : getDefaultBlockId();
+        state.questionEditMode = 'preview';
+        state.questionBlockTab = 'screen';
+        dirtyState.setActiveBlock(state.selectedBlockId);
         renderOutline();
         renderCanvas();
       }
@@ -23825,53 +24278,7 @@
       return;
     }
     if (target.id === 'save-full-yaml') {
-      var yamlContent = getSourceEditorValue('full-source-editor');
-      if (yamlContent === undefined || yamlContent === null) return;
-      state.fullYamlStash = {};
-      if (state.fullYamlTab === 'order' && state.activeOrderBlockId) {
-        apiPost('/api/block', {
-          project: state.project,
-          filename: state.filename,
-          block_id: state.activeOrderBlockId,
-          block_yaml: yamlContent,
-          edit_mode: 'source',
-        }).then(function (res) {
-          if (res.success && res.data) {
-            refreshFromFileResponse(res.data, {
-              savedBlockId: state.activeOrderBlockId,
-            });
-          }
-        });
-      } else if (state.fullYamlTab === 'metadata') {
-        apiPost('/api/file/metadata', {
-          project: state.project,
-          filename: state.filename,
-          raw_yaml: yamlContent,
-          expected_revision: state.revision,
-        })
-          .then(function (res) {
-            if (res.success && res.data) {
-              refreshFromFileResponse(res.data);
-              return;
-            }
-            window.alert(
-              (res.error && res.error.message) ||
-                'Unable to save metadata safely.',
-            );
-          })
-          .catch(function (error) {
-            if (isSupersededRequest(error)) return;
-            window.alert('Unable to save metadata safely.');
-          });
-      } else {
-        apiPost('/api/file', {
-          project: state.project,
-          filename: state.filename,
-          content: yamlContent,
-        }).then(function (res) {
-          if (res.success) loadFile();
-        });
-      }
+      saveCurrentBlockIfDirty();
       return;
     }
 
@@ -23900,9 +24307,12 @@
     if (target.id === 'order-to-raw') {
       function openRawOrder() {
         if (stashCurrentEditorState() === false) return;
-        state._prevCanvasMode = 'order-builder';
-        state.canvasMode = 'full-yaml';
-        state.fullYamlTab = 'order';
+        if (!getBlockById(state.activeOrderBlockId)) return;
+        state.selectedBlockId = state.activeOrderBlockId;
+        dirtyState.setActiveBlock(state.selectedBlockId);
+        state.canvasMode = 'question';
+        state.questionEditMode = 'yaml';
+        renderOutline();
         renderCanvas();
       }
       if (
@@ -25389,6 +25799,7 @@
   // -------------------------------------------------------------------------
   fileSelect.addEventListener('change', function () {
     var nextFilename = fileSelect.value;
+    if (nextFilename === state.filename) return;
     function changeFile() {
       fileSelect.value = nextFilename;
       if (stashCurrentEditorState() === false) return;
@@ -25411,81 +25822,20 @@
   });
 
   searchInput.addEventListener('input', function () {
-    var nextQuery = searchInput.value;
-    var previousQuery = state.searchQuery;
-    state.searchQuery = nextQuery;
-    var selected = getBlockById(state.selectedBlockId);
-    var wouldLeaveBlock =
-      isInterviewView() && selected && !isBlockVisibleInOutline(selected);
-    state.searchQuery = previousQuery;
-    function applySearch() {
-      if (stashCurrentEditorState() === false) return;
-      state.searchQuery = nextQuery;
-      searchInput.value = nextQuery;
-      if (isInterviewView()) {
-        var current = getBlockById(state.selectedBlockId);
-        if (!current || !isBlockVisibleInOutline(current)) {
-          state.selectedBlockId = getDefaultVisibleBlockId();
-        }
-        renderCanvas();
-      }
-      renderOutline();
-    }
-    if (
-      wouldLeaveBlock &&
-      deferNavigationForUnsavedChanges('search blocks', applySearch)
-    ) {
-      searchInput.value = previousQuery;
-      return;
-    }
-    applySearch();
+    state.searchQuery = searchInput.value;
+    renderOutline();
   });
 
-  // Both the "Show" control and the summary's "Show all" button move the
-  // outline to a different filter, so they share one navigation path.
-  // `keepSelection` is for widening the view: "Show all" can only ever add
-  // blocks, so yanking the user off the block they were reading would be
-  // gratuitous, whereas picking a narrower filter usually hides it anyway.
-  function applyOutlineFilter(jump, keepSelection) {
-    if (jump === state.jumpTarget) return;
-    function changeJumpTarget() {
-      if (stashCurrentEditorState() === false) return;
-      state.jumpTarget = jump;
-      state.canvasMode = 'question';
-      if (keepSelection) {
-        var selected = getBlockById(state.selectedBlockId);
-        if (!selected || !isBlockVisibleInOutline(selected)) {
-          state.selectedBlockId = getDefaultVisibleBlockId();
-        }
-      } else {
-        state.selectedBlockId = getDefaultVisibleBlockId();
-      }
-      state.currentView = 'interview';
-      var interviewTab = document.querySelector(
-        '.editor-top-tab[data-view="interview"]',
-      );
-      if (interviewTab) setActiveTopTab(interviewTab);
-      syncJumpSelect();
-      renderCanvas();
-      renderOutline();
-    }
-    if (
-      deferNavigationForUnsavedChanges(
-        'change the outline filter',
-        changeJumpTarget,
-      )
-    ) {
-      // The prompt can still end in "stay", so put the control back to the
-      // filter that is actually applied until the change really goes through.
-      syncJumpSelect();
-      return;
-    }
-    changeJumpTarget();
+  // Filtering changes only the map, never the editing buffer.
+  function applyOutlineFilter(jump) {
+    state.jumpTarget = jump;
+    syncJumpSelect();
+    renderOutline();
   }
 
   if (jumpSelect) {
     jumpSelect.addEventListener('change', function () {
-      applyOutlineFilter(jumpSelect.value, false);
+      applyOutlineFilter(jumpSelect.value);
     });
   }
 

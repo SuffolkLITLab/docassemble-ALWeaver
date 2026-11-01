@@ -2379,6 +2379,11 @@
     '[data-dapv-condition] { box-shadow: inset 2px 0 0 rgba(108,117,125,.5); }',
     '[data-dapv-condition]::before { content: attr(data-dapv-condition); display: block; flex: 0 0 100%; width: 100%; font-size: .72rem; font-family: monospace; color: #6c757d; margin-bottom: .2rem; padding-left: .6rem; }',
     '.dapv-notes { font-size: .8rem; }',
+    // The preview has an opaque sandbox origin. Docassemble's icon font is
+    // same-origin-only, so native radio indicators must not depend on it.
+    'input[type=radio] + .dalabelauty::before { content: ""; width: 1em; height: 1em; border: 1px solid currentColor; border-radius: 50%; box-sizing: border-box; }',
+    'input[type=radio]:checked + .dalabelauty::before { content: ""; background: currentColor; box-shadow: inset 0 0 0 3px var(--bs-btn-bg); }',
+
     // Which caret a collapse shows is decided purely in CSS. The preview emits
     // both spans, so without a rule they both draw; repeat ALToolbox's own
     // toggle here so the widget is right even where that package is missing.

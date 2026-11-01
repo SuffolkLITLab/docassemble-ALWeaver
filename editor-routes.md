@@ -54,6 +54,45 @@ save therefore preserves both the URL and the working buffer. Successful Save
 or Discard resumes the requested traversal. Resource loaders reject superseded
 responses before updating the editor.
 
+## Editing context and local navigation
+
+A persistent location row outside the sidebar shows the filename, resource,
+and current view. The browser title uses the same description. The row contains
+one source-entry or current-block action; local tabs identify block representations
+without explanatory scope annotations. In YAML mode, a compact block-actions menu
+also offers visual editing and the existing screen preview for previewable blocks.
+The menu sits beside the active source block with an always-visible, touch-sized
+button; it does not depend on hover. “Full file YAML” always opens the entire
+file. There are no metadata or order subsets in this editor; individual order
+blocks remain editable through Block YAML. Block representations are labelled
+“Block YAML”, “Visual editor”, or “Python”. Re-selecting the active destination does not recreate
+its editing buffer. The Interview section button retains the current interview
+view. The filename breadcrumb opens the whole file in the current representation:
+Block YAML expands to Full file YAML; visual editing returns to the block workspace.
+
+Source buffers are stashed only from a mounted editor with matching project,
+file, and scope identity; an absent editor cannot overwrite an intentionally
+empty buffer. Contextual returns from Settings restore the workspace that opened
+it, including Full file YAML, or the block representation and question panel.
+They also retain outline filters, search, and scroll position.
+Source selections and scroll positions are retained locally by resource and
+scope. The full-source action opens the block at the cursor in its visual editor.
+These local choices do not extend the URL or browser-history contract above. Routed
+navigation clears contextual return origins; it does not invent an origin for
+a directly opened tool.
+
+Entering Full file YAML clears outline search and selects All blocks. Opening
+a block visually from source retains the unfiltered outline. Outline search and
+Show filters otherwise change only the list. A hidden selection has
+an explicit reveal action. In Full file YAML, selecting an outline item
+reveals its exact source range without changing editors. Navigation is
+conservatively disabled when the buffer differs from the last parsed source
+or the block cannot be located safely. Parser line ranges distinguish identical
+blocks; older responses without ranges require a unique text match. The status
+explains whether the outline is stale or a block cannot be located. The top-right
+action follows the source cursor and opens that block visually. Saving retains
+the current editor representation.
+
 ## Verification
 
 Unit coverage lives in `test_editor_router.js`,

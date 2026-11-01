@@ -161,7 +161,8 @@
       'choices', 'code', 'required',
     ]);
     (handledKeys || []).forEach(function (key) { handled.add(key); });
-    var variableName = field.field || field.variable;
+    var variableName = field.field || field.variable ||
+      (typeof field['no label'] === 'string' ? field['no label'] : null);
     Object.keys(field).forEach(function (key) {
       if (handled.has(key) || field[key] === undefined) return;
       // Compact field syntax (`- Age: age`) reaches the editor with both
@@ -344,7 +345,9 @@
           );
           continue;
         }
-        if (isMultiLineLabel || hasMods) {
+        if (label === 'no label') {
+          yaml += '  - no label: ' + escapeYamlStr(variable) + '\n';
+        } else if (isMultiLineLabel || hasMods) {
           yaml += '  - label: ' + escapeYamlStr(label) + '\n';
           if (variable) yaml += '    field: ' + escapeYamlStr(variable) + '\n';
         } else {

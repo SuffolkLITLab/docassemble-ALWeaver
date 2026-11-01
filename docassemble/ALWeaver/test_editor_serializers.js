@@ -652,3 +652,11 @@ for (const key of ['none of the above', 'all of the above']) {
   assert.strictEqual(labelKey({ 'show if': 'x', note: 'hi' }), 'note');
   assert.strictEqual(labelKey({ yesno: 'likes_cats' }), 'yesno');
 }
+
+const unlabeledYaml = serialize('yesnoradio', [{key: 'help', value: 'Keep this help'}], '',
+  {data: {fields: [{'no label': 'users.there_is_another', datatype: 'yesnoradio'}]}},
+  {'field-label-0': {value: 'no label'}, 'field-variable-0': {value: 'users.there_is_another'}});
+assert.ok(unlabeledYaml.includes('  - no label: users.there_is_another\n'));
+assert.ok(unlabeledYaml.includes('    datatype: yesnoradio\n'));
+assert.strictEqual((unlabeledYaml.match(/no label:/g) || []).length, 1);
+assert.ok(!unlabeledYaml.includes('label: no label'));
