@@ -134,7 +134,7 @@ assert.ok(choicePanel.includes('data-source-only-fmod="check others"'));
 assert.ok(choicePanel.includes('data-source-only-fmod="uncheck others"'));
 assert.ok(choicePanel.includes('data-source-only-fmod="disable others"'));
 assert.ok(choicePanel.includes('is not supported for checkboxes'));
-assert.ok(choicePanel.includes('is preserved. Edit it in Full YAML.'));
+assert.ok(choicePanel.includes('is preserved. Edit it in Block YAML.'));
 
 const yesNoPanel = context._renderFieldModsPanel(
   0,
@@ -575,7 +575,7 @@ assert.strictEqual(outlineList.innerHTML, '');
     getDefaultOrderBlockId: () => null,
     setActiveOrderBlock() {},
     isBlockVisibleInOutline: () => true,
-    getDefaultVisibleBlockId: () => 'saved',
+    getDefaultBlockId: () => 'saved',
     captureInterviewModel: () => ({ blocks: refreshContext.state.blocks }),
     loadAvailableSymbols() {},
     renderOutline: () => {
@@ -607,6 +607,18 @@ assert.strictEqual(outlineList.innerHTML, '');
   assert.strictEqual(calls.outline, 1);
   assert.strictEqual(calls.canvas, 1);
   assert.strictEqual(calls.validation, 1);
+
+  refreshContext.state.canvasMode = 'full-yaml';
+  refreshContext.state.questionEditMode = 'yaml';
+  refreshContext.refreshAfterBlockSave({blocks: [block]}, 'saved', 'saved');
+  assert.strictEqual(refreshContext.state.canvasMode, 'full-yaml');
+  assert.strictEqual(refreshContext.state.questionEditMode, 'yaml');
+
+  refreshContext.dirtyState.setFileSaved = () => {};
+  refreshContext.refreshFromFileResponse({blocks: [block], inserted_block_id: 'saved'});
+  assert.strictEqual(refreshContext.state.canvasMode, 'question');
+  assert.strictEqual(refreshContext.state.questionEditMode, 'preview');
+  assert.strictEqual(refreshContext.state.selectedBlockId, 'saved');
 }
 
 // A field condition switch and datatype edit must replace conflicting old
@@ -677,4 +689,33 @@ assert.strictEqual(outlineList.innerHTML, '');
   assert.strictEqual(block.data.fields[0].datatype, 'number');
   assert.ok(!('input type' in block.data.fields[0]));
   assert.strictEqual(block.data.fields[0].help, 'Keep this help');
+  row.querySelector = (selector) => ({ value: {
+    '[data-field-prop="type"]': 'yesnoradio',
+    '[data-field-prop="label"]': 'no label',
+    '[data-field-prop="variable"]': 'users.there_is_another',
+  }[selector] || '' });
+  fieldContext.document.getElementById = () => null;
+  block.data.fields = [{ 'no label': 'users.there_is_another', datatype: 'yesnoradio' }];
+  fieldContext.syncFieldsToData(block);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(block.data.fields)), [
+    { 'no label': 'users.there_is_another', datatype: 'yesnoradio' },
+  ]);
+  const originalRead = row.querySelector;
+  row.querySelector = (selector) => selector === '[data-field-prop="label"]'
+    ? { value: 'Another petitioner?' } : originalRead(selector);
+  fieldContext.syncFieldsToData(block);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(block.data.fields)), [
+    { label: 'Another petitioner?', field: 'users.there_is_another', datatype: 'yesnoradio' },
+  ], 'adding a label removes the old no-label binding');
+
+
 }
+
+// Saving from a question-options tab uses the data serializer, not field rows.
+const noLabelFromData = context._serializeQuestionFieldFromData({
+  'no label': 'users.there_is_another', datatype: 'yesnoradio', required: false,
+});
+assert.ok(noLabelFromData.includes('  - no label: users.there_is_another\n'));
+assert.ok(noLabelFromData.includes('    datatype: yesnoradio\n'));
+assert.ok(noLabelFromData.includes('    required: False\n'));
+assert.strictEqual((noLabelFromData.match(/no label:/g) || []).length, 1);

@@ -6174,3 +6174,50 @@ body {
     display: none;
   }
 }
+
+/* Context remains available when the outline sidebar collapses. */
+.editor-location {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: .25rem 1rem;
+  background: var(--editor-bg, #fff);
+  padding: .5rem 1.25rem;
+  border-bottom: 1px solid #dee2e6;
+  overflow-wrap: anywhere;
+}
+.editor-location[hidden],
+#source-outline-status:empty {
+  display: none;
+}
+.editor-location nav { min-width: 0; }
+.editor-location .btn-link {
+  --bs-btn-color: var(--editor-primary);
+  --bs-btn-hover-color: var(--editor-accent);
+  --bs-btn-active-color: var(--editor-accent);
+}
+.editor-location .breadcrumb a {
+  color: var(--editor-primary);
+}
+.editor-location .breadcrumb a:hover,
+.editor-location .breadcrumb a:focus-visible {
+  color: var(--editor-accent);
+}
+.editor-location .btn { white-space: normal; text-align: left; }
+
+
+/* One always-visible, touch-sized action menu beside the active YAML block. */
+.editor-source-block-wrapper { position: relative; }
+.editor-source-block-wrapper .cm-content { padding-right: 52px; }
+.editor-source-block-actions { position: absolute; right: 14px; z-index: 5; }
+.editor-source-block-actions[hidden] { display: none; }
+.editor-source-block-actions > .dropdown > button {
+  width: 44px;
+  height: 44px;
+  background: var(--editor-surface, #fff);
+  text-decoration: none;
+}

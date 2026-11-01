@@ -1044,3 +1044,20 @@ process.on('exit', function (code) {
   assert.ok(result.html.includes('Get help'));
   assert.ok(!result.html.includes('${ interview_short_title }'));
 }
+
+// A reserved no-label binding is still a yes/no radio field, in either renderer.
+{
+  const field = { 'no label': 'users.there_is_another', datatype: 'yesnoradio' };
+  const desc = preview.describeField(field).fields[0];
+  assert.strictEqual(desc.datatype, 'yesnoradio');
+  assert.strictEqual(desc.variable, 'users.there_is_another');
+  assert.strictEqual(desc.noLabel, true);
+  for (const widgetStyle of ['native', 'labelauty']) {
+    const rendered = preview.renderQuestion({ question: 'Another petitioner?', fields: [field] }, { widgetStyle });
+    assert.strictEqual((rendered.html.match(/type="radio"/g) || []).length, 2);
+    assert.ok(!rendered.html.includes('type="checkbox"'));
+    assert.ok(!rendered.html.includes('>no label<'));
+  }
+  const doc = preview.buildDocument({ fields: [field] }, { widgetStyle: 'native' });
+  assert.ok(doc.includes('border-radius: 50%'), 'sandbox radio indicators do not require an inaccessible icon font');
+}

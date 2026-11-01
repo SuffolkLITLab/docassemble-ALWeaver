@@ -369,3 +369,46 @@ variables, and the order calls `users.gather()`. Run the resulting interview and
 verify that the entered names appear in the downloaded form. Ambiguous mappings
 or dependencies in other interviews/templates must be reported without accepting
 a partial relabel.
+
+## Workspace navigation regression
+
+After installing the working branch with `dainstall --server localhost .`, run
+this against an authenticated developer session:
+
+```bash
+NODE_PATH=/path/to/playwright/node_modules \
+  STORAGE_STATE=/path/to/private-browser-state.json \
+  node scripts/editor_workspace_navigation_smoketest.js
+```
+
+The test first verifies that the served JavaScript matches the working copy.
+It creates and deletes its own project, exercises block/full-file YAML round
+trips, cursor-aware visual-block actions, Settings returns, filtering without changing the save target, source
+cursor and viewport restoration, YAML block-menu preview and visual editing, the
+recorded Templates PDF → Interview-menu source → repeated source sequence,
+upward/downward jumps including blocks taller
+than the editor, Save/Discard/Stay and an intentional failed
+save, browser history, validation navigation, order-block YAML, CRLF and
+identical-block source ranges, and the collapsed/narrow layout. It also checks
+that the removed source-subset controls and redundant question header stay
+absent. Screenshots and a result manifest go to
+`/tmp/weaver-workspace-navigation` (override with `SCREENSHOT_DIR`).
+No editor code or source assets are substituted in the browser; only the
+intentional failed-save response is intercepted.
+
+For the unlabeled yes/no regression, run `scripts/editor_no_label_smoketest.js`
+with the same `NODE_PATH` and `STORAGE_STATE` environment. It uses the reported
+conditional petitioner question, checks actual Yes/No radio controls in both
+source and visual previews, taps both choices, verifies the field type, and
+saves through the visual editor to confirm the unlabeled binding and datatype
+survive. The disposable project is deleted; screenshots go to
+`/tmp/weaver-no-label-source.png` and `/tmp/weaver-no-label-visual.png`.
+
+`scripts/editor_preview_compat_smoketest.js` exercises the same unlabeled-radio
+fixture with unmodified CSS/labelauty assets fetched from the official 1.9.13,
+1.10.7, and 1.10.8 tags. It checks both rendering paths and touch selection in a
+sandboxed iframe. It requires a running Docassemble server for shared assets
+(`SERVER`, default `http://localhost`) and Playwright via `NODE_PATH`, like the
+other manual browser checks. This is a renderer compatibility test, not three full
+Docassemble server installations. The installed localhost application is checked
+separately by `editor_no_label_smoketest.js`.

@@ -225,7 +225,6 @@ function makeHydrationHarness() {
     canvasMode: 'project-selector',
     templatesMode: 'files',
     searchQuery: '',
-    fullYamlTab: 'full',
     questionEditMode: 'preview',
     sectionSelectedFile: {
       templates: null,
@@ -295,9 +294,11 @@ function makeHydrationHarness() {
     committedProjects,
   });
   vm.runInContext(
-    [extractFunction('interviewKey'), extractFunction('applyEditorRoute')].join(
-      '\n',
-    ),
+    [
+      extractFunction('interviewKey'),
+      extractFunction('resetOutlineForFullFile'),
+      extractFunction('applyEditorRoute'),
+    ].join('\n'),
     context,
   );
   return context;
@@ -370,9 +371,7 @@ async function testProjectFileDefaultPrefersMainYaml() {
     'a stale selection falls back to main.yml',
   );
   assert.equal(
-    (
-      await openProject([{ filename: 'helper.yml' }], 'removed.yml')
-    ).filename,
+    (await openProject([{ filename: 'helper.yml' }], 'removed.yml')).filename,
     'helper.yml',
     'a stale selection without main.yml uses the first file',
   );

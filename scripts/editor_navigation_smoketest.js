@@ -186,6 +186,18 @@ async function main() {
     await oneTopRow();
     await screenshot('01-laptop-editor');
     await audit('Laptop editor');
+    const fileBreadcrumb = page.locator('#editor-location .breadcrumb a');
+    await fileBreadcrumb.hover();
+    await audit('Laptop filename breadcrumb hovered');
+    await page.mouse.move(0, 0);
+    await fileBreadcrumb.focus();
+    await audit('Laptop filename breadcrumb focused');
+    const sourceAction = page.locator('#editor-location .btn-link');
+    await sourceAction.hover();
+    await audit('Laptop source action hovered');
+    await page.mouse.move(0, 0);
+    await sourceAction.focus();
+    await audit('Laptop source action focused');
 
     await page.locator('#editor-project-menu').click();
     await expect(page.locator('#editor-recent-projects')).toBeVisible();
