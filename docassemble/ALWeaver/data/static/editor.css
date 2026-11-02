@@ -6221,3 +6221,29 @@ body {
   background: var(--editor-surface, #fff);
   text-decoration: none;
 }
+
+/* Full file YAML: the Playground's editor height (.pgmain .pgform .cm-editor). */
+#full-source-editor { height: 65vh; }
+
+/* F11 fills the window, as the Playground's .cm-full-screen does. Modals opened
+   from the block menu (z-index 1055) still sit above it. */
+.editor-source-block-wrapper.editor-source-full-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 1045;
+  background: var(--editor-surface, #fff);
+}
+.editor-source-full-screen > #full-source-editor { height: 100%; }
+body:has(.editor-source-full-screen) { overflow: hidden; }
+
+/* The full-file search bar is always shown, so it has nothing to close. */
+#full-source-editor .cm-search button[name="close"] { display: none; }
+
+.editor-source-exit-full-screen { display: none; }
+.editor-source-full-screen > .editor-source-exit-full-screen {
+  display: block;
+  position: absolute;
+  top: 8px;
+  right: 64px;
+  z-index: 6;
+}
