@@ -2,7 +2,7 @@
 
 import json
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import yaml
 from yaml.nodes import MappingNode, ScalarNode, SequenceNode
@@ -28,6 +28,175 @@ def _blank(node) -> bool:
     return node is None or (
         isinstance(node, ScalarNode) and node.tag == "tag:yaml.org,2002:null"
     )
+
+
+STR_TAG = "tag:yaml.org,2002:str"
+BOOL_TAG = "tag:yaml.org,2002:bool"
+NULL_TAG = "tag:yaml.org,2002:null"
+
+# Settings the graphical attachment editor may write. Everything else an
+# attachment carries is shown read-only and edited in YAML mode.
+TEXT_SETTINGS = (
+    "name",
+    "filename",
+    "description",
+    "variable name",
+    "language",
+    "pdf template file",
+    "docx template file",
+)
+# Choosing a template only replaces the file an attachment already uses: adding
+# a second template key would change what kind of attachment it is.
+EXISTING_ONLY_SETTINGS = ("pdf template file", "docx template file")
+BOOL_SETTINGS = ("editable", "pdf/a", "tagged pdf", "skip undefined")
+LIST_SETTINGS = ("valid formats",)
+VALID_FORMATS = ("pdf", "docx", "rtf", "rtf to docx", "tex", "html", "md", "raw")
+
+
+def _is_true(node) -> bool:
+    return str(node.value).strip().lower() in ("true", "yes", "on", "y")
+
+
+def _describe_setting(source: str, key: str, node) -> Dict[str, Any]:
+    """Report one attachment key so the editor can show or edit it."""
+    if isinstance(node, ScalarNode):
+        kind = {
+            STR_TAG: "str",
+            BOOL_TAG: "bool",
+            NULL_TAG: "null",
+        }.get(node.tag, "scalar")
+        result: Dict[str, Any] = {"key": key, "type": kind, "value": node.value}
+        if kind == "bool":
+            result["value"] = _is_true(node)
+        elif kind == "null":
+            result["value"] = ""
+        return result
+    if (
+        isinstance(node, SequenceNode)
+        and node.value
+        and all(
+            isinstance(item, ScalarNode) and item.tag == STR_TAG for item in node.value
+        )
+    ):
+        result = {
+            "key": key,
+            "type": "list",
+            "value": [item.value for item in node.value],
+        }
+        if "#" in source[node.start_mark.index : _list_end(node)]:
+            # Rewriting the list would drop these; it stays a YAML-mode edit.
+            result["commented"] = True
+        return result
+    return {
+        "key": key,
+        "type": "complex",
+        "value": source[node.start_mark.index : node.end_mark.index].rstrip(),
+    }
+
+
+def _list_end(node) -> int:
+    """End of a sequence's own text: a block list's end mark is the next key."""
+    return node.end_mark.index if node.flow_style else node.value[-1].end_mark.index
+
+
+def _end_of_node(source: str, node) -> int:
+    """Index just past a node's last line, including any inline comment."""
+    last = node
+    while isinstance(last, (MappingNode, SequenceNode)) and last.value:
+        last = last.value[-1][1] if isinstance(last, MappingNode) else last.value[-1]
+    end = last.end_mark.index
+    if end and source[end - 1] != "\n":
+        newline = source.find("\n", end)
+        end = len(source) if newline < 0 else newline + 1
+    return end
+
+
+def _scalar_patch(source: str, old, replacement: str):
+    """Replace a scalar's text, keeping a block scalar's trailing newline."""
+    if old.style in ("|", ">"):
+        header = source[old.start_mark.index : source.find("\n", old.start_mark.index)]
+        if "#" in header:
+            replacement += " " + header[header.index("#") :]
+        replacement += "\n"
+    return (old.start_mark.index, old.end_mark.index, replacement)
+
+
+def _setting_text(key: str, value: Any) -> str:
+    if key in TEXT_SETTINGS:
+        if not isinstance(value, str):
+            raise ValueError(f"{key} must be text.")
+        if key in EXISTING_ONLY_SETTINGS:
+            if not value.strip():
+                raise ValueError(f"Choose a file for {key}.")
+            wanted = "." + key.split()[0]
+            other = ".docx" if wanted == ".pdf" else ".pdf"
+            if value.strip().lower().endswith(other):
+                raise ValueError(f"A {key} must be a {wanted} file.")
+        return json.dumps(value, ensure_ascii=False)
+    if key in BOOL_SETTINGS:
+        if not isinstance(value, bool):
+            raise ValueError(f"{key} must be on or off.")
+        return "True" if value else "False"
+    if key in LIST_SETTINGS:
+        if (
+            not isinstance(value, list)
+            or not value
+            or any(item not in VALID_FORMATS for item in value)
+            or len(set(value)) != len(value)
+        ):
+            raise ValueError("Choose at least one valid file format.")
+        return json.dumps(value, ensure_ascii=False)
+    raise ValueError(f"Edit {key} in YAML mode.")
+
+
+def _setting_patches(source: str, node, settings: Dict[str, Any]) -> list:
+    """Patches that write the requested settings into one attachment mapping."""
+    props = _mapping(node)
+    keys = {key.value: key for key, _ in node.value}
+    patches = []
+    additions = []
+    for name, value in settings.items():
+        text = _setting_text(name, value)
+        old = props.get(name)
+        if old is None:
+            if name in EXISTING_ONLY_SETTINGS:
+                raise ValueError(f"Edit {name} in YAML mode.")
+            # Only whitelisted keys reach here, all plain YAML scalars.
+            additions.append(name + ": " + text)
+            continue
+        if (
+            isinstance(old, ScalarNode)
+            and old.tag == NULL_TAG
+            and (old.start_mark.index == old.end_mark.index)
+        ):
+            patches.append((old.start_mark.index, old.end_mark.index, " " + text))
+            continue
+        if name in LIST_SETTINGS:
+            if not isinstance(old, SequenceNode) or not old.value:
+                raise ValueError(f"Edit {name} in YAML mode.")
+            end = _list_end(old)
+            if "#" in source[keys[name].end_mark.index : end]:
+                raise ValueError(f"{name} has comments; edit it in YAML mode.")
+            patches.append((keys[name].end_mark.index, end, ": " + text))
+            continue
+        expected_tag = BOOL_TAG if name in BOOL_SETTINGS else STR_TAG
+        if not isinstance(old, ScalarNode) or old.tag not in (expected_tag, NULL_TAG):
+            raise ValueError(f"{name} is computed; edit it in YAML mode.")
+        patches.append(_scalar_patch(source, old, text))
+    if additions:
+        if not node.value:
+            raise ValueError("Use YAML mode to add settings to an empty attachment.")
+        end = _end_of_node(source, node)
+        indent = " " * node.value[0][0].start_mark.column
+        added = "" if not end or source[end - 1] == "\n" else "\n"
+        added += "".join(indent + line + "\n" for line in additions)
+        patches.append((end, end, added))
+    return patches
+
+
+def _loaded_attachments(document) -> list:
+    value = document.get("attachment", document.get("attachments"))
+    return value if isinstance(value, list) else [value]
 
 
 def _mapping(node):
@@ -103,8 +272,17 @@ def attachment_mappings(source: str) -> List[Dict[str, Any]]:
             {
                 "index": index,
                 "template": template.value if isinstance(template, ScalarNode) else "",
-                "kind": "pdf" if "pdf template file" in props else "docx",
+                "kind": (
+                    "pdf"
+                    if "pdf template file" in props
+                    else "docx" if "docx template file" in props else "other"
+                ),
                 "rows": rows,
+                "settings": [
+                    _describe_setting(source, key, value)
+                    for key, value in props.items()
+                    if key != "fields"
+                ],
                 "dynamic": any(
                     key in props
                     for key in (
@@ -120,15 +298,22 @@ def attachment_mappings(source: str) -> List[Dict[str, Any]]:
 
 
 def update_attachment_mappings(source: str, updates: list) -> str:
-    """Patch scalar values or append missing fields without reserializing YAML."""
+    """Patch field values and simple settings without reserializing YAML.
+
+    Each update names an attachment ``index`` and carries ``values`` (template
+    field to text or Mako) and/or ``settings`` (attachment key to new value).
+    """
+    original = source
     nodes = _attachments(source)
-    patches = []
+    patches: List[Tuple[int, int, int, str]] = []
+    setting_updates = {}
     seen = set()
     for update in updates:
         if not isinstance(update, dict):
             raise ValueError("Each attachment update must be an object.")
         index = update.get("index")
-        values = update.get("values")
+        values = update.get("values", {})
+        settings = update.get("settings", {})
         if type(index) is not int or not 0 <= index < len(nodes) or index in seen:
             raise ValueError("Invalid or repeated attachment index.")
         seen.add(index)
@@ -136,9 +321,17 @@ def update_attachment_mappings(source: str, updates: list) -> str:
             not isinstance(k, str) or not isinstance(v, str) for k, v in values.items()
         ):
             raise ValueError("Field names and values must be strings.")
+        if not isinstance(settings, dict):
+            raise ValueError("Attachment settings must be an object.")
+        node = nodes[index]
+        if settings:
+            setting_updates[index] = settings
+            patches.extend(
+                (start, end, 1, text)
+                for start, end, text in _setting_patches(source, node, settings)
+            )
         if not values:
             continue
-        node = nodes[index]
         props = _mapping(node)
         fields = props.get("fields")
         entries = {}
@@ -163,16 +356,11 @@ def update_attachment_mappings(source: str, updates: list) -> str:
                 raise ValueError("Complex or typed values must be edited in YAML mode.")
             if old.value == value:
                 continue
-            replacement = json.dumps(value, ensure_ascii=False)
             # Block scalars include their final newline; preserve the next key's line.
-            if old.style in ("|", ">"):
-                header = source[
-                    old.start_mark.index : source.find("\n", old.start_mark.index)
-                ]
-                if "#" in header:
-                    replacement += " " + header[header.index("#") :]
-                replacement += "\n"
-            patches.append((old.start_mark.index, old.end_mark.index, replacement))
+            start, end, text = _scalar_patch(
+                source, old, json.dumps(value, ensure_ascii=False)
+            )
+            patches.append((start, end, 0, text))
         if additions:
             if fields is not None and (_blank(fields) or not fields.value):
                 field_key = next(
@@ -187,7 +375,9 @@ def update_attachment_mappings(source: str, updates: list) -> str:
                     + json.dumps(value, ensure_ascii=False)
                     for name, value in additions.items()
                 )
-                patches.append((fields.start_mark.index, fields.end_mark.index, added))
+                patches.append(
+                    (fields.start_mark.index, fields.end_mark.index, 0, added)
+                )
                 continue
             if fields is None:
                 last = node.value[-1][1]
@@ -226,10 +416,24 @@ def update_attachment_mappings(source: str, updates: list) -> str:
                     + json.dumps(value, ensure_ascii=False)
                     + "\n"
                 )
-            patches.append((end, end, added))
-    for start, end, replacement in sorted(patches, reverse=True):
+            patches.append((end, end, 0, added))
+    # At one insertion point new fields come before new settings, so a setting
+    # appended after the field list never ends up inside it.
+    for start, end, _, replacement in sorted(
+        patches, key=lambda patch: (patch[0], patch[2]), reverse=True
+    ):
         source = source[:start] + replacement + source[end:]
-    yaml.safe_load(source)
+    updated = yaml.safe_load(source)
+    if setting_updates:
+        expected = yaml.safe_load(original)
+        for index, settings in setting_updates.items():
+            _loaded_attachments(expected)[index].update(settings)
+        for document in (expected, updated):
+            for attachment in _loaded_attachments(document):
+                if isinstance(attachment, dict):
+                    attachment.pop("fields", None)
+        if expected != updated:
+            raise ValueError("Use YAML mode to change these attachment settings.")
     return source
 
 

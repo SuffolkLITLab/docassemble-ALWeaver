@@ -2156,6 +2156,7 @@
   function discardInterviewChanges() {
     var restored = dirtyState.discardFile(state.filename);
     if (!restoreInterviewModel(restored)) return false;
+    if (_attachmentEditor) _attachmentEditor.draft = {};
     renderOutline();
     renderCanvas();
     return true;
@@ -12376,6 +12377,15 @@
     }
     var block = getSelectedBlock();
     if (!block) return Promise.resolve(true);
+    // The in-place attachment editor patches only what changed, server-side,
+    // so comments and computed values in the block survive.
+    if (
+      state.questionEditMode === 'preview' &&
+      isStandaloneAttachmentBlock(block)
+    ) {
+      var attachmentSave = saveAttachmentEditor(block);
+      if (attachmentSave) return attachmentSave;
+    }
     var originalBlockId = block.id;
     var yamlVal;
     try {
@@ -14267,10 +14277,7 @@
       block.type === 'attachment' &&
       state.questionEditMode === 'preview'
     ) {
-      canvasContent.innerHTML =
-        '<div class="editor-center-bar"><h2 class="h5">' +
-        esc(block.title) +
-        '</h2><button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">Block YAML</button></div><div class="editor-card"><div class="editor-card-body"><p>Map template fields to interview values, including conditional Mako expressions.</p><button class="btn btn-primary" data-edit-attachment-mappings>Edit field mappings</button></div></div>';
+      renderAttachmentBlock(block);
     } else {
       renderGenericBlock(block);
     }
@@ -20958,6 +20965,751 @@
     return html + '</div>';
   }
 
+  // -------------------------------------------------------------------------
+  // Standalone attachment blocks: edited in place
+  // -------------------------------------------------------------------------
+  var ATTACHMENT_DOCS_URL = 'https://docassemble.org/docs/documents.html';
+
+  // What each attachment key does, in the author's terms. `kind` marks the
+  // settings Weaver can write; the rest are shown read-only with this text.
+  var ATTACHMENT_SETTINGS = {
+    name: {
+      label: 'Title',
+      kind: 'text',
+      help: 'Shown to the person above the download. Text or Mako.',
+    },
+    filename: {
+      label: 'File name',
+      kind: 'text',
+      mono: true,
+      help: 'The downloaded file is called this, without the extension. Text or Mako.',
+    },
+    description: {
+      label: 'Description',
+      kind: 'text',
+      multiline: true,
+      help: 'Shown under the title. Text or Mako.',
+    },
+    'variable name': {
+      label: 'Variable name',
+      kind: 'text',
+      mono: true,
+      help: 'The assembled file is stored here. ALDocument and bundles find the attachment by this name, so renaming it can disconnect them.',
+    },
+    'pdf template file': {
+      label: 'PDF template',
+      kind: 'template',
+      help: "The fillable PDF in this project's templates that the field mappings fill in.",
+    },
+    'docx template file': {
+      label: 'Word template',
+      kind: 'template',
+      help: "The Word template in this project's templates. It uses interview variables directly.",
+    },
+    editable: {
+      label: 'Keep PDF fields editable',
+      kind: 'bool',
+      defaultValue: true,
+      only: 'pdf',
+      help: 'When off, the filled-in PDF is flattened so its fields cannot be changed after download. On unless set.',
+    },
+    'pdf/a': {
+      label: 'Produce PDF/A',
+      kind: 'bool',
+      defaultValue: false,
+      help: "Archival PDF, which some courts require for e-filing. Off unless set here, in the interview's features, or in the server configuration.",
+    },
+    'tagged pdf': {
+      label: 'Tagged (accessible) PDF',
+      kind: 'bool',
+      defaultValue: false,
+      only: 'docx',
+      help: "Adds the structure screen readers use when the Word file is converted to PDF. Off unless set here, in the interview's features, or in the server configuration.",
+    },
+    'skip undefined': {
+      label: 'Leave undefined variables blank',
+      kind: 'bool',
+      defaultValue: false,
+      help: 'When on, a variable the interview never defined prints as blank instead of making the interview ask for it.',
+    },
+    'valid formats': {
+      label: 'Offer these formats',
+      kind: 'formats',
+      only: 'docx',
+      formats: ['pdf', 'docx'],
+      help: 'Which versions of the document the person can download. Both unless set.',
+    },
+    language: {
+      label: 'Language',
+      kind: 'text',
+      mono: true,
+      help: 'Assemble the document in this language (for example, es), whatever language the interview is in.',
+    },
+    fields: {
+      help: "Values for the template's fields.",
+    },
+    'field variables': {
+      help: 'Interview variables passed to template fields of the same name.',
+    },
+    'raw field variables': {
+      help: 'Like field variables, but values are passed without converting them to text.',
+    },
+    'field code': {
+      help: 'Template fields whose values are computed by Python expressions.',
+    },
+    code: {
+      help: 'A Python expression that returns all the field values at once.',
+    },
+    'checkbox export value': {
+      help: 'The value written into a PDF checkbox to check it. "Yes" unless set.',
+    },
+    'decimal places': {
+      help: 'How many decimal places numbers are rounded to in PDF fields.',
+    },
+    password: {
+      help: 'Password the person needs to open the PDF.',
+    },
+    'owner password': {
+      help: "Password needed to change the PDF's permissions.",
+    },
+    'template password': {
+      help: 'Password that opens an encrypted PDF template.',
+    },
+    'rendering font': {
+      help: 'Font used to draw text into PDF fields.',
+    },
+    'hyperlink style': {
+      help: 'Word style applied to links in the document.',
+    },
+    'update references': {
+      help: 'Refresh the table of contents and cross-references in the assembled Word file and its PDF.',
+    },
+    redact: {
+      help: 'Whether text marked with redact() is blacked out. On unless set.',
+    },
+    persistent: {
+      help: 'Keep the assembled file even after the session it came from is deleted.',
+    },
+    private: {
+      help: 'When off, anyone with the link can download the file. On unless set.',
+    },
+    'allow users': {
+      help: 'Other users who may download the file.',
+    },
+    'allow privileges': {
+      help: 'Privileges (such as admin) whose holders may download the file.',
+    },
+    'flattened checkbox label': {
+      help: 'Text drawn for a checked checkbox when the PDF is flattened.',
+    },
+    'flattened checkbox unselected label': {
+      help: 'Text drawn for an unchecked checkbox when the PDF is flattened.',
+    },
+    pdftk: {
+      help: 'Fill the PDF with pdftk instead of the default PDF library.',
+    },
+    usedefs: {
+      help: 'Mako def blocks made available to the document.',
+    },
+    'template file': {
+      help: 'LaTeX or HTML template used when Markdown is converted.',
+    },
+    content: {
+      help: 'The document written in Markdown, used instead of a template.',
+    },
+    'content file': {
+      help: 'A Markdown file the document is built from, used instead of a template.',
+    },
+    metadata: {
+      help: 'Document metadata used when Markdown is converted.',
+    },
+    'initial yaml': {
+      help: "Pandoc metadata files read before the document's own.",
+    },
+    'additional yaml': {
+      help: "Pandoc metadata files read after the document's own.",
+    },
+    'rtf template file': {
+      help: 'RTF template used when Markdown is converted to RTF.',
+    },
+    'docx reference file': {
+      help: 'Word file whose styles are used when Markdown is converted to Word.',
+    },
+    raw: {
+      help: 'Output the content as-is, without Markdown conversion.',
+    },
+  };
+
+  var _attachmentEditor = null;
+
+  function attachmentEditorKey(block) {
+    return [
+      state.project,
+      state.filename,
+      state.revision,
+      block.id,
+      block.yaml,
+    ].join('\u0000');
+  }
+
+  function attachmentDraftKey(index, kind, name) {
+    return index + '\u0000' + kind + '\u0000' + name;
+  }
+
+  function attachmentKindOf(attachment) {
+    return attachment.kind === 'pdf' || attachment.kind === 'docx'
+      ? attachment.kind
+      : 'other';
+  }
+
+  // A setting is edited graphically only when Weaver can write it back as
+  // written: plain text stays text, and a computed value stays read-only.
+  function attachmentSettingIsEditable(info, setting, kind) {
+    if (!info || !info.kind) return false;
+    if (info.only && info.only !== kind) return false;
+    if (!setting) return true;
+    // A blank format list is not a list Weaver can rewrite in place.
+    if (setting.type === 'null') return info.kind !== 'formats';
+    if (info.kind === 'bool') return setting.type === 'bool';
+    if (info.kind === 'formats')
+      return (
+        setting.type === 'list' &&
+        !setting.commented &&
+        setting.value.every(function (format) {
+          return info.formats.indexOf(format) !== -1;
+        })
+      );
+    return setting.type === 'str';
+  }
+
+  function loadAttachmentEditor(block) {
+    var key = attachmentEditorKey(block);
+    if (_attachmentEditor && _attachmentEditor.key === key) return;
+    var editor = { key: key, status: 'loading', data: null, draft: {} };
+    _attachmentEditor = editor;
+    apiPost('/api/attachment-mappings', {
+      project: state.project,
+      filename: state.filename,
+      block_id: block.id,
+    })
+      .then(function (res) {
+        if (_attachmentEditor !== editor) return;
+        editor.status = 'ready';
+        editor.data = res.data;
+        rerenderAttachmentEditor(editor);
+      })
+      .catch(function (error) {
+        if (_attachmentEditor !== editor || isSupersededRequest(error)) return;
+        editor.status = 'error';
+        editor.error = String((error && error.message) || error);
+        rerenderAttachmentEditor(editor);
+      });
+  }
+
+  function rerenderAttachmentEditor(editor) {
+    var block = getSelectedBlock();
+    if (
+      block &&
+      state.currentView === 'interview' &&
+      state.canvasMode === 'question' &&
+      state.questionEditMode === 'preview' &&
+      isStandaloneAttachmentBlock(block) &&
+      attachmentEditorKey(block) === editor.key
+    )
+      renderCanvas();
+  }
+
+  function isStandaloneAttachmentBlock(block) {
+    return Boolean(
+      block && block.type === 'attachment' && !isQuestionEditorBlock(block),
+    );
+  }
+
+  function attachmentDraftValue(editor, index, kind, name, original) {
+    var key = attachmentDraftKey(index, kind, name);
+    return Object.prototype.hasOwnProperty.call(editor.draft, key)
+      ? editor.draft[key]
+      : original;
+  }
+
+  function renderAttachmentSetting(editor, attachment, key, info, setting) {
+    var index = attachment.index;
+    var id =
+      'attachment-setting-' + index + '-' + key.replace(/[^a-z0-9]+/gi, '-');
+    var attrs =
+      ' data-attachment-index="' +
+      index +
+      '" data-attachment-setting="' +
+      esc(key) +
+      '"';
+    var html = '<div class="editor-form-group">';
+    if (info.kind === 'bool') {
+      var current =
+        setting && setting.type === 'bool' ? setting.value : info.defaultValue;
+      var checked = attachmentDraftValue(
+        editor,
+        index,
+        'setting',
+        key,
+        current,
+      );
+      html +=
+        '<div class="form-check form-switch"><input class="form-check-input" type="checkbox" role="switch" id="' +
+        id +
+        '"' +
+        attrs +
+        (checked ? ' checked' : '') +
+        '><label class="form-check-label" for="' +
+        id +
+        '">' +
+        esc(info.label) +
+        '</label></div>';
+    } else if (info.kind === 'formats') {
+      var formats = attachmentDraftValue(
+        editor,
+        index,
+        'setting',
+        key,
+        setting && setting.type === 'list' ? setting.value : info.formats,
+      );
+      html +=
+        '<fieldset><legend class="editor-tiny">' +
+        esc(info.label) +
+        '</legend>';
+      info.formats.forEach(function (format) {
+        var formatId = id + '-' + format;
+        html +=
+          '<div class="form-check form-check-inline"><input class="form-check-input" type="checkbox" id="' +
+          formatId +
+          '"' +
+          attrs +
+          ' data-attachment-format="' +
+          esc(format) +
+          '"' +
+          (formats.indexOf(format) !== -1 ? ' checked' : '') +
+          '><label class="form-check-label" for="' +
+          formatId +
+          '">' +
+          esc(format.toUpperCase()) +
+          '</label></div>';
+      });
+      html += '</fieldset>';
+    } else {
+      var value = attachmentDraftValue(
+        editor,
+        index,
+        'setting',
+        key,
+        setting ? String(setting.value || '') : '',
+      );
+      html +=
+        '<label class="editor-tiny" for="' +
+        id +
+        '">' +
+        esc(info.label) +
+        '</label>';
+      // An <input> silently drops newlines, so text that may span lines
+      // (or already does) gets a textarea.
+      if (info.multiline || value.indexOf('\n') !== -1) {
+        html +=
+          '<textarea class="form-control editor-form-control' +
+          (info.mono ? ' font-monospace' : '') +
+          '" rows="2" id="' +
+          id +
+          '"' +
+          attrs +
+          '>\n' +
+          esc(value) +
+          '</textarea>';
+      } else
+        html +=
+          '<input class="form-control editor-form-control' +
+          (info.mono || info.kind === 'template' ? ' font-monospace' : '') +
+          '" id="' +
+          id +
+          '" autocomplete="off"' +
+          attrs +
+          (info.kind === 'template'
+            ? ' list="attachment-template-files-' +
+              key.split(' ')[0] +
+              '" required'
+            : '') +
+          (key === 'variable name' ? ' data-symbol-role="variable"' : '') +
+          ' value="' +
+          esc(value) +
+          '">';
+    }
+    html += '<div class="form-text">' + esc(info.help) + '</div></div>';
+    return html;
+  }
+
+  function renderAttachmentFieldRows(editor, attachment) {
+    var rows = attachment.rows.slice();
+    (attachment.template_fields || []).forEach(function (name) {
+      if (
+        !rows.some(function (row) {
+          return row.name === name;
+        })
+      )
+        rows.push({ name: name, value: '', editable: true, missing: true });
+    });
+    if (!rows.length) {
+      return (
+        '<p class="text-muted small mb-0">' +
+        (attachment.kind === 'docx'
+          ? 'No explicit mappings: the Word template reads interview variables directly.'
+          : 'No template fields were found to map.') +
+        '</p>'
+      );
+    }
+    var html =
+      '<table class="table align-middle"><thead><tr><th scope="col" style="width:35%">Template field</th><th scope="col">Text or Mako expression</th></tr></thead><tbody>';
+    rows.forEach(function (row, rowIndex) {
+      var id = 'attachment-inline-' + attachment.index + '-' + rowIndex;
+      var missingPdf = attachment.kind === 'pdf' && !attachment.dynamic;
+      html +=
+        '<tr><th scope="row"><label class="font-monospace" for="' +
+        id +
+        '">' +
+        esc(row.name) +
+        '</label>';
+      if (row.missing)
+        html +=
+          '<div class="small ' +
+          (missingPdf ? 'text-warning' : 'text-muted') +
+          '">' +
+          (missingPdf ? 'Missing mapping' : 'No explicit mapping') +
+          '</div>';
+      if (!row.editable)
+        html +=
+          '<div class="small text-muted">Not plain text: edit in Block YAML</div>';
+      html +=
+        '</th><td><textarea class="form-control font-monospace" rows="1" id="' +
+        id +
+        '" data-attachment-index="' +
+        attachment.index +
+        '" data-attachment-field="' +
+        esc(row.name) +
+        '" data-symbol-role="variable"' +
+        (row.editable ? '' : ' disabled') +
+        '>\n' +
+        esc(
+          attachmentDraftValue(
+            editor,
+            attachment.index,
+            'field',
+            row.name,
+            row.value,
+          ),
+        ) +
+        '</textarea></td></tr>';
+    });
+    return html + '</tbody></table>';
+  }
+
+  function renderAttachmentReadOnlySetting(setting) {
+    var info = ATTACHMENT_SETTINGS[setting.key];
+    var value =
+      setting.type === 'list'
+        ? setting.value.join(', ')
+        : setting.type === 'bool'
+          ? setting.value
+            ? 'True'
+            : 'False'
+          : String(setting.value);
+    var html = '<div class="editor-form-group">';
+    html +=
+      '<div class="editor-tiny"><code>' + esc(setting.key) + '</code></div>';
+    html +=
+      '<pre class="editor-attachment-setting-value mb-1"><code>' +
+      esc(value) +
+      '</code></pre>';
+    var help =
+      info && info.help
+        ? info.help
+        : 'Weaver does not describe this setting yet. See the docassemble documentation.';
+    if (setting.commented)
+      help += ' It has comments inside, so edit it in Block YAML.';
+    else if (info && info.kind)
+      help += ' Computed here, so edit it in Block YAML.';
+    html += '<div class="form-text">' + esc(help) + '</div></div>';
+    return html;
+  }
+
+  function renderAttachmentSection(editor, attachment, count) {
+    var kind = attachmentKindOf(attachment);
+    var byKey = {};
+    (attachment.settings || []).forEach(function (setting) {
+      byKey[setting.key] = setting;
+    });
+    var html = '<div class="editor-card"><div class="editor-card-header">';
+    html += esc(
+      count > 1
+        ? 'Attachment ' +
+            (attachment.index + 1) +
+            (attachment.template ? ': ' + attachment.template : '')
+        : attachment.template || 'Attachment',
+    );
+    html +=
+      ' <span class="editor-pill editor-pill-muted">' +
+      (kind === 'pdf'
+        ? 'PDF form'
+        : kind === 'docx'
+          ? 'Word template'
+          : 'Markdown document') +
+      '</span></div><div class="editor-card-body">';
+    if (attachment.warning)
+      html +=
+        '<div class="alert alert-warning py-2 small">' +
+        esc(attachment.warning) +
+        '</div>';
+
+    var shown = {};
+    var first = true;
+    function section(title, keys) {
+      var body = '';
+      keys.forEach(function (key) {
+        var info = ATTACHMENT_SETTINGS[key];
+        var setting = byKey[key];
+        if (key.indexOf('template file') !== -1 && !setting) return;
+        if (!attachmentSettingIsEditable(info, setting, kind)) return;
+        shown[key] = true;
+        body += renderAttachmentSetting(editor, attachment, key, info, setting);
+      });
+      if (!body) return;
+      html +=
+        '<div class="editor-section-legend' +
+        (first ? '' : ' mt-3') +
+        '">' +
+        title +
+        '</div>' +
+        body;
+      first = false;
+    }
+    section('Download', [
+      'name',
+      'filename',
+      'description',
+      'variable name',
+      'pdf template file',
+      'docx template file',
+    ]);
+    section('Output', [
+      'valid formats',
+      'editable',
+      'pdf/a',
+      'tagged pdf',
+      'skip undefined',
+      'language',
+    ]);
+
+    // Docassemble only fills fields into a PDF or Word template.
+    if (kind === 'other') {
+      html +=
+        '<p class="small text-muted mt-3">This document is written in Markdown rather than built from a template, so it has no fields to map.</p>';
+    } else {
+      html += '<div class="editor-section-legend mt-3">Field mappings</div>';
+      html +=
+        kind === 'docx'
+          ? '<p class="small text-muted">Word templates normally use interview variables directly. Add a mapping only when needed: doing so changes what the template can see.</p>'
+          : '<p class="small text-muted">Enter text or Mako, for example <code>${ amount if eligible else "" }</code>.</p>';
+      if (attachment.dynamic)
+        html +=
+          '<div class="alert alert-info py-2 small">This attachment also computes fields with code or variable lists (shown under Other settings). A field without a value here may be supplied there.</div>';
+      html += renderAttachmentFieldRows(editor, attachment);
+    }
+
+    var others = (attachment.settings || []).filter(function (setting) {
+      return !shown[setting.key];
+    });
+    if (others.length) {
+      html += '<div class="editor-section-legend mt-3">Other settings</div>';
+      html +=
+        '<p class="small text-muted">Edit these in Block YAML. <a href="' +
+        ATTACHMENT_DOCS_URL +
+        '" target="_blank" rel="noopener noreferrer">Attachment settings in the docassemble docs</a></p>';
+      others.forEach(function (setting) {
+        html += renderAttachmentReadOnlySetting(setting);
+      });
+    }
+    return html + '</div></div>';
+  }
+
+  function renderAttachmentBlock(block) {
+    loadAttachmentEditor(block);
+    var editor = _attachmentEditor;
+    var html =
+      '<div class="editor-center-bar"><h2 class="h5">' +
+      esc(block.title) +
+      '</h2><button class="btn btn-sm btn-outline-secondary" id="toggle-edit-mode">Block YAML</button></div>';
+    html += '<div class="editor-shell" id="attachment-editor">';
+    if (editor.status === 'loading') {
+      html +=
+        '<div class="editor-card"><div class="editor-card-body text-muted small" role="status">Reading the attachment and its template fields…</div></div>';
+    } else if (editor.status === 'error') {
+      html +=
+        '<div class="editor-card"><div class="editor-card-body"><div class="alert alert-warning mb-0">' +
+        esc(editor.error) +
+        ' Edit this attachment in Block YAML.</div></div></div>';
+    } else {
+      var attachments = editor.data.attachments || [];
+      // Each template input only suggests files of its own type.
+      ['pdf', 'docx'].forEach(function (extension) {
+        html += '<datalist id="attachment-template-files-' + extension + '">';
+        (editor.data.template_files || []).forEach(function (name) {
+          if (name.toLowerCase().endsWith('.' + extension))
+            html += '<option value="' + esc(name) + '"></option>';
+        });
+        html += '</datalist>';
+      });
+      attachments.forEach(function (attachment) {
+        html += renderAttachmentSection(editor, attachment, attachments.length);
+      });
+    }
+    html += '</div>';
+    canvasContent.innerHTML = html;
+    canvasContent
+      .querySelectorAll('#attachment-editor textarea')
+      .forEach(function (input) {
+        if (!window.WeaverMarkdown.enhance(input)) _initAutoResize(input, 38);
+      });
+  }
+
+  // Inputs keep their value in the draft so a re-render does not drop it.
+  function captureAttachmentEditorInput(target) {
+    var editor = _attachmentEditor;
+    if (!editor || editor.status !== 'ready') return false;
+    if (!target.closest || !target.closest('#attachment-editor')) return false;
+    var index = target.getAttribute('data-attachment-index');
+    if (target.hasAttribute('data-attachment-field')) {
+      editor.draft[
+        attachmentDraftKey(
+          index,
+          'field',
+          target.getAttribute('data-attachment-field'),
+        )
+      ] = target.value;
+      return true;
+    }
+    var key = target.getAttribute('data-attachment-setting');
+    if (!key) return false;
+    var value;
+    if (target.hasAttribute('data-attachment-format')) {
+      value = [];
+      document
+        .querySelectorAll(
+          '#attachment-editor [data-attachment-format][data-attachment-index="' +
+            index +
+            '"]',
+        )
+        .forEach(function (box) {
+          if (box.checked)
+            value.push(box.getAttribute('data-attachment-format'));
+        });
+    } else if (target.type === 'checkbox') {
+      value = target.checked;
+    } else {
+      value = target.value;
+    }
+    editor.draft[attachmentDraftKey(index, 'setting', key)] = value;
+    return true;
+  }
+
+  // Only what the author actually changed is written back.
+  function attachmentEditorUpdates(editor) {
+    if (!editor || editor.status !== 'ready') return [];
+    var updates = [];
+    (editor.data.attachments || []).forEach(function (attachment) {
+      var kind = attachmentKindOf(attachment);
+      var update = { index: attachment.index, values: {}, settings: {} };
+      var changed = false;
+      var byKey = {};
+      (attachment.settings || []).forEach(function (setting) {
+        byKey[setting.key] = setting;
+      });
+      var rows = {};
+      attachment.rows.forEach(function (row) {
+        rows[row.name] = row;
+      });
+      Object.keys(editor.draft).forEach(function (draftKey) {
+        var parts = draftKey.split('\u0000');
+        if (Number(parts[0]) !== attachment.index) return;
+        var value = editor.draft[draftKey];
+        var name = parts[2];
+        if (parts[1] === 'field') {
+          var row = rows[name];
+          if (row ? row.editable && row.value !== value : value !== '') {
+            update.values[name] = value;
+            changed = true;
+          }
+          return;
+        }
+        var info = ATTACHMENT_SETTINGS[name];
+        var setting = byKey[name];
+        if (!attachmentSettingIsEditable(info, setting, kind)) return;
+        var original;
+        if (info.kind === 'bool')
+          original =
+            setting && setting.type === 'bool'
+              ? setting.value
+              : info.defaultValue;
+        else if (info.kind === 'formats')
+          original =
+            setting && setting.type === 'list' ? setting.value : info.formats;
+        else original = setting ? String(setting.value || '') : '';
+        if (JSON.stringify(original) === JSON.stringify(value)) return;
+        update.settings[name] = value;
+        changed = true;
+      });
+      if (changed) updates.push(update);
+    });
+    return updates;
+  }
+
+  function saveAttachmentEditor(block) {
+    var editor = _attachmentEditor;
+    var updates = attachmentEditorUpdates(editor);
+    if (!updates.length) return null;
+    var problem = null;
+    updates.forEach(function (update) {
+      var formats = update.settings['valid formats'];
+      if (formats && !formats.length)
+        problem = 'Offer at least one format for the download.';
+      ['pdf template file', 'docx template file'].forEach(function (key) {
+        if (
+          Object.prototype.hasOwnProperty.call(update.settings, key) &&
+          !String(update.settings[key]).trim()
+        )
+          problem = 'Choose a template file for the attachment.';
+      });
+    });
+    if (problem) {
+      window.alert(problem);
+      return Promise.resolve(false);
+    }
+    return apiPost('/api/attachment-mappings', {
+      project: state.project,
+      filename: state.filename,
+      block_id: block.id,
+      expected_revision: state.revision || editor.data.revision,
+      updates: updates,
+    })
+      .then(function () {
+        if (_attachmentEditor === editor) _attachmentEditor = null;
+        return loadFile().then(function () {
+          return true;
+        });
+      })
+      .catch(function (error) {
+        if (isSupersededRequest(error)) return false;
+        window.alert(
+          'Unable to save the attachment: ' +
+            String((error && error.message) || error || 'Unknown error'),
+        );
+        return false;
+      });
+  }
+
   var attachmentMappingContext = null;
   var attachmentMappingsModal = document.getElementById(
     'attachment-mappings-modal',
@@ -25271,6 +26023,10 @@
     }
     if (target.matches('[data-symbol-role]')) {
       showTypeaheadForInput(target);
+    }
+    if (captureAttachmentEditorInput(target)) {
+      markInterviewDirty();
+      return;
     }
     if (target.id === 'project-search-input') {
       state.projectSearchQuery = target.value || '';
