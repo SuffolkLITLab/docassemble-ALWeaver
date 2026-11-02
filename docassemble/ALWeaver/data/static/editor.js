@@ -13664,6 +13664,16 @@
         var existing = bootstrap.Popover.getInstance(trigger);
         if (existing) existing.dispose();
         bootstrap.Popover.getOrCreateInstance(trigger);
+        // A focus-triggered popover otherwise closes only on blur. Escape
+        // dismisses it without moving focus (WCAG 1.4.13), and keeps it from
+        // covering the controls below it.
+        if (trigger.dataset.escapeDismisses) return;
+        trigger.dataset.escapeDismisses = 'true';
+        trigger.addEventListener('keydown', function (event) {
+          if (event.key !== 'Escape') return;
+          var popover = bootstrap.Popover.getInstance(trigger);
+          if (popover) popover.hide();
+        });
       });
   }
 
