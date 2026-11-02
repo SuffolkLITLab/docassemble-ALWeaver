@@ -769,6 +769,7 @@
     var view = bundle.ev;
     var subscribers = [];
     var blockMenu = null;
+    var searchPanel = null;
     var originalDispatch = view.dispatch.bind(view);
     view.dispatch = function () {
       var before = view.state.doc.toString();
@@ -776,6 +777,7 @@
       originalDispatch.apply(view, arguments);
       var after = view.state.doc.toString();
       if (blockMenu) blockMenu.update();
+      if (searchPanel) searchPanel.check();
       if (
         options.onSelectionChange &&
         (after !== before || !view.state.selection.eq(selectionBefore))
@@ -851,6 +853,7 @@
               : null,
         };
         subscribers = [];
+        if (searchPanel) searchPanel.dispose();
         if (blockMenu) blockMenu.dispose();
         view.destroy();
         if (_sourceEditors[containerId] === editor)
@@ -918,7 +921,128 @@
     ) {
       blockMenu = attachSourceBlockMenu(container, view);
     }
+    if (containerId === 'full-source-editor') {
+      searchPanel = keepSearchPanelOpen(view);
+      attachFullScreenToggle(blockMenu.wrapper, view, blockMenu.update);
+    }
     return editor;
+  }
+
+  // Docassemble's bundle exposes only daNewEditor(), not openSearchPanel(), so
+  // the panel is opened through its own Mod-f binding. It stays open: Escape
+  // in the panel still returns focus to the text, and the panel comes back
+  // with the search the author had, not one seeded from the selection.
+  function keepSearchPanelOpen(view) {
+    var mac = /Mac|iPhone|iPod|iPad/.test(navigator.platform);
+    var pending = false;
+    var disposed = false;
+    var panel = null;
+    var saved = {
+      search: '',
+      replace: '',
+      case: false,
+      re: false,
+      word: false,
+    };
+    function field(name) {
+      return panel && panel.querySelector('[name="' + name + '"]');
+    }
+    function remember() {
+      ['search', 'replace'].forEach(function (name) {
+        if (field(name)) saved[name] = field(name).value;
+      });
+      ['case', 're', 'word'].forEach(function (name) {
+        if (field(name)) saved[name] = field(name).checked;
+      });
+    }
+    function open() {
+      pending = false;
+      if (disposed || !view.dom.isConnected) return;
+      panel = view.dom.querySelector('.cm-search');
+      if (panel) return;
+      var active = document.activeElement;
+      view.contentDOM.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'f',
+          code: 'KeyF',
+          keyCode: 70,
+          ctrlKey: !mac,
+          metaKey: mac,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      panel = view.dom.querySelector('.cm-search');
+      if (panel && field('search')) {
+        ['search', 'replace'].forEach(function (name) {
+          if (field(name)) field(name).value = saved[name];
+        });
+        ['case', 're', 'word'].forEach(function (name) {
+          if (field(name)) field(name).checked = saved[name];
+        });
+        // The panel commits its fields to the search state on change.
+        field('search').dispatchEvent(new Event('change'));
+      }
+      // The panel focuses its field when it mounts. Showing it is not a
+      // request to search, so focus stays wherever it was.
+      // Refocus the text through CodeMirror: a plain focus() lets it read the
+      // browser's stale DOM selection back as a cursor move.
+      if (active && active !== document.activeElement && active.isConnected) {
+        if (active === view.contentDOM) view.focus();
+        else active.focus({ preventScroll: true });
+      }
+    }
+    open();
+    return {
+      check: function () {
+        if (pending || disposed) return;
+        if (view.dom.querySelector('.cm-search')) return;
+        remember();
+        pending = true;
+        // Not from inside dispatch: CodeMirror rejects nested updates.
+        Promise.resolve().then(open);
+      },
+      dispose: function () {
+        disposed = true;
+      },
+    };
+  }
+
+  // F11 fills the window with the editor, as in the Playground. Docassemble's
+  // own F11 binding needs jQuery, which this page does not load, so it is
+  // intercepted before CodeMirror sees the key.
+  function attachFullScreenToggle(wrapper, view, onChange) {
+    // Full screen covers the Save button and F11 is easy to forget (and is
+    // fn+F11 on a Mac), so it always shows a visible way out.
+    var exit = document.createElement('button');
+    exit.type = 'button';
+    exit.className = 'btn btn-sm btn-secondary editor-source-exit-full-screen';
+    exit.textContent = 'Exit full screen (F11)';
+    wrapper.appendChild(exit);
+    function toggle() {
+      var full = wrapper.classList.toggle('editor-source-full-screen');
+      view.requestMeasure();
+      if (onChange) onChange();
+      if (!full) view.focus();
+    }
+    exit.addEventListener('click', toggle);
+    wrapper.addEventListener(
+      'keydown',
+      function (event) {
+        if (
+          event.key !== 'F11' ||
+          event.ctrlKey ||
+          event.metaKey ||
+          event.altKey ||
+          event.shiftKey
+        )
+          return;
+        event.preventDefault();
+        event.stopPropagation();
+        toggle();
+      },
+      true,
+    );
   }
 
   function attachSourceBlockMenu(container, view) {
@@ -932,13 +1056,35 @@
     var frame = null;
     var renderedBlockId;
     var rangeDocument, rangeBlock, range;
+    // In the full file the menu follows the block under the pointer, so an
+    // author can act on a block without first clicking into it. Typing hands
+    // it back to the cursor block.
+    var pointer = null;
+    var hoverBlockId = null;
+    var menuOpen = false;
+    var contentDocument, contentString;
+    function hoveredBlockId() {
+      if (!pointer || state.canvasMode !== 'full-yaml') return null;
+      var position = view.posAtCoords(pointer, false);
+      if (position === null || position === undefined) return null;
+      if (view.state.doc !== contentDocument) {
+        contentDocument = view.state.doc;
+        contentString = contentDocument.toString();
+      }
+      var block = sourceBlockAtPosition(contentString, position);
+      return block ? block.id : null;
+    }
     function positionMenu() {
       frame = null;
       if (!container.isConnected) return;
+      // An open menu keeps the block it was opened for.
+      if (!menuOpen) hoverBlockId = hoveredBlockId();
       var block = getBlockById(
-        state.canvasMode === 'full-yaml'
-          ? sourceCursorBlockId
-          : state.selectedBlockId,
+        menuOpen
+          ? renderedBlockId
+          : state.canvasMode === 'full-yaml'
+            ? hoverBlockId || sourceCursorBlockId
+            : state.selectedBlockId,
       );
       // CodeMirror documents are immutable: scrolling alone cannot change ranges.
       if (view.state.doc !== rangeDocument || block !== rangeBlock) {
@@ -954,25 +1100,31 @@
               )
             : { from: 0, to: rangeDocument.length });
       }
-      host.hidden =
+      if (
         !range ||
         range.to < view.viewport.from ||
-        range.from > view.viewport.to;
-      if (host.hidden) return;
+        range.from > view.viewport.to
+      ) {
+        hideHost();
+        return;
+      }
+      host.hidden = false;
       if (renderedBlockId !== block.id) {
         disposeDropdown();
-        host.innerHTML = sourceBlockMenu();
+        host.innerHTML = sourceBlockMenu(block.id);
         renderedBlockId = block.id;
       }
       var bounds = wrapper.getBoundingClientRect();
       var scroll = view.scrollDOM.getBoundingClientRect();
+      // Bottom panels (the search bar) overlay the end of the scroller.
+      var panels = view.dom.querySelector('.cm-panels-bottom');
+      var bottom = panels
+        ? Math.min(scroll.bottom, panels.getBoundingClientRect().top)
+        : scroll.bottom;
       var start = view.coordsAtPos(range.from);
       var end = view.coordsAtPos(range.to);
-      if (
-        (start && start.top >= scroll.bottom) ||
-        (end && end.bottom <= scroll.top)
-      ) {
-        host.hidden = true;
+      if ((start && start.top >= bottom) || (end && end.bottom <= scroll.top)) {
+        hideHost();
         return;
       }
       var coords = view.coordsAtPos(Math.max(range.from, view.viewport.from));
@@ -981,9 +1133,22 @@
           scroll.top - bounds.top,
           Math.min(
             (coords ? coords.top : scroll.top) - bounds.top,
-            scroll.bottom - bounds.top - 44,
+            bottom - bounds.top - 44,
           ),
         ) + 'px';
+    }
+    // Hiding the host does not close an open dropdown, and Bootstrap would
+    // never report it closed, leaving the menu stuck on an offscreen block.
+    function hideHost() {
+      host.hidden = true;
+      if (!menuOpen) return;
+      menuOpen = false;
+      var toggle = host.querySelector('[data-bs-toggle="dropdown"]');
+      var dropdown =
+        toggle && window.bootstrap
+          ? window.bootstrap.Dropdown.getInstance(toggle)
+          : null;
+      if (dropdown) dropdown.hide();
     }
     function disposeDropdown() {
       var toggle = host.querySelector('[data-bs-toggle="dropdown"]');
@@ -995,13 +1160,46 @@
     function update() {
       if (frame === null) frame = requestAnimationFrame(positionMenu);
     }
+    function trackPointer(event) {
+      pointer = { x: event.clientX, y: event.clientY };
+      update();
+    }
+    function forgetPointer() {
+      if (!pointer) return;
+      pointer = null;
+      update();
+    }
+    function menuShown() {
+      menuOpen = true;
+    }
+    function menuHidden() {
+      menuOpen = false;
+      update();
+    }
+    // Only the full file has several blocks to choose between.
+    var followsPointer = container.id === 'full-source-editor';
+    if (followsPointer) {
+      view.scrollDOM.addEventListener('mousemove', trackPointer);
+      wrapper.addEventListener('mouseleave', forgetPointer);
+      view.contentDOM.addEventListener('keydown', forgetPointer);
+    }
+    host.addEventListener('shown.bs.dropdown', menuShown);
+    host.addEventListener('hidden.bs.dropdown', menuHidden);
     view.scrollDOM.addEventListener('scroll', update);
     window.addEventListener('resize', update);
     update();
     return {
+      wrapper: wrapper,
       update: update,
       dispose: function () {
         if (frame !== null) cancelAnimationFrame(frame);
+        if (followsPointer) {
+          view.scrollDOM.removeEventListener('mousemove', trackPointer);
+          wrapper.removeEventListener('mouseleave', forgetPointer);
+          view.contentDOM.removeEventListener('keydown', forgetPointer);
+        }
+        host.removeEventListener('shown.bs.dropdown', menuShown);
+        host.removeEventListener('hidden.bs.dropdown', menuHidden);
         view.scrollDOM.removeEventListener('scroll', update);
         window.removeEventListener('resize', update);
         disposeDropdown();
@@ -13466,6 +13664,16 @@
         var existing = bootstrap.Popover.getInstance(trigger);
         if (existing) existing.dispose();
         bootstrap.Popover.getOrCreateInstance(trigger);
+        // A focus-triggered popover otherwise closes only on blur. Escape
+        // dismisses it without moving focus (WCAG 1.4.13), and keeps it from
+        // covering the controls below it.
+        if (trigger.dataset.escapeDismisses) return;
+        trigger.dataset.escapeDismisses = 'true';
+        trigger.addEventListener('keydown', function (event) {
+          if (event.key !== 'Escape') return;
+          var popover = bootstrap.Popover.getInstance(trigger);
+          if (popover) popover.hide();
+        });
       });
   }
 
@@ -13759,12 +13967,13 @@
       '</div>';
   }
 
-  function sourceBlockMenu() {
-    var block = getBlockById(
-      state.canvasMode === 'full-yaml'
-        ? sourceCursorBlockId
-        : state.selectedBlockId,
-    );
+  function sourceBlockMenu(blockId) {
+    var block = getBlockById(blockId);
+    // The menu can follow the pointer rather than the cursor, so each action
+    // names the block it was drawn for instead of reading the cursor block.
+    var blockAttr = block
+      ? ' data-source-block-id="' + esc(block.id) + '"'
+      : '';
     var representation = block && blockRepresentationName(block, 'preview');
     var editLabel =
       representation === 'Visual editor'
@@ -13778,11 +13987,13 @@
       '<i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>' +
       '<ul class="dropdown-menu dropdown-menu-end" aria-labelledby="source-block-actions">' +
       '<li><button type="button" class="dropdown-item" data-action="edit-source-block"' +
+      blockAttr +
       (block ? '' : ' disabled') +
       '>' +
       editLabel +
       '</button></li>' +
       '<li><button type="button" class="dropdown-item" data-action="open-screen-preview"' +
+      blockAttr +
       (block && PREVIEWABLE_BLOCK_TYPES.indexOf(block.type) !== -1
         ? ''
         : ' disabled') +
@@ -13828,7 +14039,7 @@
     return 'Open ' + title + ' · ' + representation;
   }
 
-  function updateSourceCursorBlock(content, position) {
+  function sourceBlockAtPosition(content, position) {
     var block = state.blocks.find(function (candidate) {
       var range = sourceBlockRange(
         content,
@@ -13850,6 +14061,11 @@
         if (range && (!block || range.from <= position)) block = candidate;
       });
     }
+    return block || null;
+  }
+
+  function updateSourceCursorBlock(content, position) {
+    var block = sourceBlockAtPosition(content, position);
     var nextId = block ? block.id : null;
     var changed =
       nextId !== sourceCursorBlockId ||
@@ -14467,9 +14683,15 @@
     return block.data || {};
   }
 
-  function openScreenPreview() {
-    var block =
-      state.canvasMode === 'full-yaml'
+  // The block the open preview shows, which may be a hovered block rather than
+  // the cursor block; refreshing the preview must keep showing it.
+  var screenPreviewBlockId = null;
+
+  function openScreenPreview(blockId) {
+    screenPreviewBlockId = blockId || null;
+    var block = blockId
+      ? getBlockById(blockId)
+      : state.canvasMode === 'full-yaml'
         ? getBlockById(sourceCursorBlockId)
         : getSelectedBlock();
     if (!block || PREVIEWABLE_BLOCK_TYPES.indexOf(block.type) === -1) return;
@@ -14536,7 +14758,7 @@
     var frame = document.getElementById('screen-preview-frame');
     var modalEl = document.getElementById('screen-preview-modal');
     if (!frame || !modalEl || !modalEl.classList.contains('show')) return;
-    openScreenPreview();
+    openScreenPreview(screenPreviewBlockId);
   }
 
   /* What a file pulls in, split by where it lives. A bare filename inside a
@@ -17962,7 +18184,7 @@
       '<div class="editor-full-yaml-shell">' +
       '<p id="source-outline-status" role="status"></p>' +
       '<div class="editor-card"><div class="editor-card-body">' +
-      '<div class="editor-source-container" id="full-source-editor" style="height:600px"></div>' +
+      '<div class="editor-source-container" id="full-source-editor"></div>' +
       '</div></div><div class="d-flex justify-content-end">' +
       '<button class="btn btn-primary" id="save-full-yaml">Save</button></div></div>';
     var content = Object.prototype.hasOwnProperty.call(
@@ -23709,7 +23931,7 @@
       return;
     }
     if (uiAction === 'open-screen-preview') {
-      openScreenPreview();
+      openScreenPreview(actionControl.getAttribute('data-source-block-id'));
       return;
     }
     var previewWidthButton = target.closest('[data-preview-width]');
@@ -24251,9 +24473,11 @@
 
     if (target.id === 'back-to-question' || uiAction === 'edit-source-block') {
       var sourceBlockId =
-        state.canvasMode === 'full-yaml'
+        (uiAction === 'edit-source-block' &&
+          actionControl.getAttribute('data-source-block-id')) ||
+        (state.canvasMode === 'full-yaml'
           ? sourceCursorBlockId
-          : state.selectedBlockId;
+          : state.selectedBlockId);
       if (!getBlockById(sourceBlockId)) return;
       function leaveFullYaml() {
         _stashFullYamlContent();

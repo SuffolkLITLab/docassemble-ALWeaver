@@ -250,20 +250,31 @@ async function main() {
       await audit(page, "style-check results")
     );
 
-    // Full YAML, metadata, and interview-order source editors.
+    // Full file YAML, with its always-open search bar, block actions menu,
+    // and F11 full-screen mode.
     interviewMenu = await openInterviewMenu(page);
     await interviewMenu.locator('[data-action="open-full-yaml"]').click();
-    await page.locator("#full-source-editor").waitFor({ state: "visible" });
+    await page.locator("#full-source-editor .cm-search").waitFor({ state: "visible" });
     blockingViolations = blockingViolations.concat(
       await audit(page, "full YAML editor")
     );
-    for (const tabName of ["metadata", "order"]) {
-      await page.locator(`[data-yaml-tab="${tabName}"]`).click();
-      await page.waitForTimeout(250);
-      blockingViolations = blockingViolations.concat(
-        await audit(page, `${tabName} YAML editor`)
-      );
-    }
+    await page.locator("#source-block-actions").click();
+    await page
+      .locator('[aria-labelledby="source-block-actions"].show')
+      .waitFor({ state: "visible" });
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "full YAML block actions menu")
+    );
+    await page.keyboard.press("Escape");
+    await page.locator("#full-source-editor .cm-content").focus();
+    await page.keyboard.press("F11");
+    await page
+      .locator(".editor-source-exit-full-screen")
+      .waitFor({ state: "visible" });
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "full-screen YAML editor")
+    );
+    await page.locator(".editor-source-exit-full-screen").click();
     await page.locator("#back-to-question").click();
     await page.locator("#outline-list .editor-outline-item").first().waitFor();
 

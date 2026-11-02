@@ -122,6 +122,7 @@ for (const name of [
   'editingLocation',
   'applyOutlineFilter',
   'sourceBlockRange',
+  'sourceBlockAtPosition',
   'updateSourceCursorBlock',
   'sourceBlockActionLabel',
   'conciseBlockTitle',
@@ -540,12 +541,34 @@ console.log('PASS trailing source comments retain the final block context');
 
 h.PREVIEWABLE_BLOCK_TYPES = ['question', 'review', 'table'];
 state.canvasMode = 'full-yaml';
+assert.match(
+  h.sourceBlockMenu('about'),
+  /data-action="open-screen-preview" data-source-block-id="about">Preview/,
+);
+assert.match(
+  h.sourceBlockMenu('about'),
+  /data-action="edit-source-block" data-source-block-id="about">/,
+);
+assert.match(
+  h.sourceBlockMenu(null),
+  /data-action="open-screen-preview" disabled/,
+);
+assert.match(
+  h.sourceBlockMenu(null),
+  /data-action="edit-source-block" disabled/,
+);
+console.log('PASS YAML menu actions name the block they were drawn for');
+
 h.sourceCursorBlockId = 'about';
-assert.match(h.sourceBlockMenu(), /data-action="open-screen-preview">Preview/);
-h.sourceCursorBlockId = null;
-assert.match(h.sourceBlockMenu(), /data-action="open-screen-preview" disabled/);
-assert.match(h.sourceBlockMenu(), /data-action="edit-source-block" disabled/);
-console.log('PASS YAML menu actions use current block availability');
+assert.equal(
+  h.sourceBlockAtPosition(
+    cursorSource,
+    cursorSource.indexOf('question: Income'),
+  ).id,
+  'income',
+);
+assert.equal(h.sourceCursorBlockId, 'about');
+console.log('PASS hovered block lookup leaves the cursor block alone');
 
 const makoBlock = {
   id: 'users there_is_another',
@@ -590,10 +613,10 @@ console.log('PASS Settings returns to its originating full-source workspace');
 h.sourceCursorBlockId = 'income';
 income.type = 'code';
 assert.equal(h.sourceBlockActionLabel(), 'Edit Income in Python');
-assert.match(h.sourceBlockMenu(), />Edit Python</);
+assert.match(h.sourceBlockMenu('income'), />Edit Python</);
 income.type = 'metadata';
 assert.equal(h.sourceBlockActionLabel(), 'Open Income · Block YAML');
-assert.match(h.sourceBlockMenu(), />Open block YAML</);
+assert.match(h.sourceBlockMenu('income'), />Open block YAML</);
 income.type = 'question';
 console.log(
   'PASS source actions accurately name non-visual editing destinations',
