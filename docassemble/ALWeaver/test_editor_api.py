@@ -4273,6 +4273,37 @@ class TestEditorAttachmentMappingsApi(unittest.TestCase):
         self.assertIn("Could not check", attachment["warning"])
         write.assert_not_called()
 
+    def test_save_writes_settings_and_read_lists_project_templates(self):
+        response, write = self._request(
+            {
+                "expected_revision": "test-revision",
+                "updates": [{"index": 0, "settings": {"editable": False}}],
+            }
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("  editable: False\n", write.call_args.args[3])
+        self.assertIn(" # keep", write.call_args.args[3])
+
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            for name in ("form.pdf", "letter.docx", "notes.txt"):
+                with open(os.path.join(directory, name), "wb") as handle:
+                    handle.write(b"")
+            response, write = self._request({}, template_directory=directory)
+        data = response.get_json()["data"]
+        self.assertEqual(data["template_files"], ["form.pdf", "letter.docx"])
+        self.assertEqual(
+            data["attachments"][0]["settings"][0]["key"], "pdf template file"
+        )
+
+    def test_markdown_attachment_has_no_template_warning(self):
+        self.SOURCE = "id: output\nattachment:\n  name: Notes\n  content: Hello\n"
+        response, write = self._request({})
+        attachment = response.get_json()["data"]["attachments"][0]
+        self.assertEqual(attachment["kind"], "other")
+        self.assertNotIn("warning", attachment)
+
     def test_requires_authentication(self):
         response, write = self._request({}, authenticated=False)
         self.assertIn(response.status_code, (401, 403))

@@ -13970,8 +13970,26 @@ def editor_api_attachment_mappings() -> Response:
             )
 
         attachments = attachment_mappings(block["yaml"])
+        _, template_directory = _editor_storage_directory(
+            uid, project, EDITOR_SECTION_TO_STORAGE["templates"]
+        )
+        # Offered when the author swaps the file an attachment fills in.
+        template_files = sorted(
+            name
+            for name in (
+                os.listdir(template_directory)
+                if os.path.isdir(template_directory)
+                else []
+            )
+            if name.lower().endswith((".pdf", ".docx"))
+            and os.path.isfile(os.path.join(template_directory, name))
+            and not os.path.islink(os.path.join(template_directory, name))
+        )
         for attachment in attachments:
             attachment["template_fields"] = []
+            if not attachment["template"]:
+                # Markdown content, or no template chosen yet: nothing to read.
+                continue
             try:
                 template = _normalize_storage_filename(attachment["template"])
                 if (
@@ -14001,6 +14019,7 @@ def editor_api_attachment_mappings() -> Response:
                 "data": {
                     "revision": source_revision(content),
                     "attachments": attachments,
+                    "template_files": template_files,
                 },
             }
         )

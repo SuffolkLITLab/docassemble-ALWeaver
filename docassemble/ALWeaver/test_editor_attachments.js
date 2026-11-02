@@ -56,6 +56,7 @@ const canvas = {
   renderCodeBlock: () => { routed.push('code'); },
   renderObjectsBlock: () => { routed.push('objects'); },
   renderGenericBlock: () => { routed.push('generic'); },
+  renderAttachmentBlock: () => { routed.push('attachment'); },
   emptyCanvasHtml: () => '',
   esc: (value) => String(value),
 };
@@ -76,8 +77,126 @@ assert.deepStrictEqual(routed, ['question', 'question']);
 canvas.selected = {type: 'attachment', title: 'Petition',
   data: {attachment: {'variable name': 'petition[i]'}}};
 canvas.renderBlockCanvas();
-assert.deepStrictEqual(routed, ['question', 'question']);
-assert.ok(canvas.canvasContent.innerHTML.includes('data-edit-attachment-mappings'));
+assert.deepStrictEqual(routed, ['question', 'question', 'attachment']);
+
+// The standalone attachment is edited in place: every setting Weaver can
+// write gets a control, and the rest are shown with what they do.
+const inline = {
+  state: {project: 'p', filename: 'main.yml', revision: 'r1'},
+  esc: (value) => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;'),
+  isQuestionEditorBlock: () => false,
+};
+vm.createContext(inline);
+const settingsStart = source.indexOf('  var ATTACHMENT_DOCS_URL');
+vm.runInContext(source.slice(settingsStart, source.indexOf('  var _attachmentEditor = null;', settingsStart)), inline);
+for (const name of [
+  'attachmentDraftKey', 'attachmentKindOf', 'attachmentSettingIsEditable',
+  'attachmentDraftValue', 'renderAttachmentSetting', 'renderAttachmentFieldRows',
+  'renderAttachmentReadOnlySetting', 'renderAttachmentSection', 'attachmentEditorUpdates',
+]) {
+  const begin = source.indexOf(`  function ${name}(`);
+  assert.ok(begin > 0, name);
+  vm.runInContext(source.slice(begin, source.indexOf('\n  }\n', begin) + 4), inline);
+}
+const pdfAttachment = {
+  index: 0, kind: 'pdf', template: 'form.pdf', dynamic: true,
+  rows: [{name: 'amount', value: '${ amount }', editable: true}],
+  template_fields: ['amount', 'signature'],
+  settings: [
+    {key: 'name', type: 'str', value: 'Petition'},
+    {key: 'pdf template file', type: 'str', value: 'form.pdf'},
+    {key: 'filename', type: 'str', value: '${ name_of_file }'},
+    {key: 'editable', type: 'bool', value: false},
+    {key: 'skip undefined', type: 'str', value: '${ flag }'},
+    {key: 'field code', type: 'complex', value: 'x: y'},
+    {key: 'mystery option', type: 'str', value: 'z'},
+  ],
+};
+const editor = {status: 'ready', draft: {}, data: {attachments: [pdfAttachment]}};
+let section = inline.renderAttachmentSection(editor, pdfAttachment, 1);
+assert.ok(section.includes('data-attachment-setting="name"'));
+assert.ok(section.includes('value="Petition"'));
+assert.ok(section.includes('list="attachment-template-files-pdf"'), 'a PDF template only suggests PDFs');
+assert.ok(/data-attachment-setting="editable"(?![^>]*checked)/.test(section));
+assert.ok(section.includes('data-attachment-setting="pdf/a"'));
+assert.ok(!section.includes('data-attachment-setting="tagged pdf"'), 'Word-only switch on a PDF');
+assert.ok(!section.includes('data-attachment-setting="valid formats"'), 'Word-only formats on a PDF');
+assert.ok(!section.includes('data-attachment-setting="skip undefined"'), 'computed value offered as a switch');
+assert.ok(section.includes('<code>skip undefined</code>'));
+assert.ok(section.includes('Computed here, so edit it in Block YAML.'));
+assert.ok(section.includes('<code>field code</code>'));
+assert.ok(section.includes('computed by Python expressions'));
+assert.ok(section.includes('<code>mystery option</code>'));
+assert.ok(section.includes('Weaver does not describe this setting yet'));
+assert.ok(section.includes('data-attachment-field="signature"'));
+assert.ok(section.includes('Field mappings'));
+assert.ok(!section.includes('data-edit-attachment-mappings'));
+// A description may span lines, which an <input> would flatten.
+assert.ok(/<textarea[^>]*data-attachment-setting="description"/.test(section));
+
+assert.strictEqual(inline.attachmentEditorUpdates(editor).length, 0);
+const key = (kind, name) => inline.attachmentDraftKey(0, kind, name);
+editor.draft[key('setting', 'editable')] = false; // unchanged
+editor.draft[key('setting', 'pdf/a')] = false; // the default, absent
+editor.draft[key('setting', 'skip undefined')] = true; // read-only
+editor.draft[key('field', 'signature')] = '';
+assert.strictEqual(inline.attachmentEditorUpdates(editor).length, 0);
+editor.draft[key('setting', 'name')] = 'Motion';
+editor.draft[key('setting', 'pdf/a')] = true;
+editor.draft[key('field', 'signature')] = '${ users[0].signature }';
+assert.deepStrictEqual(JSON.parse(JSON.stringify(inline.attachmentEditorUpdates(editor))), [{
+  index: 0,
+  values: {signature: '${ users[0].signature }'},
+  settings: {name: 'Motion', 'pdf/a': true},
+}]);
+section = inline.renderAttachmentSection(editor, pdfAttachment, 1);
+assert.ok(section.includes('value="Motion"'), 'a re-render keeps the draft');
+
+const docxAttachment = {
+  index: 0, kind: 'docx', template: 'letter.docx', rows: [], template_fields: [],
+  settings: [
+    {key: 'docx template file', type: 'str', value: 'letter.docx'},
+    {key: 'name', type: 'str', value: 'Line one\nLine two'},
+  ],
+};
+section = inline.renderAttachmentSection({draft: {}}, docxAttachment, 1);
+assert.ok(section.includes('data-attachment-setting="tagged pdf"'));
+assert.ok(section.includes('data-attachment-format="pdf" checked'));
+assert.ok(section.includes('data-attachment-format="docx" checked'));
+assert.ok(!section.includes('data-attachment-setting="editable"'));
+assert.ok(section.includes('reads interview variables directly'));
+assert.ok(!section.includes('Other settings'));
+assert.ok(/<textarea[^>]*data-attachment-setting="name"[^>]*>\nLine one\nLine two</.test(section));
+
+// A commented list would lose its comments if rewritten.
+docxAttachment.settings.push({key: 'valid formats', type: 'list', value: ['pdf'], commented: true});
+section = inline.renderAttachmentSection({draft: {}}, docxAttachment, 1);
+assert.ok(!section.includes('data-attachment-format='));
+assert.ok(section.includes('It has comments inside'));
+
+// A blank format list cannot be rewritten in place, so it stays read-only.
+docxAttachment.settings[2] = {key: 'valid formats', type: 'null', value: ''};
+section = inline.renderAttachmentSection({draft: {}}, docxAttachment, 1);
+assert.ok(!section.includes('data-attachment-format='));
+
+// Markdown documents have no template, so no template-only controls or mappings.
+const markdown = {
+  index: 0, kind: 'other', template: '', rows: [], template_fields: [], dynamic: false,
+  settings: [
+    {key: 'name', type: 'str', value: 'Notes'},
+    {key: 'content', type: 'str', value: 'Hello'},
+    {key: 'allow privileges', type: 'list', value: ['admin']},
+  ],
+};
+section = inline.renderAttachmentSection({draft: {}}, markdown, 1);
+assert.ok(section.includes('Markdown document'));
+assert.ok(!section.includes('Word template'));
+assert.ok(!section.includes('data-attachment-setting="tagged pdf"'));
+assert.ok(!section.includes('data-attachment-format='));
+assert.ok(!section.includes('Field mappings'));
+assert.ok(section.includes('no fields to map'));
+assert.ok(section.includes('used instead of a template'));
+assert.ok(section.includes('Privileges (such as admin)'));
 
 // Saving must follow the same dispatch as rendering, including in YAML mode.
 const saveStart = source.indexOf('  function getBlockYamlForSave(');

@@ -188,3 +188,142 @@ attachments:
             with self.subTest(call=call), self.assertRaises(ValueError) as caught:
                 call()
             self.assertIn("computed", str(caught.exception))
+
+    def test_settings_are_reported_with_their_type(self):
+        source = (
+            "attachment:\n"
+            "  name: Petition\n"
+            "  pdf template file: petition.pdf\n"
+            "  editable: False\n"
+            "  description:\n"
+            "  valid formats:\n"
+            "    - pdf\n"
+            "  field code:\n"
+            "    a: b\n"
+            "  fields:\n"
+            "    x: y\n"
+        )
+        settings = {
+            setting["key"]: setting
+            for setting in attachment_mappings(source)[0]["settings"]
+        }
+        self.assertNotIn("fields", settings)
+        self.assertEqual(
+            settings["name"], {"key": "name", "type": "str", "value": "Petition"}
+        )
+        self.assertEqual(settings["editable"]["value"], False)
+        self.assertEqual(settings["description"]["type"], "null")
+        self.assertEqual(settings["valid formats"]["value"], ["pdf"])
+        self.assertEqual(settings["field code"]["type"], "complex")
+        self.assertEqual(settings["field code"]["value"], "a: b")
+
+    def test_settings_edits_keep_comments_and_other_keys(self):
+        source = (
+            "id: output\n"
+            "attachments:\n"
+            "  - name: Petition # the title\n"
+            "    description:\n"
+            "    docx template file: petition.docx\n"
+            "    valid formats:\n"
+            "    - pdf\n"
+            "    - docx\n"
+            "    fields:\n"
+            "      - a: ${ x }\n"
+            "  - name: Letter\n"
+            "    docx template file: letter.docx\n"
+        )
+        updated = update_attachment_mappings(
+            source,
+            [
+                {
+                    "index": 0,
+                    "values": {"b": "${ y }"},
+                    "settings": {
+                        "name": "Motion",
+                        "description": "Signed copy",
+                        "valid formats": ["pdf"],
+                        "tagged pdf": True,
+                    },
+                }
+            ],
+        )
+        loaded = yaml.safe_load(updated)["attachments"]
+        self.assertEqual(loaded[0]["name"], "Motion")
+        self.assertEqual(loaded[0]["description"], "Signed copy")
+        self.assertEqual(loaded[0]["valid formats"], ["pdf"])
+        self.assertIs(loaded[0]["tagged pdf"], True)
+        self.assertEqual(loaded[0]["fields"], [{"a": "${ x }"}, {"b": "${ y }"}])
+        self.assertEqual(
+            loaded[1], {"name": "Letter", "docx template file": "letter.docx"}
+        )
+        self.assertIn('name: "Motion" # the title', updated)
+        self.assertIn("    tagged pdf: True\n", updated)
+
+    def test_settings_reject_what_the_editor_cannot_write(self):
+        source = (
+            "attachment:\n"
+            "  pdf template file: a.pdf\n"
+            "  editable: ${ allow_edits }\n"
+        )
+        for settings in (
+            {"editable": True},  # computed value
+            {"docx template file": "a.docx"},  # would change the attachment kind
+            {"pdf template file": ""},
+            {"password": "secret"},  # not graphically editable
+            {"valid formats": []},
+            {"valid formats": ["exe"]},
+            {"name": True},
+        ):
+            with self.subTest(settings=settings), self.assertRaises(ValueError):
+                update_attachment_mappings(source, [{"index": 0, "settings": settings}])
+
+    def test_a_new_setting_goes_after_a_new_fields_list(self):
+        source = "attachment:\n  pdf template file: a.pdf\n"
+        updated = update_attachment_mappings(
+            source,
+            [{"index": 0, "values": {"x": "1"}, "settings": {"pdf/a": True}}],
+        )
+        self.assertEqual(
+            yaml.safe_load(updated)["attachment"],
+            {"pdf template file": "a.pdf", "fields": [{"x": "1"}], "pdf/a": True},
+        )
+
+    def test_a_commented_format_list_is_left_to_yaml_mode(self):
+        source = (
+            "attachment:\n"
+            "  docx template file: a.docx\n"
+            "  valid formats:\n"
+            "    - pdf # for the court\n"
+            "    - docx\n"
+            "  name: A\n"
+        )
+        settings = {
+            setting["key"]: setting
+            for setting in attachment_mappings(source)[0]["settings"]
+        }
+        self.assertTrue(settings["valid formats"]["commented"])
+        self.assertNotIn("commented", settings["name"])
+        with self.assertRaises(ValueError) as caught:
+            update_attachment_mappings(
+                source, [{"index": 0, "settings": {"valid formats": ["pdf"]}}]
+            )
+        self.assertIn("comments", str(caught.exception))
+
+    def test_review_edge_cases(self):
+        # A template key keeps its file type.
+        source = "attachment:\n  pdf template file: a.pdf\n"
+        with self.assertRaises(ValueError) as caught:
+            update_attachment_mappings(
+                source, [{"index": 0, "settings": {"pdf template file": "b.docx"}}]
+            )
+        self.assertIn(".pdf file", str(caught.exception))
+        # An empty attachment mapping has no indentation to copy.
+        with self.assertRaises(ValueError):
+            update_attachment_mappings(
+                "attachment: {}\n", [{"index": 0, "settings": {"name": "A"}}]
+            )
+        # Markdown documents are their own kind, not Word templates.
+        self.assertEqual(
+            attachment_mappings("attachment:\n  name: A\n  content: Hi\n")[0]["kind"],
+            "other",
+        )
