@@ -69,15 +69,6 @@ const staticDir = path.resolve(
       await page.evaluate(() => window.bundle.ev.state.doc.toString()),
       'users.na\nquestion: Hello\n',
     );
-    await page.getByRole('button', { name: 'Symbols', exact: true }).click();
-    await page.getByRole('searchbox', { name: 'Find a symbol' }).fill('answer');
-    await page
-      .getByRole('button', { name: 'answer · project variables' })
-      .click();
-    assert.match(
-      await page.evaluate(() => window.bundle.ev.state.doc.toString()),
-      /users.naanswer/,
-    );
     await page.evaluate(() => {
       window.tools.setDiagnostics({
         source: window.bundle.ev.state.doc.toString(),

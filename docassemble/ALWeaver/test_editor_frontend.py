@@ -58,6 +58,20 @@ class _TemplateCollector(HTMLParser):
 
 
 class TestEditorFrontend(unittest.TestCase):
+    def test_source_mode_uses_compact_variable_sidebar_and_tools_menu(self):
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+        reports = (self.package_dir / "data/static/editor_reports.js").read_text()
+        tools = (self.package_dir / "data/static/editor_source_tools.js").read_text()
+        workbench = (
+            self.package_dir / "data/static/editor_source_workbench.js"
+        ).read_text()
+        self.assertIn("sourceHost: document.getElementById('left-rail')", editor)
+        self.assertIn("window.ALWeaverReports.closeSource()", editor)
+        self.assertIn("variable-browser-insert", reports)
+        self.assertIn("bridge.insertSymbol(item.entry.name)", reports)
+        self.assertNotIn("button('Symbols'", tools)
+        self.assertIn("summary.textContent = 'Tools'", workbench)
+
     def test_question_library_offers_standalone_addresses(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
         self.assertIn('<option value="ALAddress">An address</option>', template)

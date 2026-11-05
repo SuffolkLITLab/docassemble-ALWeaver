@@ -1,7 +1,7 @@
 /* Shared report controls. Analysis stays in interview_scan.py. */
 (function (root) {
   'use strict';
-  var bridge, report, requestNumber = 0, timer, lastKey;
+  var bridge, report, requestNumber = 0, timer, lastKey, sourceHost, sourceFilters, sourceWasCollapsed;
   function el(id) { return document.getElementById(id); }
   function key() {
     var state = bridge.getState();
@@ -21,28 +21,42 @@
     dock = value;
     var panel = el('variable-report-rail');
     panel.dataset.dock = value;
+    document.body.classList.remove('variable-browser-pinned');
     var layout = el('editor-workspace') || panel.parentElement;
     layout.classList.toggle('variable-browser-pinned', value === 'side');
     document.querySelectorAll('[data-variable-dock]').forEach(function (button) {
       button.setAttribute('aria-pressed', String(button.dataset.variableDock === value));
     });
-    try { localStorage.setItem('alweaver-variable-dock', value); } catch (_) { /* Storage is optional. */ }
+    try { if (value !== 'source') localStorage.setItem('alweaver-variable-dock', value); } catch (_) { /* Storage is optional. */ }
   }
   function render() {
     var box = el('variable-report-results');
     box.replaceChildren();
-    if (!report) return;
+    if (!report && !sourceHost) return;
+    var data = report || { blocks: [], variables: [], symbols: [], warnings: [] };
     var filter = el('variable-report-filter').value.toLowerCase();
     var kind = el('variable-report-kind').value;
     var status = el('variable-report-status').value;
     var blocks = {};
-    report.blocks.forEach(function (b) { blocks[b.scan_id] = b; });
-    var entries = kind === 'variable' ? report.variables : kind === 'screen' ? report.blocks.filter(function (b) { return b.data && b.data.question; }).map(function (b) { return {name: b.report_title || b.title, definitions: [b.scan_id], references: b.possibly_unreachable ? [] : ['flow'], possibly_unused: b.possibly_unreachable}; }) : (report.symbols || []).filter(function (s) { return s.kind === kind; });
+    data.blocks.forEach(function (b) { blocks[b.scan_id] = b; });
+    var entries = kind === 'variable' ? data.variables : kind === 'screen' ? data.blocks.filter(function (b) { return b.data && b.data.question; }).map(function (b) { return {name: b.report_title || b.title, definitions: [b.scan_id], references: b.possibly_unreachable ? [] : ['flow'], possibly_unused: b.possibly_unreachable}; }) : (data.symbols || []).filter(function (s) { return s.kind === kind; });
+    if (kind === 'all') entries = data.variables.concat(data.symbols || []);
+    entries = entries.slice();
+    if (sourceHost && bridge.sourceSymbols) {
+      var known = new Set(entries.map(function (entry) { return entry.name; }));
+      bridge.sourceSymbols().forEach(function (symbol) {
+        var symbolKind = symbol.type === 'function' ? 'function' : /template/.test(symbol.detail) ? 'template' : /class/.test(symbol.detail) ? 'class' : 'variable';
+        if (!known.has(symbol.label) && (kind === 'all' || kind === symbolKind)) {
+          known.add(symbol.label);
+          entries.push({ name: symbol.label, kind: symbolKind, definitions: [], references: [], catalog: true, origin: symbol.detail });
+        }
+      });
+    }
     var matches = entries.map(function (entry) {
-      var definitions = entry.definitions.map(function (id) { return blocks[id]; }).filter(Boolean);
+      var definitions = (entry.definitions || []).map(function (id) { return blocks[id]; }).filter(Boolean);
       // A method is called on an instance, never through its class name.
       var method = entry.kind === 'method' ? '.' + entry.name.split('.').pop() : null;
-      var references = entry.references || report.blocks.filter(function (b) {
+      var references = entry.references || data.blocks.filter(function (b) {
         return (b.references || []).some(function (name) { return method ? name.endsWith(method) : name === entry.name; });
       }).map(function (b) { return b.scan_id; });
       var errors = definitions.flatMap(function (b) { return bridge.findings ? bridge.findings(b) : []; });
@@ -58,18 +72,24 @@
         (status === 'all' || status === 'used' && !item.unused || status === 'unused' && item.unused || status === 'unreachable' && item.unreachable || status === 'error' && item.errors.length);
     });
     // Errors first; otherwise the scanner's alphabetical order.
-    matches.sort(function (a, b) { return (b.errors.length ? 1 : 0) - (a.errors.length ? 1 : 0); });
+    matches.sort(function (a, b) { return (b.errors.length ? 1 : 0) - (a.errors.length ? 1 : 0) || a.entry.name.localeCompare(b.entry.name); });
     var count = document.createElement('p');
     count.className = 'small text-muted';
-    count.textContent = matches.length + (matches.length === 1 ? ' result' : ' results') + (matches.length > 150 ? ' · Showing the first 150. Narrow your search to see more.' : '') + (report.warnings.length ? ' · ' + report.warnings.join(' ') : '');
+    count.textContent = matches.length + (matches.length === 1 ? ' result' : ' results') + (matches.length > 150 ? ' · Showing the first 150. Narrow your search to see more.' : '') + (data.warnings.length ? ' · ' + data.warnings.join(' ') : '');
     box.appendChild(count);
     matches.slice(0, 150).forEach(function (item) {
       var row = document.createElement('div');
       row.className = 'variable-browser-row';
       var info = document.createElement('div');
-      var name = document.createElement('strong');
+      var name = document.createElement(sourceHost && kind !== 'screen' ? 'button' : 'strong');
       name.textContent = item.entry.name;
-      if (item.errors.length) name.className = 'text-danger';
+      if (sourceHost && kind !== 'screen') {
+        name.type = 'button'; name.className = 'variable-browser-insert';
+        name.title = 'Insert ' + item.entry.name;
+        name.setAttribute('aria-label', 'Insert ' + item.entry.name);
+        name.onclick = function () { bridge.insertSymbol(item.entry.name); };
+      }
+      if (item.errors.length) name.classList.add('text-danger');
       var detail = document.createElement('div');
       detail.className = 'small text-muted';
       detail.textContent = (item.entry.origin ? item.entry.origin + ' · imported at ' : item.entry.undefined ? 'Used at ' : '') + item.located.map(function (b) { return b.sourceFile + ':' + b.line_start; }).join(', ');
@@ -77,11 +97,13 @@
       usage.className = 'small';
       if (item.errors.length) usage.className += ' text-danger';
       usage.textContent = item.entry.undefined ? 'Error · Not defined' : (item.errors.length ? 'Error · ' : '') + (item.unused ? 'Possibly unused' : 'Used') + (item.unreachable ? ' · Possibly unreachable' : '');
-      info.append(name, detail, usage);
+      info.append(name);
+      if (!sourceHost) info.append(detail, usage);
+      else if (item.errors.length) { var badge = document.createElement('span'); badge.className = 'text-danger small ms-1'; badge.textContent = '!'; badge.title = item.errors[0].message; info.appendChild(badge); }
       var button = document.createElement('button');
       button.type = 'button';
-      button.className = 'btn btn-sm btn-outline-secondary';
-      button.textContent = 'Details';
+      button.className = 'btn btn-sm btn-link variable-browser-details';
+      button.textContent = sourceHost ? '…' : 'Details';
       button.setAttribute('aria-label', 'Details for ' + item.entry.name);
       button.onclick = function () {
         var dialog = reportDialog(item.entry.name);
@@ -89,6 +111,11 @@
         if (item.entry.origin) { var origin = document.createElement('p'); origin.textContent = 'Declared in ' + item.entry.origin + '. The source links below show where this module is included.'; dialog.appendChild(origin); }
         if (item.entry.documentation) { var docs = document.createElement('p'); docs.textContent = item.entry.documentation; dialog.appendChild(docs); }
         item.errors.forEach(function (error) { var message = document.createElement('p'); message.className = 'text-danger'; message.textContent = error.message || String(error); dialog.appendChild(message); });
+        if (sourceHost && bridge.renameSymbol && (!item.entry.kind || item.entry.kind === 'variable')) {
+          var rename = document.createElement('button'); rename.type = 'button'; rename.className = 'btn btn-sm btn-outline-secondary mb-2'; rename.textContent = 'Rename variable…';
+          rename.onclick = function () { dialog.close(); bridge.renameSymbol(item.entry.name); };
+          dialog.appendChild(rename);
+        }
         item.definitions.forEach(function (b) { dialog.appendChild(location(b, 'Declared')); });
         item.references.forEach(function (id) { if (blocks[id]) dialog.appendChild(location(blocks[id], 'Used')); });
         dialog.querySelectorAll('button:not(.btn-close)').forEach(function (link) { link.addEventListener('click', function () { dialog.close(); if (dock === 'full') setDock('side'); }); });
@@ -102,7 +129,8 @@
     var state = bridge.getState();
     lastKey = key();
     report = null;
-    el('variable-report-results').textContent = 'Reading interview…';
+    if (sourceHost) render();
+    else el('variable-report-results').textContent = 'Reading interview…';
     bridge.apiPost('/api/reports/scan', {project: state.project, filename: state.filename})
       .then(function (response) {
         if (sequence !== requestNumber || lastKey !== key()) return;
@@ -113,9 +141,45 @@
         if (sequence === requestNumber) el('variable-report-results').textContent = error.message;
       });
   }
+  function showSourceView(variables) {
+    if (!sourceHost) return;
+    sourceHost.classList.toggle('source-rail-variables', variables);
+    el('source-rail-outline').setAttribute('aria-pressed', String(!variables));
+    el('source-rail-variables').setAttribute('aria-pressed', String(variables));
+  }
+  function restoreSourceRail() {
+    var rail = sourceHost || el('left-rail');
+    var layout = el('editor-layout');
+    if (rail && layout && rail.parentNode !== layout) layout.insertBefore(rail, el('main-canvas'));
+  }
   function openVariables(options) {
+    if (sourceHost && !options.sourceHost) { showSourceView(true); el('variable-report-filter').focus(); return; }
     bridge = options;
-    document.body.appendChild(el('variable-report-rail'));
+    sourceHost = options.sourceHost || null;
+    var panel = el('variable-report-rail');
+    (sourceHost || document.body).appendChild(panel);
+    panel.classList.toggle('source-variable-browser', Boolean(sourceHost));
+    if (sourceHost) {
+      sourceHost.classList.add('editor-source-rail');
+      if (!sourceFilters) sourceWasCollapsed = el('editor-layout').classList.contains('editor-rail-collapsed');
+      el('editor-layout').classList.remove('editor-rail-collapsed');
+      var toggle = sourceHost.querySelector('[data-action="toggle-rail"]');
+      toggle.setAttribute('aria-expanded', 'true');
+      toggle.setAttribute('aria-label', 'Collapse sidebar');
+      toggle.title = 'Collapse sidebar';
+      el('source-rail-tabs').hidden = false;
+      el('source-rail-outline').onclick = function () { showSourceView(false); };
+      el('source-rail-variables').onclick = function () { showSourceView(true); };
+      showSourceView(true);
+      if (!sourceFilters) {
+        sourceFilters = {};
+        ['filter', 'kind', 'scope', 'status'].forEach(function (name) { sourceFilters[name] = el('variable-report-' + name).value; });
+      }
+      el('variable-report-kind').value = 'all';
+      el('variable-report-scope').value = 'all';
+    }
+    panel.querySelector('h2').textContent = sourceHost ? 'Variables & references' : 'Interview variables';
+    el('variable-report-insert-help').hidden = !sourceHost;
     el('variable-report-rail').classList.remove('d-none');
     el('variable-report-close').onclick = function () {
       el('variable-report-rail').classList.add('d-none');
@@ -127,7 +191,7 @@
     ['filter', 'kind', 'scope', 'status'].forEach(function (name) { el('variable-report-' + name).oninput = render; });
     try { dock = localStorage.getItem('alweaver-variable-dock') || 'full'; } catch (_) { dock = 'full'; }
     if (!['bottom', 'tall', 'side', 'full'].includes(dock)) dock = 'full';
-    setDock(dock);
+    setDock(sourceHost ? 'source' : dock);
     document.querySelectorAll('[data-variable-dock]').forEach(function (button) { button.onclick = function () { setDock(button.dataset.variableDock); }; });
     clearInterval(timer);
     var diagnosticKey = '';
@@ -137,6 +201,22 @@
       if (next !== diagnosticKey) { diagnosticKey = next; render(); }
     }, 1500);
     refresh();
+  }
+  function closeSource() {
+    if (!sourceHost) return;
+    restoreSourceRail();
+    var panel = el('variable-report-rail');
+    sourceHost.classList.remove('editor-source-rail', 'source-rail-variables');
+    el('source-rail-tabs').hidden = true;
+    if (sourceFilters) Object.keys(sourceFilters).forEach(function (name) { el('variable-report-' + name).value = sourceFilters[name]; });
+    sourceFilters = null;
+    if (sourceWasCollapsed) sourceHost.querySelector('[data-action="toggle-rail"]').click();
+    sourceHost = null;
+    document.body.appendChild(panel);
+    panel.classList.add('d-none');
+    panel.classList.remove('source-variable-browser');
+    clearInterval(timer);
+    requestNumber++;
   }
   function checked(response) {
     if (!response.success) throw new Error(response.error && response.error.message || 'Report request failed.');
@@ -402,7 +482,7 @@
       finally { review.disabled = false; input.disabled = false; }
     };
   }
-  root.ALWeaverReports = {openVariables: openVariables, openRepository: openRepository,
+  root.ALWeaverReports = {restoreSourceRail: restoreSourceRail, closeSource: closeSource, refreshSourceSymbols: function () { if (sourceHost) render(); }, openVariables: openVariables, openRepository: openRepository,
     exportWording: exportWording, importWording: importWording, captureScreen: captureScreen,
     fitPreviews: fitPreviews};
 })(globalThis);

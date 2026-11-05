@@ -473,6 +473,7 @@ console.log('editor review regressions passed');
 
 // Parser ranges identify the second of two textually identical documents.
 const duplicateSource = 'code: pass\n---\n\ncode: pass\n';
+state.rawYaml = duplicateSource;
 const secondDuplicate = { line_start: 3, line_end: 4 };
 const duplicateRange = h.sourceBlockRange(
   duplicateSource,

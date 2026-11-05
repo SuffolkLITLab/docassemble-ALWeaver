@@ -768,10 +768,39 @@
       );
     }
     var view = bundle.ev;
+    function updateNativeCompletions(event) {
+      if (
+        event &&
+        event.type === 'keydown' &&
+        !(event.ctrlKey && event.code === 'Space')
+      )
+        return;
+      var enabled =
+        isInterviewView() && ['yaml', 'yml', 'py', 'html'].indexOf(mode) !== -1;
+      var entries = enabled ? sourceCompletionOptions() : [];
+      var before = view.state.doc.sliceString(
+        0,
+        view.state.selection.main.head,
+      );
+      var start = before.length;
+      while (start > 0 && /[\w.[\]]/.test(before[start - 1])) start--;
+      var token = before.slice(start);
+      var dot = token.lastIndexOf('.');
+      if (dot >= 0) {
+        var prefix = token.slice(0, dot + 1).replace(/\[\w+\]/g, '[]');
+        entries = entries.filter(function (entry) {
+          return entry.label.replace(/\[\w+\]/g, '[]').startsWith(prefix);
+        });
+      }
+      window.daAutoComp = entries;
+    }
+    view.contentDOM.addEventListener('focus', updateNativeCompletions);
+    view.contentDOM.addEventListener('keydown', updateNativeCompletions, true);
     var subscribers = [];
     var blockMenu = null;
     var searchPanel = null;
     var sourceTools = null;
+    var sourceWorkbench = null;
     var originalDispatch = view.dispatch.bind(view);
     view.dispatch = function () {
       var before = view.state.doc.toString();
@@ -819,6 +848,16 @@
         });
         view.focus();
       },
+      insertText: function (text) {
+        var selection = view.state.selection.main;
+        view.dispatch({
+          changes: { from: selection.from, to: selection.to, insert: text },
+          selection: { anchor: selection.from + text.length },
+          userEvent: 'input.complete',
+          scrollIntoView: true,
+        });
+        view.focus();
+      },
       getValue: function () {
         return view.state.doc.toString();
       },
@@ -855,9 +894,18 @@
               : null,
         };
         subscribers = [];
+        if (containerId === 'full-source-editor')
+          window.ALWeaverReports.closeSource();
+        if (sourceWorkbench) sourceWorkbench.dispose();
         if (sourceTools) sourceTools.dispose();
         if (searchPanel) searchPanel.dispose();
         if (blockMenu) blockMenu.dispose();
+        view.contentDOM.removeEventListener('focus', updateNativeCompletions);
+        view.contentDOM.removeEventListener(
+          'keydown',
+          updateNativeCompletions,
+          true,
+        );
         view.destroy();
         if (_sourceEditors[containerId] === editor)
           delete _sourceEditors[containerId];
@@ -927,11 +975,16 @@
     if (containerId === 'full-source-editor') {
       sourceTools = window.ALWeaverSourceTools.attach(bundle, container, {
         validate: function () {
+          if (state.validationDock === 'full') setValidationDock('side');
           state.validationOpen = true;
           runValidation();
         },
         findings: function (index) {
-          blockMenu.wrapper.classList.remove('editor-source-full-screen');
+          blockMenu.wrapper.classList.remove(
+            'editor-source-full-screen',
+            'editor-source-full-screen-with-rail',
+          );
+          window.ALWeaverReports.restoreSourceRail();
           view.requestMeasure();
           state.validationOpen = true;
           if (state.validationDock === 'full') setValidationDock('side');
@@ -950,6 +1003,30 @@
           return sourceCompletionOptions();
         },
       });
+      sourceWorkbench = window.ALWeaverSourceWorkbench.attach(
+        bundle,
+        container,
+        {
+          preview: function (request) {
+            return apiPost(
+              '/api/source-preview',
+              Object.assign(
+                {
+                  project: state.project,
+                  filename: state.filename,
+                  revision: state.revision,
+                },
+                request,
+              ),
+            );
+          },
+        },
+      );
+      window.ALWeaverReports.openVariables(
+        Object.assign(reportBridge(), {
+          sourceHost: document.getElementById('left-rail'),
+        }),
+      );
       editor.sourceTools = sourceTools;
       syncSourceDiagnostics();
       loadAvailableSymbols();
@@ -1052,6 +1129,16 @@
     wrapper.appendChild(exit);
     function toggle() {
       var full = wrapper.classList.toggle('editor-source-full-screen');
+      var rail = document.getElementById('left-rail');
+      if (rail && rail.classList.contains('editor-source-rail')) {
+        if (full) {
+          wrapper.prepend(rail);
+          wrapper.classList.add('editor-source-full-screen-with-rail');
+        } else {
+          window.ALWeaverReports.restoreSourceRail();
+          wrapper.classList.remove('editor-source-full-screen-with-rail');
+        }
+      }
       view.requestMeasure();
       if (onChange) onChange();
       if (!full) view.focus();
@@ -6483,6 +6570,20 @@
     navigate();
   }
 
+  function openSourceProjectSearch(name, rename) {
+    var open = projectSearchElement('btn-project-search');
+    if (open) open.click();
+    projectSearchElement('project-search-query').value = name;
+    projectSearchElement('project-search-variable').checked = Boolean(rename);
+    projectSearchElement('project-search-replacement').value = '';
+    projectSearchElement('project-search-word').checked = true;
+    projectSearchElement('project-search-case').checked = true;
+    invalidateProjectSearchPreview();
+    updateProjectSearchMode();
+    if (rename) projectSearchElement('project-search-replacement').focus();
+    else runProjectSearch();
+  }
+
   function initProjectSearch() {
     var openButton = projectSearchElement('btn-project-search');
     var form = projectSearchElement('project-search-form');
@@ -7091,6 +7192,8 @@
   }
 
   function sourceCompletionOptions() {
+    if (state.symbolCatalog.loadedFor !== state.project + '::' + state.filename)
+      return [];
     return window.ALWeaverSourceTools.completions(
       state.symbolCatalog.groups || {},
       state.symbolCatalog.all || [],
@@ -7123,9 +7226,8 @@
 
   function refreshActiveSymbolPickers() {
     window.daAutoComp = sourceCompletionOptions();
-    var sourceEditor = _sourceEditors['full-source-editor'];
-    if (sourceEditor && sourceEditor.sourceTools)
-      sourceEditor.sourceTools.refreshSymbols();
+    if (window.ALWeaverReports.refreshSourceSymbols)
+      window.ALWeaverReports.refreshSourceSymbols();
     var expressionInput = document.activeElement;
     if (expressionInput && expressionInput.closest('.expression-picker'))
       expressionInput.dispatchEvent(new Event('expression-catalog-refresh'));
@@ -7163,8 +7265,11 @@
         encodeURIComponent(state.filename),
     )
       .then(function (res) {
-        if (!res.success || !res.data) return;
         if (key !== state.project + '::' + state.filename) return;
+        if (!res.success || !res.data) {
+          resetSymbolCatalog();
+          return;
+        }
         var data = res.data;
         state.symbolCatalog = {
           loadedFor: key,
@@ -7176,7 +7281,11 @@
         refreshActiveSymbolPickers();
       })
       .catch(function (error) {
-        if (isSupersededRequest(error)) return;
+        if (
+          isSupersededRequest(error) ||
+          key !== state.project + '::' + state.filename
+        )
+          return;
         resetSymbolCatalog();
       });
   }
@@ -11472,6 +11581,7 @@
     state.validationBusy = false;
     state.validationErrors = [];
     state.validationFilename = null;
+    resetSymbolCatalog();
     state.sourceDiagnostics = null;
     renderValidationDrawer();
     var project = state.project;
@@ -14159,6 +14269,25 @@
   }
 
   function sourceBlockRange(content, block, blockSource) {
+    if (content !== state.rawYaml.replace(/\r\n?/g, '\n')) {
+      var found = blockSource ? content.indexOf(blockSource) : -1;
+      if (found < 0 || content.indexOf(blockSource, found + 1) !== -1)
+        return null;
+      var separator = /^---[ \t]*(?:#[^\n]*)?(?:\n|$)/m;
+      var before = content.slice(0, found).split(separator).pop();
+      var after = content.slice(found + blockSource.length).split(separator)[0];
+      function onlyComments(text) {
+        return text.split('\n').every(function (line) {
+          return !line.trim() || line.trim().startsWith('#');
+        });
+      }
+      if (
+        (!blockSource.startsWith('---\n') && !onlyComments(before)) ||
+        !onlyComments(after)
+      )
+        return null;
+      return { from: found, to: found + blockSource.length };
+    }
     // Server ranges identify even duplicate documents. Check the text as well
     // before trusting offsets; older responses without ranges use a unique match.
     // Cursor movement checks many blocks in the same buffer. Index line starts
@@ -15072,6 +15201,15 @@
    */
   function reportBridge() {
     return {
+      insertSymbol: function (name) {
+        var editor = _sourceEditors['full-source-editor'];
+        if (editor && isInterviewView() && state.canvasMode === 'full-yaml')
+          editor.insertText(name);
+      },
+      sourceSymbols: sourceCompletionOptions,
+      renameSymbol: function (name) {
+        openSourceProjectSearch(name, true);
+      },
       getState: function () {
         return state;
       },
@@ -15106,13 +15244,18 @@
       },
       openBlock: function (block) {
         if (block.sourceFile.indexOf(':') !== -1) return;
+        var keepSource = isInterviewView() && state.canvasMode === 'full-yaml';
+        if (keepSource && block.sourceFile === state.filename) {
+          revealBlockInFullSource(block.id);
+          return;
+        }
         deferNavigationForUnsavedChanges(
           'open the report location',
           function () {
             state.filename = block.sourceFile;
             state.selectedBlockId = block.id;
             state.currentView = 'interview';
-            state.canvasMode = 'question';
+            state.canvasMode = keepSource ? 'full-yaml' : 'question';
             state.jumpTarget = 'all';
             syncJumpSelect();
             loadFile();
@@ -23392,6 +23535,10 @@
         sourceEditor &&
         sourceEditor.sourceTools
       ) {
+        if (state.validationDock === 'full') {
+          setValidationDock('side');
+          renderValidationDrawer();
+        }
         var located = sourceEditor.sourceTools.revealFinding(
           Number(validationItem.getAttribute('data-finding-index')),
         );

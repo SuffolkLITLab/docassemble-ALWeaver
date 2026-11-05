@@ -200,6 +200,10 @@
         </div>
         <button type="button" class="btn btn-sm btn-outline-secondary editor-rail-toggle" data-action="toggle-rail" aria-controls="left-rail" aria-expanded="true" aria-label="Collapse sidebar" title="Collapse sidebar"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i></button>
       </div>
+      <div id="source-rail-tabs" class="editor-section" role="group" aria-label="Source sidebar" hidden>
+        <button type="button" class="btn btn-sm btn-light" id="source-rail-outline" aria-pressed="false">Outline</button>
+        <button type="button" class="btn btn-sm btn-light" id="source-rail-variables" aria-pressed="true">Variables</button>
+      </div>
       <div class="editor-section editor-section-search" id="editor-quick-jump-section">
         <div class="mb-2" id="jump-targets">
           <label class="editor-tiny" for="jump-select">Show</label>
@@ -270,11 +274,16 @@
       </div>
       <div class="variable-browser-filters">
         <div class="variable-browser-filter"><label for="variable-report-filter">Search</label><input class="form-control" id="variable-report-filter" type="search"></div>
-        <div class="variable-browser-filter"><label for="variable-report-kind">Show</label><select class="form-select" id="variable-report-kind"><option value="variable">Variables</option><option value="function">Functions</option><option value="method">Methods</option><option value="class">Classes</option><option value="template">Templates</option><option value="table">Tables</option><option value="event">Events</option><option value="screen">Screens</option></select></div>
+        <div class="variable-browser-filter"><label for="variable-report-kind">Show</label><select class="form-select" id="variable-report-kind"><option value="all">All names</option><option value="variable">Variables</option><option value="function">Functions</option><option value="method">Methods</option><option value="class">Classes</option><option value="template">Templates</option><option value="table">Tables</option><option value="event">Events</option><option value="screen">Screens</option></select></div>
+        <details class="variable-browser-advanced"><summary>Filters &amp; context</summary>
+          <div class="variable-browser-advanced-content">
         <div class="variable-browser-filter"><label for="variable-report-scope">Scope</label><select class="form-select" id="variable-report-scope"><option value="local">Interview files</option><option value="all">Include shared packages</option></select></div>
         <div class="variable-browser-filter"><label for="variable-report-status">Status</label><select class="form-select" id="variable-report-status"><option value="all">All</option><option value="used">Used</option><option value="unused">Possibly unused</option><option value="unreachable">Possibly unreachable</option><option value="error">Errors</option></select></div>
+      <p class="small text-muted my-2 variable-browser-scope-note">Updates after saving. Usage and reachability are static hints; dynamic names and imported Python may add uses.</p>
+          </div>
+        </details>
       </div>
-      <p class="small text-muted my-2">Updates after saving. Usage and reachability are static hints; dynamic names and imported Python may add uses.</p>
+      <p id="variable-report-insert-help" class="small text-muted my-1" hidden>Click to insert · Ctrl-Space to complete</p>
       <div id="variable-report-results" aria-live="polite"></div>
     </aside>
 
@@ -1400,6 +1409,7 @@
 <script src="/al/editor/static/editor_dirty_state.js"></script>
 <script src="/al/editor/static/editor_validation_source.js"></script>
 <script src="/al/editor/static/editor_source_tools.js"></script>
+<script src="/al/editor/static/editor_source_workbench.js"></script>
 <script src="/al/editor/static/editor_screen_preview.js"></script>
 <script src="/al/editor/static/editor_interview_report.js"></script>
 <script src="/al/editor/static/html2canvas.min.js"></script>

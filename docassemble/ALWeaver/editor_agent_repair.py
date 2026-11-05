@@ -277,3 +277,28 @@ def describe_repair_offer(*, filename: str, raw_yaml: str) -> Dict[str, Any]:
         "can_auto_heal": bool(preview.repairs) and preview.healed,
         "repairs": [item.public_dict() for item in preview.repairs],
     }
+
+
+def preview_id_repairs(*, filename: str, raw_yaml: str) -> RepairResult:
+    """Offer the same safe ID patches even when the checker treats IDs as warnings.
+
+    Unlike assistant auto-healing, this is an explicitly requested, reviewed
+    source operation. It must not introduce blocking validation findings.
+    """
+    validation = validate_candidate_source(filename=filename, raw_yaml=raw_yaml)
+    if not validation.structurally_valid:
+        return RepairResult(raw_yaml, [], validation, validation.blocking_diagnostics())
+    operations, repairs = _plan_repairs(filename, raw_yaml)
+    if operations:
+        try:
+            proposed, _ = apply_range_operations(raw_yaml, operations)
+            checked = validate_candidate_source(filename=filename, raw_yaml=proposed)
+            if checked.structurally_valid and len(
+                checked.blocking_diagnostics()
+            ) <= len(validation.blocking_diagnostics()):
+                return RepairResult(
+                    proposed, repairs, checked, checked.blocking_diagnostics()
+                )
+        except ValueError:
+            pass
+    return RepairResult(raw_yaml, [], validation, validation.blocking_diagnostics())

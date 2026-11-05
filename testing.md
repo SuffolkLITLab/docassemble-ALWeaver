@@ -428,3 +428,18 @@ node scripts/editor_source_tools_smoketest.js
 ```
 
 No server or authenticated Playground session is needed for this adapter test.
+
+`scripts/editor_source_workbench_smoketest.js` exercises the installed localhost
+application, including the permanent source sidebar, insertion and definition
+navigation, diff/restore and undo, per-hunk revert, recipe previews, mechanical ID
+repairs, unsaved outline navigation, full-screen/narrow layouts, Axe, and saved
+persistence. It creates and deletes its own disposable Playground project.
+
+```sh
+NODE_PATH=/path/to/browser/node_modules \
+STORAGE_STATE=/path/to/developer-state.json \
+BROWSER_PATH=/path/to/chromium \
+node scripts/editor_source_workbench_smoketest.js
+```
+
+The browser modules required are `playwright` and `@axe-core/playwright`.

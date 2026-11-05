@@ -612,7 +612,7 @@ and reparse; navigation never rewrites YAML.
 
 `editor_source_tools.js` connects the saved interview's existing variable and
 function catalogs to docassemble's native Ctrl-Space completion provider. The
-Symbols picker searches those same names and inserts at the source selection.
+compact variable sidebar searches those same names and inserts at the source selection.
 The catalog is scoped to the active saved interview and its includes, rather
 than treating all files in a project as one interview. It is not an analysis of
 unsaved Python, and does not choose a parent interview for an included file.
@@ -630,7 +630,40 @@ listener, avoiding a second copy of CodeMirror's state types. It removes listene
 markers, and highlights when the editor is disposed.
 
 This is the first source-authoring tranche of #1117. Automatic quick fixes,
-a parent-interview context chooser, live unsaved symbol/outline parsing, recipes,
+a parent-interview context chooser, live unsaved symbol parsing,
 a source/runtime split debugger, move-to-include transactions, and deeper test
-integration remain future work. They should build on the existing revision-aware
+integration remain future work. The workbench below adds mechanical ID repair,
+recipes, and an outline parsed from unsaved source. They should build on the existing revision-aware
 patch and saved-runtime boundaries rather than create another source model.
+
+### Source workbench and compact variable rail
+
+Source mode reuses the existing left sidebar, with Outline and Variables views.
+Names insert at the CodeMirror selection and are not underlined; the sidebar
+includes a “Click to insert” note. Full screen moves this same rail alongside
+the editor and restores it on exit or disposal.
+
+Source mode embeds the existing Variables and reachability browser beside the
+editor, including in F11 full-screen mode. Names insert at the retained source
+selection; details retain static definition/reference links and expose the
+existing revision-aware project rename preview. Filters and analysis caveats
+are collapsed into a compact disclosure. The independent Symbols popup has been
+removed. Catalog completions are cleared across file changes and constrained to
+the active source editor's context.
+
+The source Tools menu opens native dialogs for Changes, Repair block IDs,
+Recipes, and Source outline. `/api/source-preview` authenticates the Playground
+owner and reads the saved file, but never writes or executes author code.
+`editor_source_workbench.py` builds exact diff hunks, mechanical ID repairs,
+curated recipe insertions at parsed document boundaries, and an outline of the
+submitted unsaved source. Browser previews are bound to their exact source
+snapshot; applying a proposal is an undoable CodeMirror transaction. Saving
+still uses the original file revision, including after a preview reports a
+server conflict. Source positions sent to the browser use UTF-16 offsets.
+
+Recipes are a deliberately small bundled catalog with explanations,
+documentation links, and dependencies. Mechanical ID repairs reuse the existing
+range planner, also when missing IDs are warnings; a proposed patch must remain
+structurally valid and cannot increase blocking diagnostics. Unsupported source
+remains author-owned. The live source outline does not replace the saved model
+used by graphical editors.
