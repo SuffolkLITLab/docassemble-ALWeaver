@@ -6410,3 +6410,17 @@ body:has(.editor-source-full-screen) { overflow: hidden; }
 .source-variable-browser #variable-report-results > p { margin-bottom: .35rem; }
 
 #source-outline-status:empty, .editor-left:not(.editor-source-rail) > #source-outline-status { display: none; }
+
+/* Browse the same example hierarchy as Playground, without losing the preview. */
+.editor-recipe-browser { display: grid; grid-template-columns: minmax(12rem, 1fr) minmax(0, 2fr); gap: 1rem; margin-top: .75rem; }
+.editor-recipe-tree, .editor-recipe-preview { max-height: 55vh; overflow: auto; min-width: 0; padding: .25rem; }
+.editor-recipe-tree details { padding-left: .65rem; }
+.editor-recipe-tree summary { cursor: pointer; padding: .25rem 0; }
+.editor-recipe-tree button { display: block; border: 0; width: 100%; text-align: left; margin: 0 !important; }
+.editor-recipe-tree [aria-pressed="true"] { background: var(--editor-primary, #0d3970); color: white; }
+.source-insert-modal [data-insert="ai-screen"], .source-insert-modal [data-insert="question-library"] { display: none; }
+@media (max-width: 650px) {
+  .editor-recipe-browser { grid-template-columns: 1fr; }
+  .editor-recipe-tree { max-height: 22vh; }
+  .editor-recipe-preview { max-height: 40vh; }
+}

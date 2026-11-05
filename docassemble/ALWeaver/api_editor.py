@@ -5604,7 +5604,8 @@ def editor_api_source_preview() -> Response:
             saved.replace("\r\n", "\n").replace("\r", "\n"),
             working,
             action,
-            recipe_id=data.get("recipe_id"),
+            block_yaml=data.get("block_yaml"),
+            at_start=data.get("at_start", False),
             cursor=data.get("cursor", 0),
         )
         result["base_revision_matches"] = data.get("revision") == source_revision(saved)

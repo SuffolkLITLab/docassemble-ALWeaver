@@ -81,3 +81,11 @@ assert.deepEqual(completionEdit('users[', 'users[i]', 6, 7), {
   to: 7,
   insert: 'users[i]',
 });
+
+const workbench = require('./data/static/editor_source_workbench.js');
+const exampleTree = [{id: '0', title: 'Formatting', children: [{id: '0/0', title: 'Markdown', source: 'question: Welcome'}, {id: '0/1', title: 'Terms', source: 'terms: word'}]}];
+assert.deepEqual(workbench.filterRecipes(exampleTree, 'formatting'), exampleTree);
+assert.equal(workbench.filterRecipes(exampleTree, 'welcome')[0].children[0].title, 'Markdown');
+assert.equal(workbench.filterRecipes(exampleTree, 'markdown')[0].children.length, 1);
+assert.deepEqual(workbench.filterRecipes(exampleTree, 'not-present'), []);
+assert.equal(exampleTree[0].children.length, 2);

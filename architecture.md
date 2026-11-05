@@ -655,14 +655,25 @@ The source Tools menu opens native dialogs for Changes, Repair block IDs,
 Recipes, and Source outline. `/api/source-preview` authenticates the Playground
 owner and reads the saved file, but never writes or executes author code.
 `editor_source_workbench.py` builds exact diff hunks, mechanical ID repairs,
-curated recipe insertions at parsed document boundaries, and an outline of the
+example and block insertions at parsed document boundaries, and an outline of the
 submitted unsaved source. Browser previews are bound to their exact source
 snapshot; applying a proposal is an undoable CodeMirror transaction. Saving
 still uses the original file revision, including after a preview reports a
 server conflict. Source positions sent to the browser use UTF-16 offsets.
 
-Recipes are a deliberately small bundled catalog with explanations,
-documentation links, and dependencies. Mechanical ID repairs reuse the existing
+Recipes use the installed Playground's configured example hierarchy, including
+package-specific catalogs. A searchable disclosure tree stays beside the selected
+source, documentation, runnable example link, and plain-text surrounding code.
+The adapter supports both the newer `develop.helpers` and older `server` helper
+locations. Only selected example blocks are inserted.
+
+The existing Insert block picker is available from the full-YAML block context
+menu, Tools menu, and outline insertion gaps. Standard blocks become unsaved,
+undoable buffer edits; graphical-only AI/library actions remain in the block
+editor. Insertions check the exact snapshot and editor identity before applying,
+and top insertion preserves leading comments/directives and separators.
+
+Mechanical ID repairs reuse the existing
 range planner, also when missing IDs are warnings; a proposed patch must remain
 structurally valid and cannot increase blocking diagnostics. Unsupported source
 remains author-owned. The live source outline does not replace the saved model

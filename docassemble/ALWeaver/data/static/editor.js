@@ -835,6 +835,26 @@
     var identity = sourceWorkspaceIdentity(containerId);
     var editor = {
       identity: identity,
+      getCursor: function () {
+        return view.state.selection.main.head;
+      },
+      focus: function () {
+        view.focus();
+      },
+      applySourceInsertion: function (snapshot, edit) {
+        if (
+          view.state.doc.toString() !== snapshot ||
+          snapshot.slice(edit.from, edit.to) !== edit.before
+        )
+          return false;
+        view.dispatch({
+          changes: { from: edit.from, to: edit.to, insert: edit.insert },
+          selection: { anchor: edit.from + edit.insert.length },
+          userEvent: 'input',
+          scrollIntoView: true,
+        });
+        return true;
+      },
       reveal: function (from, to) {
         view.dispatch({
           selection: { anchor: from, head: to },
@@ -1008,6 +1028,9 @@
         bundle,
         container,
         {
+          insertBlock: function () {
+            openSourceBlockInsert();
+          },
           preview: function (request) {
             return apiPost(
               '/api/source-preview',
@@ -14159,6 +14182,117 @@
       '</div>';
   }
 
+  var sourceInsertTarget = null;
+  function openSourceBlockInsert(blockId, atStart) {
+    var editor = _sourceEditors['full-source-editor'];
+    if (!editor || state.canvasMode !== 'full-yaml') return;
+    var snapshot = editor.getValue();
+    var cursor = editor.getCursor();
+    if (blockId) {
+      var block = getBlockById(blockId);
+      var range =
+        block &&
+        sourceBlockRange(
+          snapshot,
+          block,
+          (block.yaml || '').replace(/\r\n?/g, '\n'),
+        );
+      if (!range) {
+        window.alert(
+          'This block changed. Place the cursor in the source and use Tools → Insert block.',
+        );
+        return;
+      }
+      cursor = range.from;
+    }
+    var modal = document.getElementById('insert-modal');
+    var status = document.getElementById('source-insert-status');
+    var target = {
+      editor: editor,
+      snapshot: snapshot,
+      cursor: cursor,
+      atStart: Boolean(atStart),
+      project: state.project,
+      filename: state.filename,
+      revision: state.revision,
+    };
+    sourceInsertTarget = target;
+    modal.classList.add('source-insert-modal');
+    status.hidden = false;
+    status.textContent = atStart
+      ? 'Insert at the start of this file. Changes remain unsaved.'
+      : 'Insert after this YAML block. Changes remain unsaved.';
+    modal.addEventListener(
+      'hidden.bs.modal',
+      function () {
+        if (sourceInsertTarget === target) sourceInsertTarget = null;
+        modal.classList.remove('source-insert-modal');
+        status.hidden = true;
+        modal.querySelectorAll('[data-insert]').forEach(function (button) {
+          button.disabled = false;
+        });
+        if (_sourceEditors['full-source-editor'] === editor) editor.focus();
+      },
+      { once: true },
+    );
+    getOrCreateBootstrapModal('insert-modal').show();
+  }
+  function insertBlockInSource(kind) {
+    var target = sourceInsertTarget;
+    if (!target || kind === 'ai-screen' || kind === 'question-library') return;
+    var modal = document.getElementById('insert-modal');
+    var status = document.getElementById('source-insert-status');
+    var blockYaml = makeNewBlockYaml(kind);
+    var buttons = modal.querySelectorAll('[data-insert]');
+    buttons.forEach(function (button) {
+      button.disabled = true;
+    });
+    status.textContent = 'Preparing insertion…';
+    apiPost('/api/source-preview', {
+      project: target.project,
+      filename: target.filename,
+      revision: target.revision,
+      action: 'insert-block',
+      raw_yaml: target.snapshot,
+      cursor: target.cursor,
+      at_start: target.atStart,
+      block_yaml: blockYaml,
+    })
+      .then(function (response) {
+        if (sourceInsertTarget !== target || !modal.classList.contains('show'))
+          return;
+        if (!response.success)
+          throw new Error(
+            (response.error && response.error.message) ||
+              'Could not insert this block.',
+          );
+        if (
+          _sourceEditors['full-source-editor'] !== target.editor ||
+          !target.editor.applySourceInsertion(
+            target.snapshot,
+            response.data.edit,
+          )
+        ) {
+          throw new Error(
+            'Source changed. Close this picker and choose the insertion location again.',
+          );
+        }
+        closeBootstrapModal('insert-modal');
+      })
+      .catch(function (error) {
+        if (sourceInsertTarget === target) status.textContent = error.message;
+      })
+      .finally(function () {
+        if (sourceInsertTarget === target) {
+          buttons.forEach(function (button) {
+            button.disabled = false;
+          });
+          if (modal.classList.contains('show'))
+            modal.querySelector('[data-insert="' + kind + '"]').focus();
+        }
+      });
+  }
+
   function sourceBlockMenu(blockId) {
     var block = getBlockById(blockId);
     // The menu can follow the pointer rather than the cursor, so each action
@@ -14189,7 +14323,13 @@
       (block && PREVIEWABLE_BLOCK_TYPES.indexOf(block.type) !== -1
         ? ''
         : ' disabled') +
-      '>Preview</button></li></ul></div>'
+      '>Preview</button></li>' +
+      (state.canvasMode === 'full-yaml'
+        ? '<li><button type="button" class="dropdown-item" data-action="insert-source-block"' +
+          blockAttr +
+          '>Insert block after this…</button></li>'
+        : '') +
+      '</ul></div>'
     );
   }
 
@@ -23895,6 +24035,12 @@
 
     // Outline insert
     if (outlineInsertBtn) {
+      if (state.canvasMode === 'full-yaml') {
+        var afterId =
+          outlineInsertBtn.getAttribute('data-insert-after-id') || '';
+        openSourceBlockInsert(afterId, !afterId);
+        return;
+      }
       function openInsertModal() {
         state.insertAfterBlockId =
           outlineInsertBtn.getAttribute('data-insert-after-id') || '';
@@ -23913,6 +24059,10 @@
     if (insertChoiceBtn) {
       if (!state.filename) return;
       var kind = insertChoiceBtn.getAttribute('data-insert');
+      if (sourceInsertTarget) {
+        insertBlockInSource(kind);
+        return;
+      }
       if (kind === 'question-library') {
         // The library writes whole blocks of its own, so it replaces the blank
         // block this modal would otherwise insert. It reads the file from the
@@ -25465,6 +25615,11 @@
           (res.error && res.error.message) || 'Unable to re-enable block.',
         );
       });
+      return;
+    }
+
+    if (uiAction === 'insert-source-block') {
+      openSourceBlockInsert(actionControl.getAttribute('data-source-block-id'));
       return;
     }
 

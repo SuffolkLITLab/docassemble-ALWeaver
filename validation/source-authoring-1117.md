@@ -65,3 +65,28 @@ inspector after restoring a previously collapsed rail. All passed. The frontend
 suite (47 passed, 1 skipped, 57 subtests) and `npm run check` passed again after
 these fixes. The existing localhost cursor smoke test also passed with the
 consolidated sidebar.
+
+## Playground examples and contextual insertion revision
+
+The four-entry recipe catalog was replaced with the installed Playground's own
+configured hierarchy. The source browser now keeps a searchable category tree
+beside source, documentation and runnable-example links, and plain-text context.
+The existing block picker inserts locally from a block's context menu, the Tools
+menu, or an outline gap. It does not save, reserialize the file, or leave source
+mode. AI/library actions that require the graphical workflow remain there.
+
+Claude reviewed this revision. Confirmed findings addressed include preserving
+first-line directives such as `# use jinja`, avoiding an empty document with a
+leading separator, making top insertion independent of the cursor, clearing stale
+selection status, and keeping error recovery keyboard-accessible. The installed
+Docassemble version exposed the moved Playground helper; both old and new helper
+locations now have compatibility tests. Axe caught a focusability issue in long
+source previews, which was fixed with keyboard-focusable previews.
+
+Argon's first broader pass timed out without a report. A second focused review of
+the updated backend and insertion lifecycle completed with no defects reported.
+Focused backend, API, and frontend tests passed: 281 tests, 1 skipped, 183
+subtests. JavaScript checks and mypy passed. The localhost workflow covers the
+actual Playground category tree, search, surrounding example code, example
+insertion/undo, contextual block insertion with unsaved edits in full-screen
+source mode, top insertion preserving the file header, and stale-picker rejection.

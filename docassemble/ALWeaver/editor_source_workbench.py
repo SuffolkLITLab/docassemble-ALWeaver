@@ -7,44 +7,73 @@ All edits are exact text spans, with UTF-16 offsets for CodeMirror.
 from __future__ import annotations
 
 import difflib
+import re
 from typing import Any, Dict, List
 
 from .source_document import parse_source_document, source_revision, unified_source_diff
 
-RECIPES = [
-    {
-        "id": "computed-choices",
-        "title": "Computed choices",
-        "description": "Build choices in Python, then ask a question using that list. Rename the example variables for your interview.",
-        "documentation": "https://docassemble.org/docs/fields.html#choices",
-        "dependencies": "Core docassemble; no additional package.",
-        "source": "id: example choices data\ncode: |\n  example_options = ['One', 'Two', 'Three']\n---\nid: example choices question\nquestion: Choose an option\nfields:\n  - Option: example_choice\n    choices: example_options\n",
-    },
-    {
-        "id": "review-screen",
-        "title": "Review screen",
-        "description": "An event screen that lets the user revisit an answer. Replace example_answer with a variable your interview gathers.",
-        "documentation": "https://docassemble.org/docs/fields.html#review",
-        "dependencies": "A question defining example_answer; link to example_review with an action button.",
-        "source": "id: example review screen\nevent: example_review\nquestion: Review your answers\nreview:\n  - Edit answer: example_answer\n",
-    },
-    {
-        "id": "list-collect",
-        "title": "Collect a list of items",
-        "description": "Declare a list and collect each item's name. Use example_items.gather() in your interview order when you want to gather it.",
-        "documentation": "https://docassemble.org/docs/groups.html#list%20collect",
-        "dependencies": "Core docassemble DAList and DAObject classes.",
-        "source": "objects:\n  - example_items: DAList.using(object_type=DAObject, there_are_any=True)\n---\nid: example item name\nquestion: Tell us about an item\nfields:\n  - Name: example_items[i].name\nlist collect: True\n---\nid: example more items\nquestion: Are there more items?\nyesno: example_items.there_is_another\n",
-    },
-    {
-        "id": "text-template",
-        "title": "Reusable text template",
-        "description": "Define reusable text and include it with ${ example_text } in a question or document.",
-        "documentation": "https://docassemble.org/docs/initial.html#template",
-        "dependencies": "Core docassemble; no additional package.",
-        "source": "id: example text template\ntemplate: example_text\ncontent: |\n  Replace this paragraph with text you want to reuse.\n",
-    },
-]
+
+def _playground_examples() -> List[Dict[str, Any]]:
+    from importlib import import_module
+
+    # Docassemble moved Playground helpers out of server.py in newer releases.
+    try:
+        module = import_module("docassemble.webapp.develop.helpers")
+    except ModuleNotFoundError as exc:
+        if exc.name not in {
+            "docassemble.webapp.develop",
+            "docassemble.webapp.develop.helpers",
+        }:
+            raise
+        module = import_module("docassemble.webapp.server")
+    return module.get_examples()
+
+
+def playground_recipes() -> List[Dict[str, Any]]:
+    """Use the installed Playground catalog, including configured package examples.
+
+    Keep its category hierarchy and selected example ranges. Do not send the
+    server's highlighted HTML to the client; source and context are plain text.
+    """
+    from html.parser import HTMLParser
+
+    class PlainText(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.parts: List[str] = []
+
+        def handle_data(self, data: str) -> None:
+            self.parts.append(data)
+
+    def plain(html: str) -> str:
+        parser = PlainText()
+        parser.feed(html)
+        return "".join(parser.parts)
+
+    def convert(
+        entries: List[Dict[str, Any]], prefix: str = ""
+    ) -> List[Dict[str, Any]]:
+        result = []
+        for index, entry in enumerate(entries):
+            identifier = f"{prefix}{index}"
+            node: Dict[str, Any] = {
+                "id": identifier,
+                "title": str(entry.get("title", "Untitled")),
+            }
+            if "list" in entry:
+                node["children"] = convert(entry["list"], identifier + "/")
+            else:
+                node.update(
+                    source=entry.get("source", ""),
+                    documentation=entry.get("documentation"),
+                    interview=entry.get("interview"),
+                    before=plain(entry.get("before_html", "")),
+                    after=plain(entry.get("after_html", "")),
+                )
+            result.append(node)
+        return result
+
+    return convert(_playground_examples())
 
 
 def utf16_offset(text: str) -> int:
@@ -103,7 +132,7 @@ def preview_source_action(
             "saved_source": saved,
         }
     if action == "recipes":
-        return {**base, "recipes": RECIPES}
+        return {**base, "recipes": playground_recipes()}
     if action == "repair":
         from .editor_agent_repair import preview_id_repairs
 
@@ -138,40 +167,68 @@ def preview_source_action(
                 for block in blocks
             ],
         }
-    if action == "recipe":
-        recipe = next((r for r in RECIPES if r["id"] == options.get("recipe_id")), None)
-        if recipe is None:
-            raise ValueError("Choose a known source recipe")
+    if action == "insert-block":
+        snippet = options.get("block_yaml")
+        if not isinstance(snippet, str) or not snippet.strip():
+            raise ValueError("Choose a block or example to insert")
+        if len(snippet.encode("utf-8")) > 1024 * 1024:
+            raise ValueError("The block is too large to insert")
         document = parse_source_document(filename, working)
         if not document.structurally_valid:
-            raise ValueError("Fix the YAML syntax before inserting a recipe")
+            raise ValueError("Fix the YAML syntax before inserting a block")
         existing_ids = {
             str(b.parsed_value["id"])
             for b in document.documents
             if isinstance(b.parsed_value, dict) and "id" in b.parsed_value
         }
-        recipe_document = parse_source_document(filename, recipe["source"])
+        recipe_document = parse_source_document(filename, snippet)
         if any(
             isinstance(b.parsed_value, dict)
             and str(b.parsed_value.get("id")) in existing_ids
             for b in recipe_document.documents
         ):
             raise ValueError(
-                "Rename the existing example block IDs before inserting this recipe again"
+                "Rename the existing block IDs before inserting these blocks again"
             )
-        cursor = python_offset(working, options.get("cursor", 0))
-        block = next(
-            (b for b in document.documents if b.start_offset <= cursor <= b.end_offset),
-            None,
-        )
-        if block is None and working.strip():
-            raise ValueError("Place the cursor inside a YAML document before inserting")
-        offset = block.end_offset if block else len(working)
-        insert = ("\n---\n" if working[:offset].strip() else "") + recipe["source"]
+        if options.get("at_start") is True:
+            # File-level comments such as '# use jinja' must stay first.
+            offset = 0
+            for line in working.splitlines(keepends=True):
+                if line.strip() and not line.lstrip().startswith("#"):
+                    break
+                offset += len(line)
+            marker = re.match(r"---[ \t]*(?:#[^\n]*)?(?:\n|$)", working[offset:])
+            if marker:
+                offset += marker.end()
+            insert = snippet.rstrip("\n") + "\n"
+            if offset and working[offset - 1] != "\n":
+                insert = "\n" + insert
+            if working[offset:].strip():
+                insert += "---\n"
+        else:
+            cursor = python_offset(working, options.get("cursor", 0))
+            block = next(
+                (
+                    b
+                    for b in document.documents
+                    if b.start_offset <= cursor <= b.end_offset
+                ),
+                None,
+            )
+            if block is None and working.strip():
+                raise ValueError(
+                    "Place the cursor inside a YAML document before inserting"
+                )
+            offset = block.end_offset if block else len(working)
+            insert = (
+                ("\n---\n" if working[:offset].strip() else "")
+                + snippet.rstrip("\n")
+                + "\n"
+            )
         candidate = working[:offset] + insert + working[offset:]
         if not parse_source_document(filename, candidate).structurally_valid:
             raise ValueError(
-                "This recipe cannot be inserted at the selected document boundary"
+                "These blocks cannot be inserted at the selected document boundary"
             )
         return {
             **base,

@@ -56,6 +56,11 @@ const source =
             selection: { anchor: view.state.doc.length + text.length },
             userEvent: 'input',
           });
+        if (operation === 'position')
+          view.dispatch({
+            selection: { anchor: view.state.doc.toString().indexOf(text) },
+            scrollIntoView: true,
+          });
         if (operation === 'start') view.dispatch({ selection: { anchor: 0 } });
         if (operation === 'end')
           view.dispatch({ selection: { anchor: view.state.doc.length } });
@@ -74,7 +79,14 @@ const source =
       .locator('.editor-source-actions-menu')
       .getByRole('button', { name, exact: true })
       .click();
-    await page.locator('.editor-source-workbench-dialog[open]').waitFor();
+    await page
+      .locator(
+        name === 'Insert block…'
+          ? '#insert-modal.show'
+          : '.editor-source-workbench-dialog[open]',
+      )
+      .waitFor();
+    if (name === 'Insert block…') return;
     await page.waitForFunction(
       () =>
         !document
@@ -185,22 +197,147 @@ const source =
     assert.equal((await editor()).source, source);
     await editor('end');
     await tool('Recipes');
-    await page
-      .getByRole('searchbox', { name: 'Search recipes' })
+    const recipeDialog = page.locator('.editor-source-workbench-dialog');
+    await recipeDialog
+      .getByRole('navigation', { name: 'Example categories' })
+      .waitFor();
+    await recipeDialog
+      .locator('summary')
+      .filter({ hasText: /^Markdown templates$/ })
+      .click();
+    await recipeDialog
+      .getByRole('button', { name: 'Template', exact: true })
+      .click();
+    assert.match(
+      await recipeDialog.locator('.editor-recipe-preview > pre').textContent(),
+      /template: disclaimer/,
+    );
+    assert.equal(
+      await recipeDialog
+        .getByRole('link', { name: 'Documentation', exact: true })
+        .isVisible(),
+      true,
+    );
+    await recipeDialog.locator('.editor-recipe-preview summary').click();
+    assert.match(
+      await recipeDialog
+        .locator('.editor-recipe-preview details pre')
+        .textContent(),
+      /company/,
+    );
+    await page.screenshot({ path: output + '/recipe-tree.png' });
+    const recipeAxe = await new AxeBuilder({ page })
+      .include('.editor-source-workbench-dialog')
+      .withTags(['wcag2a', 'wcag2aa'])
+      .analyze();
+    assert.deepEqual(
+      recipeAxe.violations
+        .filter((item) => ['critical', 'serious'].includes(item.impact))
+        .map((item) => item.id),
+      [],
+    );
+    await recipeDialog
+      .getByRole('searchbox', { name: 'Search Playground examples' })
+      .fill('no-such-example-xyz');
+    assert.match(
+      await recipeDialog.locator('.editor-recipe-tree').textContent(),
+      /No matching/,
+    );
+    await recipeDialog
+      .getByRole('searchbox', { name: 'Search Playground examples' })
       .fill('template');
-    await page
-      .getByRole('button', {
-        name: 'Preview Reusable text template',
-        exact: true,
-      })
+    await recipeDialog
+      .getByRole('button', { name: 'Template', exact: true })
       .click();
-    await page
-      .getByRole('button', { name: 'Insert recipe', exact: true })
+    await recipeDialog
+      .getByRole('button', { name: 'Insert after current block', exact: true })
       .click();
-    assert.match((await editor()).source, /template: example_text/);
+    await recipeDialog.waitFor({ state: 'hidden' });
+    assert.match((await editor()).source, /template: disclaimer/);
     assert.equal((await saved()).raw_yaml, source);
     await page.keyboard.press('Control+z');
     assert.equal((await editor()).source, source);
+
+    // The contextual menu targets its block even with unsaved edits elsewhere.
+    await editor('append', '\n# unsaved insertion context\n');
+    const beforeInsert = (await editor()).source;
+    await editor('position', 'question: What is your name?');
+    await page.locator('#full-source-editor .cm-content').focus();
+    await page.keyboard.press('F11');
+    await page
+      .locator('#full-source-editor .cm-line')
+      .filter({ hasText: 'question: What is your name?' })
+      .hover();
+    await page.locator('#source-block-actions').click();
+    await page
+      .locator(
+        '[data-action="insert-source-block"][data-source-block-id="ask_name"]',
+      )
+      .click();
+    const insertModal = page.locator('#insert-modal');
+    await insertModal.waitFor({ state: 'visible' });
+    await page.screenshot({ path: output + '/source-insert-block.png' });
+    await insertModal.locator('[data-insert="code"]').click();
+    await insertModal.waitFor({ state: 'hidden' });
+    await page.waitForFunction(
+      () =>
+        document.activeElement ===
+        document.querySelector('#full-source-editor .cm-content'),
+    );
+    const insertedSource = (await editor()).source;
+    assert.ok(
+      insertedSource.indexOf('code:') > insertedSource.indexOf('id: ask_name'),
+    );
+    assert.ok(
+      insertedSource.indexOf('code:') < insertedSource.indexOf('id: finish'),
+    );
+    assert.ok(insertedSource.endsWith('# unsaved insertion context\n'));
+    assert.equal((await saved()).raw_yaml, source);
+    await page.keyboard.press('Control+z');
+    assert.equal((await editor()).source, beforeInsert);
+    await page
+      .getByRole('button', { name: 'Exit full screen (F11)', exact: true })
+      .click();
+    await editor('replace', source);
+    // Top insertion preserves the first-line comment even with a separator cursor.
+    await page.locator('#source-rail-outline').click();
+    await editor('position', '---');
+    await page
+      .locator('.editor-outline-insert-btn[data-insert-after-id=""]')
+      .click();
+    await insertModal.locator('[data-insert="code"]').click();
+    await insertModal.waitFor({ state: 'hidden' });
+    await page.waitForFunction(
+      () =>
+        document.activeElement ===
+        document.querySelector('#full-source-editor .cm-content'),
+    );
+    assert.ok(
+      (await editor()).source.startsWith('# author comment\nid: code_'),
+    );
+    assert.equal((await saved()).raw_yaml, source);
+    await page.keyboard.press('Control+z');
+    assert.equal((await editor()).source, source);
+    await page.locator('#source-rail-variables').click();
+
+    // A stale picker must never overwrite changes made after it opened.
+    await tool('Insert block…');
+    await editor('append', '\n# edit while picker open\n');
+    await insertModal.locator('[data-insert="code"]').click();
+    await page.waitForFunction(() =>
+      document
+        .getElementById('source-insert-status')
+        .textContent.includes('Source changed'),
+    );
+    assert.equal(
+      (await editor()).source,
+      source + '\n# edit while picker open\n',
+    );
+    await insertModal
+      .getByRole('button', { name: 'Cancel', exact: true })
+      .click();
+    await insertModal.waitFor({ state: 'hidden' });
+    await editor('replace', source);
     await editor('replace', source.replace('id: ask_name\n', ''));
     await tool('Repair block IDs');
     await page
@@ -353,7 +490,10 @@ const source =
             'definitions stay in source',
             'diff and undo',
             'hunk revert',
-            'recipe preview and insertion',
+            'Playground example tree, search, context, insertion and Axe',
+            'contextual block insertion preserves unsaved source and undo',
+            'top insertion preserves file header',
+            'stale insertion picker refuses to overwrite edits',
             'ID repairs',
             'unsaved outline',
             'full-screen sidebar',
