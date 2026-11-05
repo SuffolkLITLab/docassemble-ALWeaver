@@ -931,6 +931,8 @@
           runValidation();
         },
         findings: function (index) {
+          blockMenu.wrapper.classList.remove('editor-source-full-screen');
+          view.requestMeasure();
           state.validationOpen = true;
           if (state.validationDock === 'full') setValidationDock('side');
           renderValidationDrawer();
@@ -14186,7 +14188,14 @@
         return { from: from, to: to };
     }
     var start = blockSource ? content.indexOf(blockSource) : -1;
-    if (start < 0 || content.indexOf(blockSource, start + 1) !== -1)
+    if (
+      start < 0 ||
+      content.indexOf(blockSource, start + 1) !== -1 ||
+      (start > 0 && content[start - 1] !== '\n') ||
+      (start + blockSource.length < content.length &&
+        !blockSource.endsWith('\n') &&
+        content[start + blockSource.length] !== '\n')
+    )
       return null;
     return { from: start, to: start + blockSource.length };
   }
@@ -23383,9 +23392,11 @@
         sourceEditor &&
         sourceEditor.sourceTools
       ) {
-        sourceEditor.sourceTools.revealFinding(
+        var located = sourceEditor.sourceTools.revealFinding(
           Number(validationItem.getAttribute('data-finding-index')),
         );
+        if (located === false && validationItem.getAttribute('data-block-id'))
+          revealBlockInFullSource(validationItem.getAttribute('data-block-id'));
         return;
       }
       var validationBlockId = validationItem.getAttribute('data-block-id');

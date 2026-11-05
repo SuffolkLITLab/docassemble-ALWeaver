@@ -44,3 +44,29 @@ assert.deepEqual(
   ],
 );
 console.log('source tools tests passed');
+const { completionEdit } = require('./data/static/editor_source_tools');
+assert.deepEqual(completionEdit('users[0].', 'users[i].name', 9, 11), {
+  from: 0,
+  to: 11,
+  insert: 'users[0].name',
+});
+assert.deepEqual(completionEdit('other.', 'users.name', 6, 8), {
+  from: 0,
+  to: 8,
+  insert: 'users.name',
+});
+assert.deepEqual(
+  diagnosticRanges(
+    'one\ntwo\n',
+    [
+      {
+        source_range: {
+          start: { line: 1, column: 2 },
+          end: { line: 2, column: 3 },
+        },
+      },
+    ],
+    'main.yml',
+  ).map((x) => [x.from, x.to]),
+  [[1, 6]],
+);

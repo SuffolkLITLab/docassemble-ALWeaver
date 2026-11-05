@@ -2,6 +2,23 @@
 (function (root) {
   'use strict';
 
+  function completionEdit(before, label, from, to) {
+    var start = before.length;
+    while (start > 0 && /[\w.[\]]/.test(before[start - 1])) start--;
+    var prefix = before.slice(start);
+    var insert = label;
+    if (prefix.endsWith('.') && /^[A-Za-z_]/.test(prefix)) {
+      var segments = prefix.split('.').length - 1;
+      var candidate = label.split('.').slice(0, segments).join('.') + '.';
+      if (
+        prefix.replace(/\[\w+\]/g, '[]') === candidate.replace(/\[\w+\]/g, '[]')
+      )
+        insert = prefix + label.slice(candidate.length);
+      from -= prefix.length;
+    }
+    return { from: from, to: to, insert: insert };
+  }
+
   function completions(groups, names, functions) {
     var entries = new Map();
     Object.keys(groups).forEach(function (group) {
@@ -29,15 +46,15 @@
         // The upstream completion source matches only the final word. Replace
         // the whole dotted prefix when it belongs to the chosen symbol.
         entry.apply = function (view, completion, from, to) {
-          var before = view.state.doc.sliceString(0, from);
-          var start = before.length;
-          while (start > 0 && /[\w.]/.test(before[start - 1])) start--;
-          var prefix = before.slice(start);
-          if (prefix.endsWith('.') && completion.label.startsWith(prefix))
-            from -= prefix.length;
+          var edit = completionEdit(
+            view.state.doc.sliceString(0, from),
+            completion.label,
+            from,
+            to,
+          );
           view.dispatch({
-            changes: { from: from, to: to, insert: completion.label },
-            selection: { anchor: from + completion.label.length },
+            changes: edit,
+            selection: { anchor: edit.from + edit.insert.length },
             userEvent: 'input.complete',
           });
         };
@@ -67,10 +84,24 @@
           Array.from(lines[line - 1])
             .slice(0, column)
             .join('').length;
+        var to = starts[line - 1] + lines[line - 1].length;
+        var end = item.source_range && item.source_range.end;
+        if (
+          end &&
+          Number.isInteger(end.line) &&
+          end.line >= line &&
+          end.line <= lines.length
+        ) {
+          to =
+            starts[end.line - 1] +
+            Array.from(lines[end.line - 1])
+              .slice(0, Math.max(0, Number(end.column || 1) - 1))
+              .join('').length;
+        }
         return [
           {
             from: from,
-            to: starts[line - 1] + lines[line - 1].length,
+            to: Math.max(from, to),
             line: line,
             index: index,
             level: item.level || item.severity || 'error',
@@ -91,10 +122,11 @@
       disposed = false,
       frame = 0,
       selectedMessage = '';
+    var activeDiagnostic = -1;
     var lastDocument = view.state.doc;
     var toolbar = doc.createElement('div');
     toolbar.className = 'editor-source-tools';
-    toolbar.setAttribute('role', 'toolbar');
+    toolbar.setAttribute('role', 'group');
     toolbar.setAttribute('aria-label', 'Source tools');
     function button(label, callback) {
       var control = doc.createElement('button');
@@ -203,8 +235,9 @@
       return snapshot && snapshot.source === view.state.doc.toString();
     }
     function reveal(range) {
+      activeDiagnostic = ranges.indexOf(range);
       view.dispatch({
-        selection: { anchor: range.from, head: range.to },
+        selection: { anchor: range.from },
         effects: view.constructor.scrollIntoView(range.from, { y: 'center' }),
       });
       view.focus();
@@ -214,17 +247,25 @@
     function navigate(direction) {
       if (!current() || !ranges.length) return;
       var position = view.state.selection.main.from;
-      var range =
-        direction > 0
-          ? ranges.find(function (item) {
-              return item.from > position;
-            }) || ranges[0]
-          : ranges
-              .slice()
-              .reverse()
-              .find(function (item) {
-                return item.from < position;
-              }) || ranges[ranges.length - 1];
+      var range;
+      if (activeDiagnostic >= 0 && ranges[activeDiagnostic].from === position) {
+        range =
+          ranges[
+            (activeDiagnostic + direction + ranges.length) % ranges.length
+          ];
+      } else {
+        range =
+          direction > 0
+            ? ranges.find(function (item) {
+                return item.from >= position;
+              }) || ranges[0]
+            : ranges
+                .slice()
+                .reverse()
+                .find(function (item) {
+                  return item.from <= position;
+                }) || ranges[ranges.length - 1];
+      }
       reveal(range);
     }
     function paint() {
@@ -266,14 +307,21 @@
         if (marker) {
           marker.title += '\n' + item.message;
           marker.setAttribute('aria-label', marker.title);
-          if (item.level === 'error')
-            marker.className = 'editor-source-diagnostic-marker error';
+          var ranks = { info: 0, warning: 1, error: 2 };
+          if (ranks[item.level] > ranks[marker.dataset.level]) {
+            marker.dataset.level = item.level;
+            marker.className = 'editor-source-diagnostic-marker ' + item.level;
+            marker.textContent = { info: 'i', warning: '▲', error: '!' }[
+              item.level
+            ];
+          }
         } else {
           marker = doc.createElement('button');
           marker.type = 'button';
           var level = ['error', 'warning', 'info'].includes(item.level)
             ? item.level
             : 'info';
+          marker.dataset.level = level;
           marker.className = 'editor-source-diagnostic-marker ' + level;
           marker.style.top = coords.top - bounds.top + 'px';
           marker.textContent = { warning: '▲', error: '!', info: 'i' }[level];
@@ -333,18 +381,22 @@
         if (!current()) {
           status.textContent =
             'Source changed; validate again before navigating to a finding.';
-          return;
+          return true;
         }
         var range = ranges.find(function (item) {
           return item.index === index;
         });
-        if (range) reveal(range);
-        else
+        if (range) {
+          reveal(range);
+          return true;
+        } else
           status.textContent =
             'This finding has no location in the current source.';
+        return false;
       },
       setDiagnostics: function (value) {
         snapshot = value;
+        activeDiagnostic = -1;
         selectedMessage = '';
         ranges = value
           ? diagnosticRanges(value.source, value.diagnostics, value.filename)
@@ -372,6 +424,7 @@
     };
   }
   var api = {
+    completionEdit: completionEdit,
     completions: completions,
     diagnosticRanges: diagnosticRanges,
     attach: attach,

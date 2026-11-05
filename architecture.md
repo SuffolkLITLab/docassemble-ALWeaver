@@ -629,7 +629,7 @@ The adapter uses the upstream bundle's public compartment and EditorView update
 listener, avoiding a second copy of CodeMirror's state types. It removes listeners,
 markers, and highlights when the editor is disposed.
 
-This completes the focused source-authoring scope of #1117. Automatic quick fixes,
+This is the first source-authoring tranche of #1117. Automatic quick fixes,
 a parent-interview context chooser, live unsaved symbol/outline parsing, recipes,
 a source/runtime split debugger, move-to-include transactions, and deeper test
 integration remain future work. They should build on the existing revision-aware

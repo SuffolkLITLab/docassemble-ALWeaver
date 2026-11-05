@@ -152,6 +152,44 @@ const staticDir = path.resolve(
       .getByRole('button', { name: 'Line 1: First problem', exact: true })
       .waitFor();
     await page.evaluate(() => {
+      window.bundle.ev.dispatch({ selection: { anchor: 0 } });
+      window.tools.setDiagnostics({
+        source: window.bundle.ev.state.doc.toString(),
+        filename: 'main.yml',
+        diagnostics: [
+          {
+            line_number: 1,
+            message: 'Warning at same location',
+            level: 'warning',
+          },
+          { line_number: 1, message: 'Error at same location', level: 'error' },
+        ],
+      });
+    });
+    await page.waitForFunction(
+      () =>
+        document.querySelector('.editor-source-diagnostic-marker.error')
+          ?.textContent === '!',
+    );
+    await page
+      .getByRole('button', { name: 'Next problem', exact: true })
+      .click();
+    assert.match(
+      await page.locator('.editor-source-tools [role=status]').textContent(),
+      /Warning at same location/,
+    );
+    await page
+      .getByRole('button', { name: 'Next problem', exact: true })
+      .click();
+    assert.match(
+      await page.locator('.editor-source-tools [role=status]').textContent(),
+      /Error at same location/,
+    );
+    assert.equal(
+      await page.evaluate(() => window.bundle.ev.state.selection.main.empty),
+      true,
+    );
+    await page.evaluate(() => {
       window.tools.dispose();
       window.bundle.ev.destroy();
     });
