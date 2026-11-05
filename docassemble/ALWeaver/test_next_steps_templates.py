@@ -1,3 +1,4 @@
+# do not pre-load
 """Exercise the bundled next-steps shells as generated interviews use them."""
 
 from pathlib import Path
