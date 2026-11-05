@@ -412,3 +412,19 @@ sandboxed iframe. It requires a running Docassemble server for shared assets
 other manual browser checks. This is a renderer compatibility test, not three full
 Docassemble server installations. The installed localhost application is checked
 separately by `editor_no_label_smoketest.js`.
+
+## Source authoring tools
+
+The frontend suite includes symbol completion/range conversion and unsaved outline
+navigation regressions. The standalone browser regression uses the real docassemble
+CodeMirror bundle to check Ctrl-Space (including dotted names and undo), symbol
+insertion, diagnostic navigation, stale markers, and disposal:
+
+```sh
+NODE_PATH=/path/to/playwright/node_modules \
+DOCASSEMBLE_CM6=/path/to/docassemble/webapp/static/app/cm6.js \
+BROWSER_PATH=/path/to/chromium \
+node scripts/editor_source_tools_smoketest.js
+```
+
+No server or authenticated Playground session is needed for this adapter test.

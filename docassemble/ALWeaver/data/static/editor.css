@@ -6247,3 +6247,89 @@ body:has(.editor-source-full-screen) { overflow: hidden; }
   right: 64px;
   z-index: 6;
 }
+
+/* Source tools stay inside the full-screen editor as well as the normal view. */
+.editor-source-with-tools {
+  display: flex;
+  flex-direction: column;
+}
+.editor-source-with-tools > .cm-editor {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+.editor-source-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem;
+  border-bottom: 1px solid var(--editor-border);
+}
+.editor-source-tools [role="status"] {
+  font-size: 0.8rem;
+}
+.editor-source-symbols {
+  position: absolute;
+  top: 3rem;
+  right: 0.5rem;
+  width: min(32rem, 95%);
+  max-height: 70%;
+  overflow: auto;
+  padding: 0.75rem;
+  background: var(--bs-body-bg, #fff);
+  border: 1px solid var(--editor-border);
+  z-index: 10;
+}
+.editor-source-symbols label {
+  display: block;
+}
+.editor-source-symbol {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: inherit;
+  border: 0;
+  padding: 0.35rem;
+}
+.editor-source-symbol:hover,
+.editor-source-symbol:focus-visible {
+  background: var(--editor-primary-bg);
+}
+.editor-source-diagnostic-marker {
+  position: absolute;
+  left: 0.15rem;
+  z-index: 5;
+  border: 0;
+  border-radius: 3px;
+  font-size: 0.875rem;
+  line-height: 1rem;
+  min-width: 1.125rem;
+  color: white;
+  background: #a61b1b;
+}
+.editor-source-diagnostic-marker.warning {
+  background: #805300;
+}
+::highlight(weaver-source-error) {
+  text-decoration: underline wavy #c62828;
+}
+::highlight(weaver-source-warning) {
+  text-decoration: underline wavy #a66a00;
+}
+::highlight(weaver-source-info) {
+  text-decoration: underline dotted #2672b5;
+}
+
+.editor-source-with-tools .cm-gutters {
+  padding-left: 1.4rem;
+}
+
+.editor-source-diagnostic-marker.info {
+  background: #245e89;
+}
+
+.editor-source-full-screen .editor-source-tools {
+  padding-inline-end: 14rem;
+}

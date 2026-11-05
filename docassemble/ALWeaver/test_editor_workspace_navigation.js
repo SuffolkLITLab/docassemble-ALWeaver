@@ -187,8 +187,13 @@ assert.equal(status.textContent, '');
 revealed = null;
 mount(state.rawYaml + '# unsaved\n');
 h.revealBlockInFullSource('about');
-assert.equal(revealed, null);
+assert.deepEqual(revealed, [0, state.rawYaml.length]);
 assert.match(status.textContent, /last parsed version/);
+revealed = null;
+mount(state.rawYaml.replace('About you', 'Edited question'));
+h.revealBlockInFullSource('about');
+assert.equal(revealed, null);
+assert.match(status.textContent, /Save your YAML/);
 state.filename = 'other.yml';
 assert.equal(h.workspaceReturnLabel(), 'Open blocks');
 console.log('editor workspace navigation tests passed');
@@ -448,6 +453,22 @@ assert.equal(
   'about',
   'direct-link returns establish a real selected block',
 );
+// Findings in source mode stay in the source buffer and use their exact index.
+state.canvasMode = 'full-yaml';
+let revealedFinding = null;
+h._sourceEditors['full-source-editor'].sourceTools = {
+  revealFinding: (index) => {
+    revealedFinding = index;
+  },
+};
+click(null, {
+  validation: true,
+  'data-block-id': 'about',
+  'data-finding-index': '2',
+});
+assert.equal(revealedFinding, 2);
+assert.equal(validationGuarded, 1);
+assert.equal(state.canvasMode, 'full-yaml');
 console.log('editor review regressions passed');
 
 // Parser ranges identify the second of two textually identical documents.
@@ -634,3 +655,14 @@ click('edit-source-block');
 assert.equal(blockYamlGuarded, 1);
 assert.equal(state.questionEditMode, 'yaml');
 console.log('PASS block-YAML kebab visual transition uses the unsaved guard');
+
+// Saved line ranges must not select an identical sibling after unsaved shifts.
+state.rawYaml = duplicateSource;
+state.blocks = [
+  { id: 'duplicate', yaml: 'code: pass', line_start: 1, line_end: 1 },
+];
+mount('code: pass\n' + duplicateSource);
+revealed = null;
+h.revealBlockInFullSource('duplicate');
+assert.equal(revealed, null);
+assert.match(status.textContent, /Save your YAML/);

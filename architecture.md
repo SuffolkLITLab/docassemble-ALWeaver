@@ -601,3 +601,36 @@ read from available Python source without importing or executing modules;
 dynamic exports and inherited methods may not be discoverable. Validation errors
 from the open file mark affected declarations red. The results remain static
 hints and do not substitute for executing an interview.
+
+## Full-source authoring tools
+
+Full file YAML keeps the existing semantic block outline, cursor-following,
+block/visual editor return path, expression editor, preview actions, and durable
+source route. Outline jumps now also work in unsaved buffers when the original
+block can still be located exactly. Changed or ambiguous blocks require a save
+and reparse; navigation never rewrites YAML.
+
+`editor_source_tools.js` connects the saved interview's existing variable and
+function catalogs to docassemble's native Ctrl-Space completion provider. The
+Symbols picker searches those same names and inserts at the source selection.
+The catalog is scoped to the active saved interview and its includes, rather
+than treating all files in a project as one interview. It is not an analysis of
+unsaved Python, and does not choose a parent interview for an included file.
+
+Validate submits the working source through the existing full-source validator.
+A source-tools snapshot contains the exact normalized buffer, project, filename,
+and diagnostics. Source markers, CSS Highlight underlines, and previous/next
+problem navigation only use a snapshot matching that buffer. Edits invalidate
+locations immediately, including when a validation response arrives late; undo
+back to the validated text restores them. Findings without locations remain in
+the existing findings panel. Clicking a located finding while in source mode
+keeps that mode. Browsers without CSS Highlights retain markers and navigation.
+The adapter uses the upstream bundle's public compartment and EditorView update
+listener, avoiding a second copy of CodeMirror's state types. It removes listeners,
+markers, and highlights when the editor is disposed.
+
+This completes the focused source-authoring scope of #1117. Automatic quick fixes,
+a parent-interview context chooser, live unsaved symbol/outline parsing, recipes,
+a source/runtime split debugger, move-to-include transactions, and deeper test
+integration remain future work. They should build on the existing revision-aware
+patch and saved-runtime boundaries rather than create another source model.

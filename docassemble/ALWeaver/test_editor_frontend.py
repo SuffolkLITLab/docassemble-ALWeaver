@@ -9,6 +9,7 @@ import subprocess
 import unittest
 
 NODE_TESTS = (
+    "test_editor_source_tools.js",
     "test_editor_field_labeling.js",
     "test_editor_markdown.js",
     "test_editor_controls.js",

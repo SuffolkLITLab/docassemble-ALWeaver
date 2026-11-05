@@ -96,6 +96,7 @@
     fullYamlStash: {},
     validationErrors: [],
     validationFilename: null,
+    sourceDiagnostics: null,
     validationOpen: false,
     validationBusy: false,
     //: 'bottom' | 'tall' | 'side' | 'full' -- where the findings panel sits
@@ -770,6 +771,7 @@
     var subscribers = [];
     var blockMenu = null;
     var searchPanel = null;
+    var sourceTools = null;
     var originalDispatch = view.dispatch.bind(view);
     view.dispatch = function () {
       var before = view.state.doc.toString();
@@ -853,6 +855,7 @@
               : null,
         };
         subscribers = [];
+        if (sourceTools) sourceTools.dispose();
         if (searchPanel) searchPanel.dispose();
         if (blockMenu) blockMenu.dispose();
         view.destroy();
@@ -922,6 +925,32 @@
       blockMenu = attachSourceBlockMenu(container, view);
     }
     if (containerId === 'full-source-editor') {
+      sourceTools = window.ALWeaverSourceTools.attach(bundle, container, {
+        validate: function () {
+          state.validationOpen = true;
+          runValidation();
+        },
+        findings: function (index) {
+          state.validationOpen = true;
+          if (state.validationDock === 'full') setValidationDock('side');
+          renderValidationDrawer();
+          if (Number.isInteger(index)) {
+            var finding = document.querySelector(
+              '[data-finding-index="' + index + '"]',
+            );
+            if (finding) {
+              finding.scrollIntoView({ block: 'nearest' });
+              finding.focus();
+            }
+          }
+        },
+        symbols: function () {
+          return sourceCompletionOptions();
+        },
+      });
+      editor.sourceTools = sourceTools;
+      syncSourceDiagnostics();
+      loadAvailableSymbols();
       searchPanel = keepSearchPanelOpen(view);
       attachFullScreenToggle(blockMenu.wrapper, view, blockMenu.update);
     }
@@ -7059,7 +7088,29 @@
     return html;
   }
 
+  function sourceCompletionOptions() {
+    return window.ALWeaverSourceTools.completions(
+      state.symbolCatalog.groups || {},
+      state.symbolCatalog.all || [],
+      state.symbolCatalog.functions || [],
+    );
+  }
+
+  function syncSourceDiagnostics() {
+    var editor = _sourceEditors['full-source-editor'];
+    if (!editor || !editor.sourceTools) return;
+    var snapshot = state.sourceDiagnostics;
+    editor.sourceTools.setDiagnostics(
+      snapshot &&
+        snapshot.project === state.project &&
+        snapshot.filename === state.filename
+        ? snapshot
+        : null,
+    );
+  }
+
   function resetSymbolCatalog() {
+    window.daAutoComp = [];
     state.symbolCatalog = {
       loadedFor: null,
       all: [],
@@ -7069,6 +7120,10 @@
   }
 
   function refreshActiveSymbolPickers() {
+    window.daAutoComp = sourceCompletionOptions();
+    var sourceEditor = _sourceEditors['full-source-editor'];
+    if (sourceEditor && sourceEditor.sourceTools)
+      sourceEditor.sourceTools.refreshSymbols();
     var expressionInput = document.activeElement;
     if (expressionInput && expressionInput.closest('.expression-picker'))
       expressionInput.dispatchEvent(new Event('expression-catalog-refresh'));
@@ -11415,6 +11470,7 @@
     state.validationBusy = false;
     state.validationErrors = [];
     state.validationFilename = null;
+    state.sourceDiagnostics = null;
     renderValidationDrawer();
     var project = state.project;
     var filename = state.filename;
@@ -12864,6 +12920,8 @@
 
   function runValidation() {
     if (!state.project || !state.filename || _validationInFlight) return;
+    state.sourceDiagnostics = null;
+    syncSourceDiagnostics();
     discardResultsFromTheOtherCheck('validation');
     state.validationMode = 'validation';
     var requestSequence = ++_validationRequestSequence;
@@ -12916,6 +12974,13 @@
           state.validationErrors =
             res.data.diagnostics || res.data.errors || [];
           state.validationBaseRevisionMatches = res.data.base_revision_matches;
+          state.sourceDiagnostics = {
+            project: requestProject,
+            filename: requestFilename,
+            source: validationSource.replace(/\r\n?/g, '\n'),
+            diagnostics: state.validationErrors,
+          };
+          syncSourceDiagnostics();
         } else {
           state.validationErrors = [];
         }
@@ -12952,6 +13017,8 @@
   function runStyleCheck(includeLlm) {
     if (!state.project || !state.filename || _validationInFlight) return;
     var wantsLlm = Boolean(includeLlm);
+    state.sourceDiagnostics = null;
+    syncSourceDiagnostics();
     discardResultsFromTheOtherCheck('style');
     state.validationMode = 'style';
     var requestSequence = ++_validationRequestSequence;
@@ -13230,7 +13297,9 @@
         (err.block_id
           ? ' data-block-id="' + esc(String(err.block_id)) + '"'
           : '') +
-        ' data-source-filename="' +
+        ' data-finding-index="' +
+        state.validationErrors.indexOf(err) +
+        '" data-source-filename="' +
         esc(String(err.filename || state.validationFilename || '')) +
         '" aria-label="' +
         esc(findingLabel + String(err.message || 'Unknown issue')) +
@@ -14128,24 +14197,30 @@
     var status = document.getElementById('source-outline-status');
     if (!editor || !block) return;
     var content = editor.getValue();
-    // CodeMirror positions use LF regardless of the file's original line endings.
-    var parsedSource = state.rawYaml.replace(/\r\n?/g, '\n');
     var blockSource = (block.yaml || '').replace(/\r\n?/g, '\n');
-    if (content !== parsedSource) {
-      if (status)
-        status.textContent =
-          'The outline shows the last parsed version. Save your YAML before navigating to a block in source.';
-      return;
-    }
+
     var range = sourceBlockRange(content, block, blockSource);
+    // Saved line numbers cannot distinguish identical blocks after an edit
+    // shifts documents; require a unique exact match in an unsaved buffer.
+    if (
+      content !== state.rawYaml.replace(/\r\n?/g, '\n') &&
+      content.indexOf(blockSource) !== content.lastIndexOf(blockSource)
+    )
+      range = null;
     if (!range) {
       if (status)
         status.textContent =
-          'This block cannot be located uniquely in the source. Use Blocks to open its block editor.';
+          content === state.rawYaml.replace(/\r\n?/g, '\n')
+            ? 'This block cannot be located uniquely in the source. Use Blocks to open its block editor.'
+            : 'This block was edited or cannot be located uniquely. Save your YAML to refresh the outline.';
       return;
     }
     editor.reveal(range.from, range.to);
-    if (status) status.textContent = '';
+    if (status)
+      status.textContent =
+        content === state.rawYaml.replace(/\r\n?/g, '\n')
+          ? ''
+          : 'Outline from the last parsed version; unchanged blocks remain navigable.';
     // Also synchronize when revealing an already-selected range dispatches no
     // selection change; the usual listener makes this call a no-op.
     updateSourceCursorBlock(content, range.from);
@@ -23301,6 +23376,18 @@
     if (validationItem) {
       var sourceFilename = validationItem.getAttribute('data-source-filename');
       if (sourceFilename && sourceFilename !== state.filename) return;
+      var sourceEditor = _sourceEditors['full-source-editor'];
+      if (
+        state.canvasMode === 'full-yaml' &&
+        state.validationMode !== 'style' &&
+        sourceEditor &&
+        sourceEditor.sourceTools
+      ) {
+        sourceEditor.sourceTools.revealFinding(
+          Number(validationItem.getAttribute('data-finding-index')),
+        );
+        return;
+      }
       var validationBlockId = validationItem.getAttribute('data-block-id');
       if (validationBlockId) {
         var validationBlock = getBlockById(validationBlockId);
