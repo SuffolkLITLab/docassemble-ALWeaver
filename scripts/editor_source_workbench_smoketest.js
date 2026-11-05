@@ -74,7 +74,7 @@ const source =
     );
   }
   async function tool(name) {
-    await page.locator('.editor-source-actions > summary').click();
+    await page.locator('#source-tools-toggle').click();
     await page
       .locator('.editor-source-actions-menu')
       .getByRole('button', { name, exact: true })
@@ -99,6 +99,11 @@ const source =
       .locator('.editor-source-workbench-dialog')
       .getByRole('button', { name: 'Close', exact: true })
       .click();
+    await page.waitForFunction(
+      () =>
+        document.activeElement ===
+        document.querySelector('#full-source-editor .cm-content'),
+    );
   }
   try {
     await page.goto(server + '/al/editor', { waitUntil: 'networkidle' });
@@ -152,6 +157,35 @@ const source =
       await page.getByRole('button', { name: 'Symbols', exact: true }).count(),
       0,
     );
+    // Standard Bootstrap dropdown behavior: visible caret/button, Escape and outside-click dismissal.
+    const toolsToggle = page.locator('#source-tools-toggle');
+    await toolsToggle.click();
+    assert.equal(await toolsToggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(
+      await page
+        .getByRole('button', { name: 'Source outline', exact: true })
+        .count(),
+      0,
+    );
+    await page.screenshot({ path: output + '/source-tools-menu.png' });
+    await toolsToggle.press('ArrowDown');
+    assert.equal(
+      await page
+        .locator('.editor-source-actions-menu')
+        .evaluate((node) => node.contains(document.activeElement)),
+      true,
+    );
+    await page.keyboard.press('Escape');
+    assert.equal(await toolsToggle.getAttribute('aria-expanded'), 'false');
+    assert.equal(
+      await toolsToggle.evaluate((node) => document.activeElement === node),
+      true,
+    );
+    await toolsToggle.click();
+    await page.locator('#full-source-editor .cm-content').click();
+    assert.equal(await toolsToggle.getAttribute('aria-expanded'), 'false');
+    await tool('Changes');
+    await closePreview();
     await editor('append', '\n# Insert: ');
     await rail
       .getByRole('button', { name: 'Insert answer_name', exact: true })
@@ -350,13 +384,6 @@ const source =
       .replace('ask_name', 'unsaved_name')
       .replace('What is your name?', 'Unsaved question');
     await editor('replace', unsaved);
-    await tool('Source outline');
-    await page
-      .getByRole('searchbox', { name: 'Find a block, ID, or variable' })
-      .fill('unsaved_name');
-    await page.getByRole('button', { name: /Unsaved question.*line/ }).click();
-    assert.equal((await editor()).source, unsaved);
-    assert.equal((await editor()).line, 'id: unsaved_name');
     await page.locator('#full-source-editor .cm-content').focus();
     await page.keyboard.press('F11');
     await page.locator('#source-rail-outline').click();
@@ -486,6 +513,7 @@ const source =
         {
           passed: true,
           checks: [
+            'Tools dropdown keyboard navigation, Escape, outside click and dialog focus',
             'sidebar insertion',
             'definitions stay in source',
             'diff and undo',
@@ -495,7 +523,6 @@ const source =
             'top insertion preserves file header',
             'stale insertion picker refuses to overwrite edits',
             'ID repairs',
-            'unsaved outline',
             'full-screen sidebar',
             'narrow layout and Axe',
             'save persistence',

@@ -6399,10 +6399,7 @@ body:has(.editor-source-full-screen) { overflow: hidden; }
 .editor-source-tools { gap: .15rem; padding: .2rem .4rem; }
 .editor-source-tool { text-decoration: none; }
 .editor-source-tools [role="status"] { margin-left: auto; color: var(--editor-muted); }
-.editor-source-actions { position: relative; }
-.editor-source-actions > summary { text-decoration: none; }
-.editor-source-actions-menu { position: absolute; right: 0; top: 100%; z-index: 20; min-width: 14rem; padding: .25rem; background: var(--bs-body-bg, white); border: 1px solid var(--editor-border); border-radius: .35rem; box-shadow: var(--editor-card-shadow); }
-.editor-source-actions-menu > button { display: block; width: 100%; text-align: left; border: 0; margin: 0 !important; }
+.editor-source-actions-menu { min-width: 14rem; }
 .variable-browser-advanced { align-self: end; position: relative; font-size: .875rem; }
 .variable-browser-advanced > summary { padding: .3rem 0; cursor: pointer; }
 .source-variable-browser .variable-browser-advanced-content { position: absolute; top: 100%; right: 0; width: 16rem; padding: .65rem; background: var(--bs-body-bg, white); border: 1px solid var(--editor-border); border-radius: .35rem; box-shadow: var(--editor-card-shadow); z-index: 3; }

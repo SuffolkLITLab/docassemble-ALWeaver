@@ -73,14 +73,20 @@
       return button;
     }
     var toolbar = container.querySelector('.editor-source-tools');
-    var menu = doc.createElement('details');
-    menu.className = 'editor-source-actions';
-    var summary = doc.createElement('summary');
-    summary.className = 'btn btn-sm btn-link';
-    summary.textContent = 'Tools';
-    menu.appendChild(summary);
+    var menu = doc.createElement('div');
+    menu.className = 'dropdown editor-source-actions';
+    var toggle = doc.createElement('button');
+    toggle.type = 'button';
+    toggle.id = 'source-tools-toggle';
+    toggle.className = 'btn btn-sm btn-outline-secondary dropdown-toggle';
+    toggle.textContent = 'Tools';
+    toggle.setAttribute('data-bs-toggle', 'dropdown');
+    toggle.setAttribute('aria-expanded', 'false');
+    menu.appendChild(toggle);
     var menuItems = doc.createElement('div');
-    menuItems.className = 'editor-source-actions-menu';
+    menuItems.className =
+      'dropdown-menu dropdown-menu-end editor-source-actions-menu';
+    menuItems.setAttribute('aria-labelledby', toggle.id);
     menu.appendChild(menuItems);
     toolbar.appendChild(menu);
     var expression = container.querySelector(':scope > button');
@@ -88,24 +94,32 @@
       expression.className = 'dropdown-item';
       menuItems.appendChild(expression);
     }
+    function hideMenu() {
+      var dropdown = root.bootstrap.Dropdown.getInstance(toggle);
+      if (dropdown) dropdown.hide();
+    }
+    function menuControl(label, handler) {
+      var button = control(menuItems, label, handler);
+      button.className = 'dropdown-item';
+      return button;
+    }
     var buttons = [];
     [
       ['diff', 'Changes'],
       ['repair', 'Repair block IDs'],
       ['recipes', 'Recipes'],
-      ['outline', 'Source outline'],
     ].forEach(function (entry) {
       buttons.push(
-        control(menuItems, entry[1], function () {
-          menu.open = false;
+        menuControl(entry[1], function () {
+          hideMenu();
           open(entry[0]);
         }),
       );
     });
     if (actions.insertBlock)
       buttons.push(
-        control(menuItems, 'Insert block…', function () {
-          menu.open = false;
+        menuControl('Insert block…', function () {
+          hideMenu();
           actions.insertBlock();
         }),
       );
@@ -351,60 +365,6 @@
       search.addEventListener('input', render);
       render();
     }
-    function renderOutline(data) {
-      var label = doc.createElement('label');
-      label.textContent = 'Find a block, ID, or variable';
-      var search = doc.createElement('input');
-      search.type = 'search';
-      search.className = 'form-control';
-      label.appendChild(search);
-      body.appendChild(label);
-      var list = doc.createElement('div');
-      body.appendChild(list);
-      function render() {
-        list.replaceChildren();
-        data.blocks
-          .filter(function (block) {
-            return [block.id, block.title, block.type, block.variable]
-              .join(' ')
-              .toLowerCase()
-              .includes(search.value.toLowerCase());
-          })
-          .forEach(function (block) {
-            control(
-              list,
-              (block.title || block.id || block.type) +
-                ' · ' +
-                block.type +
-                ' · line ' +
-                block.line_start,
-              function () {
-                if (!current()) {
-                  status.textContent = 'Source changed. Refresh the outline.';
-                  return;
-                }
-                var line = Number(block.line_start);
-                if (
-                  !Number.isInteger(line) ||
-                  line < 1 ||
-                  line > view.state.doc.lines
-                )
-                  return;
-                var from = view.state.doc.line(line).from;
-                view.dispatch({
-                  selection: { anchor: from },
-                  effects: view.constructor.scrollIntoView(from, {
-                    y: 'start',
-                  }),
-                });
-                dialog.close();
-              },
-            );
-          });
-      }
-      search.addEventListener('input', render);
-      render();
-    }
     function request(action, extra) {
       var requestSequence = ++sequence;
       body.replaceChildren();
@@ -435,7 +395,6 @@
               : '';
           if (action === 'diff') renderDiff(data);
           else if (action === 'recipes') renderRecipes(data);
-          else if (action === 'outline') renderOutline(data);
           else if (action === 'repair') {
             var summary = doc.createElement('p');
             summary.textContent =
@@ -459,7 +418,6 @@
         diff: 'Unsaved source changes',
         repair: 'Repair missing or duplicate block IDs',
         recipes: 'Source recipes',
-        outline: 'Outline of the current source',
       }[action];
       if (!dialog.open) dialog.showModal();
       request(action);
@@ -469,6 +427,11 @@
         disposed = true;
         sequence++;
         dialog.remove();
+        var dropdown = root.bootstrap.Dropdown.getInstance(toggle);
+        if (dropdown) {
+          dropdown.hide();
+          dropdown.dispose();
+        }
         menu.remove();
         buttons.forEach(function (button) {
           button.remove();

@@ -143,30 +143,6 @@ def preview_source_action(
             "source": repair.raw_yaml,
             "diff": unified_source_diff(working, repair.raw_yaml, filename),
         }
-    if action == "outline":
-        from .editor_utils import parse_interview_yaml
-
-        document = parse_source_document(filename, working)
-        if not document.structurally_valid:
-            raise ValueError("Fix the YAML syntax before refreshing the source outline")
-        blocks = parse_interview_yaml(working).get("blocks", [])
-        return {
-            **base,
-            "blocks": [
-                {
-                    key: block.get(key)
-                    for key in (
-                        "id",
-                        "title",
-                        "type",
-                        "variable",
-                        "line_start",
-                        "line_end",
-                    )
-                }
-                for block in blocks
-            ],
-        }
     if action == "insert-block":
         snippet = options.get("block_yaml")
         if not isinstance(snippet, str) or not snippet.strip():

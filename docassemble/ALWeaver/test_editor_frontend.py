@@ -70,7 +70,9 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("variable-browser-insert", reports)
         self.assertIn("bridge.insertSymbol(item.entry.name)", reports)
         self.assertNotIn("button('Symbols'", tools)
-        self.assertIn("summary.textContent = 'Tools'", workbench)
+        self.assertIn("toggle.textContent = 'Tools'", workbench)
+        self.assertIn("toggle.setAttribute('data-bs-toggle', 'dropdown')", workbench)
+        self.assertNotIn("'Source outline'", workbench)
 
     def test_question_library_offers_standalone_addresses(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()

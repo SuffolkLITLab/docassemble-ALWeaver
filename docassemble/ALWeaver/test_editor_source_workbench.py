@@ -231,10 +231,3 @@ class TestSourceWorkbench(unittest.TestCase):
         self.assertEqual(
             source, '# keep\nquestion: "A question"\nfields:\n  - Answer: answer\n'
         )
-
-    def test_outline_reads_unsaved_blocks_without_evaluation(self):
-        source = 'id: new\nquestion: Changed\nfields:\n  - Answer: answer\n---\ncode: |\n  raise RuntimeError("never execute")\n'
-        result = preview_source_action("main.yml", "", source, "outline")
-        self.assertEqual(result["blocks"][0]["id"], "new")
-        self.assertEqual(result["blocks"][0]["line_start"], 1)
-        self.assertEqual(len(result["blocks"]), 2)

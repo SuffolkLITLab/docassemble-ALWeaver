@@ -90,3 +90,23 @@ subtests. JavaScript checks and mypy passed. The localhost workflow covers the
 actual Playground category tree, search, surrounding example code, example
 insertion/undo, contextual block insertion with unsaved edits in full-screen
 source mode, top insertion preserving the file header, and stale-picker rejection.
+
+## Standard Tools dropdown and outline-dialog removal
+
+Removed the standalone Source outline tool and its unused preview API action.
+The shared sidebar remains the place for block navigation. Tools now uses the
+application's standard Bootstrap dropdown button, caret, item styling and
+keyboard/outside-click behavior. Disposal hides the dropdown before releasing
+its instance, including Bootstrap's touch-device listeners.
+
+Focused tests: 56 passed, 1 skipped, 57 subtests. JavaScript checks passed. The
+localhost workflow verifies the absent Source outline action, arrow-key menu
+navigation, Escape returning focus to the toggle, outside-click dismissal, and
+the remaining authoring workflows. Native workbench dialogs already return focus
+to CodeMirror on close; the browser test now asserts that explicitly.
+
+Argon reported no defects. Claude reported no blocking dropdown defects; its
+minor disposal suggestion was applied. Its concern about losing unsaved-outline
+navigation is the requested feature removal, documented in architecture.md;
+its proposed focus-return issue is handled by the existing dialog close listener
+and covered by the localhost check.

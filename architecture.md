@@ -633,8 +633,8 @@ This is the first source-authoring tranche of #1117. Automatic quick fixes,
 a parent-interview context chooser, live unsaved symbol parsing,
 a source/runtime split debugger, move-to-include transactions, and deeper test
 integration remain future work. The workbench below adds mechanical ID repair,
-recipes, and an outline parsed from unsaved source. They should build on the existing revision-aware
-patch and saved-runtime boundaries rather than create another source model.
+recipes, and contextual block insertion using the existing revision-aware
+patch and saved-runtime boundaries.
 
 ### Source workbench and compact variable rail
 
@@ -651,12 +651,12 @@ are collapsed into a compact disclosure. The independent Symbols popup has been
 removed. Catalog completions are cleared across file changes and constrained to
 the active source editor's context.
 
-The source Tools menu opens native dialogs for Changes, Repair block IDs,
-Recipes, and Source outline. `/api/source-preview` authenticates the Playground
+The source Tools button uses the application’s standard Bootstrap dropdown,
+with a visible caret, keyboard navigation, and normal dismissal behavior. It
+opens native dialogs for Changes, Repair block IDs, and Recipes. `/api/source-preview` authenticates the Playground
 owner and reads the saved file, but never writes or executes author code.
 `editor_source_workbench.py` builds exact diff hunks, mechanical ID repairs,
-example and block insertions at parsed document boundaries, and an outline of the
-submitted unsaved source. Browser previews are bound to their exact source
+and example and block insertions at parsed document boundaries. Browser previews are bound to their exact source
 snapshot; applying a proposal is an undoable CodeMirror transaction. Saving
 still uses the original file revision, including after a preview reports a
 server conflict. Source positions sent to the browser use UTF-16 offsets.
@@ -676,5 +676,6 @@ and top insertion preserves leading comments/directives and separators.
 Mechanical ID repairs reuse the existing
 range planner, also when missing IDs are warnings; a proposed patch must remain
 structurally valid and cannot increase blocking diagnostics. Unsupported source
-remains author-owned. The live source outline does not replace the saved model
-used by graphical editors.
+remains author-owned. Block navigation uses the shared sidebar outline and its
+last parsed model. Saving refreshes that outline; edited blocks that cannot be
+located reliably show the existing save-to-refresh instruction.
