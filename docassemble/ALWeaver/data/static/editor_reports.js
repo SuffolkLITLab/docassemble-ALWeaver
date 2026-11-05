@@ -1,7 +1,7 @@
 /* Shared report controls. Analysis stays in interview_scan.py. */
 (function (root) {
   'use strict';
-  var bridge, report, requestNumber = 0, timer, lastKey, sourceHost, sourceFilters, sourceWasCollapsed, sourcePreferences, sourceVariablesView = true;
+  var bridge, report, requestNumber = 0, timer, lastKey, sourceHost, sourceFilters, sourcePreferences, sourceCollapsed = false;
   function el(id) { return document.getElementById(id); }
   function key() {
     var state = bridge.getState();
@@ -141,38 +141,33 @@
         if (sequence === requestNumber) el('variable-report-results').textContent = error.message;
       });
   }
-  function showSourceView(variables) {
+  function setSourceCollapsed(collapsed) {
     if (!sourceHost) return;
-    sourceVariablesView = variables;
-    sourceHost.classList.toggle('source-rail-variables', variables);
-    el('source-rail-outline').setAttribute('aria-pressed', String(!variables));
-    el('source-rail-variables').setAttribute('aria-pressed', String(variables));
-  }
-  function restoreSourceRail() {
-    var rail = sourceHost || el('left-rail');
-    var layout = el('editor-layout');
-    if (rail && layout && rail.parentNode !== layout) layout.insertBefore(rail, el('main-canvas'));
+    sourceCollapsed = collapsed;
+    sourceHost.classList.toggle('source-variables-collapsed', collapsed);
+    el('variable-report-content').hidden = collapsed;
+    var button = el('variable-source-collapse');
+    button.setAttribute('aria-expanded', String(!collapsed));
+    button.setAttribute('aria-label', collapsed ? 'Expand variables' : 'Collapse variables');
+    button.title = collapsed ? 'Expand variables' : 'Collapse variables';
+    try { localStorage.setItem('alweaver-source-variables-collapsed', String(collapsed)); } catch (_) { /* keep the session preference */ }
   }
   function openVariables(options) {
-    if (sourceHost && !options.sourceHost) { showSourceView(true); el('variable-report-filter').focus(); return; }
+    if (sourceHost && !options.sourceHost) { setSourceCollapsed(false); el('variable-report-filter').focus(); return; }
     bridge = options;
     sourceHost = options.sourceHost || null;
     var panel = el('variable-report-rail');
     (sourceHost || document.body).appendChild(panel);
     panel.classList.toggle('source-variable-browser', Boolean(sourceHost));
+    el('variable-source-collapse').hidden = !sourceHost;
     if (sourceHost) {
-      sourceHost.classList.add('editor-source-rail');
-      if (!sourceFilters) sourceWasCollapsed = el('editor-layout').classList.contains('editor-rail-collapsed');
-      el('editor-layout').classList.remove('editor-rail-collapsed');
-      var toggle = sourceHost.querySelector('[data-action="toggle-rail"]');
-      toggle.setAttribute('aria-expanded', 'true');
-      toggle.setAttribute('aria-label', 'Collapse sidebar');
-      toggle.title = 'Collapse sidebar';
-      el('source-rail-tabs').hidden = false;
-      el('source-rail-outline').onclick = function () { showSourceView(false); };
-      el('source-rail-variables').onclick = function () { showSourceView(true); };
-      showSourceView(sourceVariablesView);
-      el('source-outline-status').textContent = '';
+      sourceHost.classList.add('editor-source-with-variables');
+      try { sourceCollapsed = localStorage.getItem('alweaver-source-variables-collapsed') === 'true'; } catch (_) { /* retain session preference */ }
+      setSourceCollapsed(sourceCollapsed);
+      el('variable-source-collapse').onclick = function () { setSourceCollapsed(!sourceCollapsed); };
+      var outlineStatus = el('source-outline-status');
+      sourceHost.querySelector('#full-source-editor').insertBefore(outlineStatus, sourceHost.querySelector('.cm-editor'));
+      outlineStatus.textContent = '';
       if (!sourceFilters) {
         sourceFilters = {};
         ['filter', 'kind', 'scope', 'status'].forEach(function (name) { sourceFilters[name] = el('variable-report-' + name).value; });
@@ -195,8 +190,8 @@
     };
     el('variable-report-refresh').onclick = refresh;
     ['filter', 'kind', 'scope', 'status'].forEach(function (name) { el('variable-report-' + name).oninput = render; });
-    try { dock = localStorage.getItem('alweaver-variable-dock') || 'full'; } catch (_) { dock = 'full'; }
-    if (!['bottom', 'tall', 'side', 'full'].includes(dock)) dock = 'full';
+    try { dock = localStorage.getItem('alweaver-variable-dock') || 'side'; } catch (_) { dock = 'side'; }
+    if (!['bottom', 'tall', 'side', 'full'].includes(dock)) dock = 'side';
     setDock(sourceHost ? 'source' : dock);
     document.querySelectorAll('[data-variable-dock]').forEach(function (button) { button.onclick = function () { setDock(button.dataset.variableDock); }; });
     clearInterval(timer);
@@ -210,22 +205,15 @@
   }
   function closeSource() {
     if (!sourceHost) return;
-    restoreSourceRail();
     var panel = el('variable-report-rail');
-    sourceHost.classList.remove('editor-source-rail', 'source-rail-variables');
-    el('source-rail-tabs').hidden = true;
+    sourceHost.classList.remove('editor-source-with-variables', 'source-variables-collapsed');
+    el('variable-source-collapse').hidden = true;
+    el('variable-report-content').hidden = false;
+    el('left-rail').insertBefore(el('source-outline-status'), el('outline-list'));
     sourcePreferences = {};
     ['filter', 'kind', 'scope', 'status'].forEach(function (name) { sourcePreferences[name] = el('variable-report-' + name).value; });
     if (sourceFilters) Object.keys(sourceFilters).forEach(function (name) { el('variable-report-' + name).value = sourceFilters[name]; });
     sourceFilters = null;
-    if (sourceWasCollapsed) {
-      el('editor-layout').classList.add('editor-rail-collapsed');
-      var toggle = sourceHost.querySelector('[data-action="toggle-rail"]');
-      toggle.setAttribute('aria-expanded', 'false');
-      toggle.setAttribute('aria-label', 'Expand sidebar');
-      toggle.title = 'Expand sidebar';
-    }
-    sourceWasCollapsed = false;
     sourceHost = null;
     document.body.appendChild(panel);
     panel.classList.add('d-none');
@@ -497,7 +485,7 @@
       finally { review.disabled = false; input.disabled = false; }
     };
   }
-  root.ALWeaverReports = {restoreSourceRail: restoreSourceRail, closeSource: closeSource, refreshSourceSymbols: function () { if (sourceHost) render(); }, openVariables: openVariables, openRepository: openRepository,
+  root.ALWeaverReports = {closeSource: closeSource, refreshSourceSymbols: function () { if (sourceHost) render(); }, openVariables: openVariables, openRepository: openRepository,
     exportWording: exportWording, importWording: importWording, captureScreen: captureScreen,
     fitPreviews: fitPreviews};
 })(globalThis);

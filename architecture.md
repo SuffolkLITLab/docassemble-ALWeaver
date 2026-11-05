@@ -638,10 +638,13 @@ patch and saved-runtime boundaries.
 
 ### Source workbench and compact variable rail
 
-Source mode reuses the existing left sidebar, with Outline and Variables views.
-Names insert at the CodeMirror selection and are not underlined; the sidebar
-includes a “Click to insert” note. Full screen moves this same rail alongside
-the editor and restores it on exit or disposal.
+Source mode shows the block outline on the left and the existing Variables
+browser as an inline right sidebar. Names insert at the CodeMirror selection
+and are not underlined; a “Click to insert” note explains the behavior. A
+collapse/expand button frees editor space and remembers the choice across saves
+and reopening the page. Full screen retains the same source-and-variables grid;
+narrow screens stack the variables below the editor. Outside source mode, the
+Variables command defaults to the right dock and honors saved dock preferences.
 
 Source mode embeds the existing Variables and reachability browser beside the
 editor, including in F11 full-screen mode. Names insert at the retained source

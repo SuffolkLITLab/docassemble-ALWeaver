@@ -133,14 +133,38 @@ const source =
       .waitFor();
     assert.equal(await rail.isVisible(), true);
     assert.equal(
-      await rail.evaluate((node) => node.parentElement.id),
-      'left-rail',
+      await rail.evaluate((node) =>
+        node.parentElement.classList.contains('editor-source-with-variables'),
+      ),
+      true,
     );
-    await page.locator('#source-rail-outline').click();
-    assert.equal(await rail.isVisible(), false);
     assert.equal(await page.locator('#outline-list').isVisible(), true);
-    await page.locator('#source-rail-variables').click();
-    assert.equal(await rail.isVisible(), true);
+    const sourceBounds = await page
+      .locator('#full-source-editor')
+      .boundingBox();
+    const variablesBounds = await rail.boundingBox();
+    assert.ok(variablesBounds.x >= sourceBounds.x + sourceBounds.width);
+    assert.equal(await page.locator('#source-rail-tabs').count(), 0);
+    await page
+      .getByRole('button', { name: 'Collapse variables', exact: true })
+      .click();
+    assert.equal(
+      await page.locator('#variable-report-content').isVisible(),
+      false,
+    );
+    await page.screenshot({ path: output + '/variables-collapsed.png' });
+    assert.ok(
+      (await page.locator('#full-source-editor').boundingBox()).width >
+        sourceBounds.width,
+    );
+    await page
+      .getByRole('button', { name: 'Expand variables', exact: true })
+      .click();
+    assert.equal(
+      await page.locator('#variable-report-content').isVisible(),
+      true,
+    );
+
     const insertName = rail.getByRole('button', {
       name: 'Insert answer_name',
       exact: true,
@@ -334,7 +358,6 @@ const source =
       .click();
     await editor('replace', source);
     // Top insertion preserves the first-line comment even with a separator cursor.
-    await page.locator('#source-rail-outline').click();
     await editor('position', '---');
     await page
       .locator('.editor-outline-insert-btn[data-insert-after-id=""]')
@@ -352,7 +375,6 @@ const source =
     assert.equal((await saved()).raw_yaml, source);
     await page.keyboard.press('Control+z');
     assert.equal((await editor()).source, source);
-    await page.locator('#source-rail-variables').click();
 
     // A stale picker must never overwrite changes made after it opened.
     await tool('Insert block…');
@@ -384,9 +406,6 @@ const source =
       .replace('ask_name', 'unsaved_name')
       .replace('What is your name?', 'Unsaved question');
     await editor('replace', unsaved);
-    await page.locator('#full-source-editor .cm-content').focus();
-    await page.keyboard.press('F11');
-    await page.locator('#source-rail-outline').click();
     await page
       .locator(
         '.editor-outline-item[data-block-id="ask_name"] .editor-outline-title',
@@ -400,6 +419,8 @@ const source =
       await page.locator('#source-outline-status').isVisible(),
       true,
     );
+    await page.locator('#full-source-editor .cm-content').focus();
+    await page.keyboard.press('F11');
     assert.equal(
       await page
         .locator('#source-outline-status')
@@ -408,7 +429,6 @@ const source =
         ),
       true,
     );
-    await page.locator('#source-rail-variables').click();
     await page
       .getByRole('button', { name: 'Exit full screen (F11)', exact: true })
       .click();
@@ -423,12 +443,23 @@ const source =
     await page.screenshot({ path: output + '/full-screen.png' });
     await page.setViewportSize({ width: 600, height: 950 });
     await page.screenshot({ path: output + '/narrow-full-screen.png' });
-    const narrowRail = await page.locator('#left-rail').boundingBox();
+    const narrowRail = await rail.boundingBox();
     const narrowSource = await page
       .locator('#full-source-editor')
       .boundingBox();
     assert.ok(narrowRail.y >= narrowSource.y + narrowSource.height - 1);
     assert.ok(narrowRail.y + narrowRail.height <= 951);
+    await page
+      .getByRole('button', { name: 'Collapse variables', exact: true })
+      .click();
+    assert.ok((await rail.boundingBox()).height <= 49);
+    await page
+      .getByRole('button', { name: 'Expand variables', exact: true })
+      .click();
+    assert.equal(
+      await page.locator('#variable-report-content').isVisible(),
+      true,
+    );
 
     await page
       .getByRole('button', { name: 'Exit full screen (F11)', exact: true })
@@ -457,22 +488,40 @@ const source =
     );
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.locator('#variable-report-filter').fill('answer_name');
-    await page.locator('#source-rail-outline').click();
+    await page
+      .getByRole('button', { name: 'Collapse variables', exact: true })
+      .click();
     await editor('append', '\n# saved through the UI\n');
     await page.locator('#save-full-yaml').click();
     await page.waitForTimeout(1000);
     assert.match((await saved()).raw_yaml, /saved through the UI/);
     assert.equal(
-      await page.locator('#source-rail-outline').getAttribute('aria-pressed'),
-      'true',
+      await page
+        .locator('#variable-source-collapse')
+        .getAttribute('aria-expanded'),
+      'false',
     );
-    await page.locator('#source-rail-variables').click();
     assert.equal(
       await page.locator('#variable-report-filter').inputValue(),
       'answer_name',
     );
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.locator('#full-source-editor .cm-content').waitFor();
+    assert.equal(
+      await page
+        .locator('#variable-source-collapse')
+        .getAttribute('aria-expanded'),
+      'false',
+    );
     await page.locator('#full-source-editor .cm-content').focus();
     await page.keyboard.press('F11');
+    await page
+      .getByRole('button', { name: 'Expand variables', exact: true })
+      .click();
+    assert.equal(
+      await page.locator('#variable-report-content').isVisible(),
+      true,
+    );
     await page.getByRole('button', { name: 'Findings', exact: true }).click();
     assert.equal(
       await page
@@ -484,11 +533,11 @@ const source =
     await page.locator('#back-to-question').click();
     await page.locator('#full-source-editor').waitFor({ state: 'detached' });
     assert.equal(await page.locator('#left-rail').isVisible(), true);
-    assert.equal(await page.locator('#source-rail-tabs').isVisible(), false);
+    assert.equal(await page.locator('#source-rail-tabs').count(), 0);
     assert.equal(await rail.isVisible(), false);
     await page.locator('[data-action="toggle-rail"]').click();
     await page
-      .locator('#editor-location [data-action="open-full-yaml"]')
+      .locator('#editor-location button[data-action="open-full-yaml"]')
       .click();
     await page.locator('#full-source-editor .cm-content').waitFor();
     await page

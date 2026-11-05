@@ -6347,26 +6347,23 @@ body:has(.editor-source-full-screen) { overflow: hidden; }
 .editor-source-workbench-dialog::backdrop { background: rgb(0 0 0 / 40%); }
 .editor-source-workbench-dialog pre { max-height: 40vh; overflow: auto; white-space: pre-wrap; }
 
-/* In source mode the existing variable browser becomes a compact, permanent rail. */
-#source-rail-tabs { padding: .3rem .65rem; }
-#source-rail-tabs [aria-pressed="true"] { background: var(--editor-primary); color: white; }
-.source-rail-variables > #editor-quick-jump-section,
-.source-rail-variables > .editor-outline-header,
-.source-rail-variables > #outline-current-hidden,
-.source-rail-variables > #outline-list,
-.editor-source-rail:not(.source-rail-variables) > #variable-report-rail { display: none !important; }
-.editor-source-full-screen.editor-source-full-screen-with-rail { display: grid; grid-template-columns: 17.5rem minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: .5rem; }
-.editor-source-full-screen > .editor-source-rail { min-height: 0; max-height: none; }
-.editor-source-full-screen > #full-source-editor { min-width: 0; min-height: 0; }
-.editor-source-rail .editor-rail-toggle { display: none; }
+/* Keep variables beside the source; the existing left rail remains the outline. */
+.editor-source-with-variables { --source-variables-width: 18rem; display: grid; grid-template-columns: minmax(0, 1fr) var(--source-variables-width); gap: .75rem; }
+.editor-source-with-variables > #full-source-editor { min-width: 0; min-height: 0; }
+.editor-source-with-variables > .source-variable-browser { max-height: 65vh; }
+.editor-source-with-variables > .editor-source-block-actions { right: calc(var(--source-variables-width) + .75rem + 14px); }
+.editor-source-with-variables > .editor-source-exit-full-screen { right: calc(var(--source-variables-width) + .75rem + 64px); }
+.editor-source-full-screen.editor-source-with-variables { grid-template-rows: minmax(0, 1fr); }
+.editor-source-full-screen > .source-variable-browser { max-height: none; }
 @media (max-width: 900px) {
-  .editor-source-rail .source-variable-browser { max-height: 18rem; }
-  .editor-source-full-screen .source-variable-browser { max-height: none; }
+  .editor-source-with-variables { --source-variables-width: 15rem; }
 }
 @media (max-width: 650px) {
-  .editor-source-full-screen.editor-source-full-screen-with-rail { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) 15rem; }
-  .editor-source-full-screen > #full-source-editor { grid-row: 1; }
-  .editor-source-full-screen > .editor-source-rail { grid-row: 2; }
+  .editor-source-with-variables { grid-template-columns: minmax(0, 1fr); }
+  .editor-source-with-variables > .source-variable-browser { max-height: 18rem; }
+  .editor-source-full-screen.editor-source-with-variables { grid-template-rows: minmax(0, 1fr) 15rem; }
+  .editor-source-with-variables > .editor-source-block-actions { right: 14px; }
+  .editor-source-with-variables > .editor-source-exit-full-screen { right: 64px; }
 }
 .variable-browser.source-variable-browser {
   position: static;
@@ -6406,7 +6403,7 @@ body:has(.editor-source-full-screen) { overflow: hidden; }
 .source-variable-browser #variable-report-insert-help { font-size: .8125rem; }
 .source-variable-browser #variable-report-results > p { margin-bottom: .35rem; }
 
-#source-outline-status:empty, .editor-left:not(.editor-source-rail) > #source-outline-status { display: none; }
+#source-outline-status:empty, .editor-left > #source-outline-status { display: none; }
 
 /* Browse the same example hierarchy as Playground, without losing the preview. */
 .editor-recipe-browser { display: grid; grid-template-columns: minmax(12rem, 1fr) minmax(0, 2fr); gap: 1rem; margin-top: .75rem; }
@@ -6421,3 +6418,16 @@ body:has(.editor-source-full-screen) { overflow: hidden; }
   .editor-recipe-tree { max-height: 22vh; }
   .editor-recipe-preview { max-height: 40vh; }
 }
+
+.editor-source-with-variables.source-variables-collapsed { --source-variables-width: 3rem; }
+.source-variables-collapsed > .source-variable-browser { padding: .25rem; }
+.source-variables-collapsed .variable-browser-heading > h2,
+.source-variables-collapsed #variable-report-refresh { display: none; }
+.source-variables-collapsed #variable-source-collapse svg,
+.source-variables-collapsed #variable-source-collapse i { transform: rotate(180deg); }
+@media (max-width: 650px) {
+  .editor-source-full-screen.source-variables-collapsed { grid-template-rows: minmax(0, 1fr) 3rem; }
+  .source-variables-collapsed > .source-variable-browser { max-height: 3rem; }
+}
+
+body:has(.editor-source-full-screen) #left-rail { visibility: hidden; }

@@ -110,3 +110,25 @@ minor disposal suggestion was applied. Its concern about losing unsaved-outline
 navigation is the requested feature removal, documented in architecture.md;
 its proposed focus-return issue is handled by the existing dialog close listener
 and covered by the localhost check.
+
+## Collapsible right Variables sidebar
+
+Variables now uses an inline right sidebar beside full-file YAML, with the block
+outline remaining on the left. The collapse/expand control hides the panel content
+and frees editor width. Its preference is stored locally and survives saving,
+source-editor remounts, and reloading the page. Opening the Variables command
+expands the existing source sidebar rather than opening a separate panel. Full
+screen keeps the same editor/variables grid; narrow layouts stack the panel below
+the editor and support collapsing it to a short row.
+
+The localhost workflow passed desktop geometry and reclaimed-width checks,
+click-to-insert, full-screen/narrow collapse and expansion, Save and reload
+persistence, filter retention on Save, and the existing workbench workflows and
+Axe checks. Frontend tests passed: 47 passed, 1 skipped, 57 subtests. JavaScript
+checks passed.
+
+Claude review feedback was addressed by preserving ordinary variable-browser dock
+preferences, hiding the covered left rail from keyboard focus in full screen,
+and placing source-navigation feedback below the toolbar. Existing panel overflow,
+minimum-height, hidden controls and absolute action positioning were checked
+against the actual styles and browser layouts.

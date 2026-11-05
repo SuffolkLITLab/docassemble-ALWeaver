@@ -1000,11 +1000,7 @@
           runValidation();
         },
         findings: function (index) {
-          blockMenu.wrapper.classList.remove(
-            'editor-source-full-screen',
-            'editor-source-full-screen-with-rail',
-          );
-          window.ALWeaverReports.restoreSourceRail();
+          blockMenu.wrapper.classList.remove('editor-source-full-screen');
           view.requestMeasure();
           blockMenu.update();
           state.validationOpen = true;
@@ -1048,7 +1044,7 @@
       );
       window.ALWeaverReports.openVariables(
         Object.assign(reportBridge(), {
-          sourceHost: document.getElementById('left-rail'),
+          sourceHost: blockMenu.wrapper,
         }),
       );
       editor.sourceTools = sourceTools;
@@ -1153,16 +1149,6 @@
     wrapper.appendChild(exit);
     function toggle() {
       var full = wrapper.classList.toggle('editor-source-full-screen');
-      var rail = document.getElementById('left-rail');
-      if (rail && rail.classList.contains('editor-source-rail')) {
-        if (full) {
-          wrapper.prepend(rail);
-          wrapper.classList.add('editor-source-full-screen-with-rail');
-        } else {
-          window.ALWeaverReports.restoreSourceRail();
-          wrapper.classList.remove('editor-source-full-screen-with-rail');
-        }
-      }
       view.requestMeasure();
       if (onChange) onChange();
       if (!full) view.focus();

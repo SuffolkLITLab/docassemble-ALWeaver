@@ -65,7 +65,7 @@ class TestEditorFrontend(unittest.TestCase):
         workbench = (
             self.package_dir / "data/static/editor_source_workbench.js"
         ).read_text()
-        self.assertIn("sourceHost: document.getElementById('left-rail')", editor)
+        self.assertIn("sourceHost: blockMenu.wrapper", editor)
         self.assertIn("window.ALWeaverReports.closeSource()", editor)
         self.assertIn("variable-browser-insert", reports)
         self.assertIn("bridge.insertSymbol(item.entry.name)", reports)
