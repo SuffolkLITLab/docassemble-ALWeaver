@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import yaml
@@ -237,6 +238,12 @@ def load_project_github_manifest(
     """
     package = normalize_github_package_name(package_name)
     packages_area = create_saved_file(user_id, fix=True, section="playgroundpackages")
+    return _load_github_manifest(packages_area, project_name, package)
+
+
+def _load_github_manifest(
+    packages_area: Any, project_name: str, package: str
+) -> Tuple[Dict[str, Any], str]:
     manifest_path = os.path.join(
         _directory_for(packages_area, project_name), f"docassemble.{package}"
     )
@@ -259,7 +266,7 @@ def find_project_github_sync(
     directory = _directory_for(packages_area, project_name)
     if not os.path.isdir(directory):
         return None
-    candidates: List[Tuple[bool, float, str, Dict[str, Any]]] = []
+    candidates: List[Tuple[bool, bool, float, str, Dict[str, Any]]] = []
     for filename in os.listdir(directory):
         if not filename.startswith("docassemble."):
             continue
@@ -294,10 +301,22 @@ def find_project_github_sync(
             )
         except OSError:
             continue
-        candidates.append((bool(commit), modified, filename, sync))
+        # Storage downloads and package edits can change mtimes without a
+        # push. New records carry the actual sync time; older ones retain
+        # the native manifest/commit-marker fallback.
+        synced_at = manifest.get("weaver_github_synced_at")
+        has_sync_time = False
+        if isinstance(synced_at, (int, float)) and synced_at > 0:
+            has_sync_time = True
+            modified = synced_at
+        # An edited legacy manifest without a marker cannot establish when
+        # it was pushed. Prefer a recorded sync time or a native commit marker
+        # over that uncertain fallback, even if the manifest was edited later.
+        reliable_time = has_sync_time or bool(commit and has_commit_file)
+        candidates.append((bool(commit), reliable_time, modified, filename, sync))
     if not candidates:
         return None
-    return max(candidates, key=lambda candidate: candidate[:3])[3]
+    return max(candidates, key=lambda candidate: candidate[:4])[4]
 
 
 def record_project_github_sync(
@@ -311,14 +330,16 @@ def record_project_github_sync(
 ) -> None:
     """Persist the shared Git base used by subsequent three-way pulls."""
     package = normalize_github_package_name(package_name)
-    manifest, manifest_path = load_project_github_manifest(
-        user_id=user_id, project_name=project_name, package_name=package
+    packages_area = create_saved_file(user_id, fix=True, section="playgroundpackages")
+    manifest, manifest_path = _load_github_manifest(
+        packages_area, project_name, package
     )
     manifest.update(
         {
             "github_url": repository_url.rstrip("/"),
             "github_branch": branch,
             "github_commit": commit_sha,
+            "weaver_github_synced_at": time.time(),
         }
     )
     with open(manifest_path, "w", encoding="utf-8") as stream:
@@ -328,7 +349,9 @@ def record_project_github_sync(
     )
     with open(commit_path, "w", encoding="utf-8") as stream:
         stream.write(commit_sha + "\n")
-    create_saved_file(user_id, fix=True, section="playgroundpackages").finalize()
+    # Reopening with fix=True here can download the old cloud files over
+    # these writes (and delete a newly created commit marker).
+    packages_area.finalize()
 
 
 def _snapshot_project_files(

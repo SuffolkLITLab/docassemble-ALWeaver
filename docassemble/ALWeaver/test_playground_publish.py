@@ -255,6 +255,120 @@ class test_playground_publish(unittest.TestCase):
                 (project_dir / ".docassemble-docassemble-HousingForms").exists()
             )
 
+    def test_record_github_sync_persists_to_cloud_before_reopening(self):
+        """A fresh SavedFile.fix() restores cloud state over unsaved writes."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_dir = Path(temp_dir) / "Housing"
+            project_dir.mkdir()
+            cloud = {"docassemble.HousingForms": "dependencies: []\n"}
+
+            class CloudArea:
+                directory = temp_dir
+
+                def __init__(self, _uid, *, fix, section):
+                    for path in project_dir.iterdir():
+                        path.unlink()
+                    for name, content in cloud.items():
+                        (project_dir / name).write_text(content, encoding="utf-8")
+
+                def finalize(self):
+                    cloud.clear()
+                    cloud.update(
+                        (path.name, path.read_text(encoding="utf-8"))
+                        for path in project_dir.iterdir()
+                    )
+
+            with patch.object(playground_publish, "create_saved_file", CloudArea):
+                for owner, branch, commit in (
+                    ("Personal", "main", "a" * 40),
+                    ("LegalAid", "release/forms", "b" * 40),
+                ):
+                    url = f"https://github.com/{owner}/docassemble-HousingForms"
+                    playground_publish.record_project_github_sync(
+                        user_id=7,
+                        project_name="Housing",
+                        package_name="HousingForms",
+                        repository_url=url,
+                        branch=branch,
+                        commit_sha=commit,
+                    )
+                    # A later request/worker loads only what was uploaded.
+                    sync = find_project_github_sync(user_id=7, project_name="Housing")
+                    self.assertEqual(sync["repository_url"], url)
+                    self.assertEqual(sync["branch"], branch)
+                    self.assertEqual(sync["commit"], commit)
+                    self.assertEqual(cloud[".docassemble-HousingForms"], commit + "\n")
+
+    def test_sync_order_survives_storage_timestamp_changes(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_dir = Path(temp_dir) / "Housing"
+            project_dir.mkdir()
+
+            class FakeArea:
+                directory = temp_dir
+
+                def finalize(self):
+                    pass
+
+            with patch.object(
+                playground_publish, "create_saved_file", return_value=FakeArea()
+            ):
+                for package, synced_at in (("Old", 100), ("Latest", 200)):
+                    (project_dir / f"docassemble.{package}").write_text(
+                        "dependencies: []\n", encoding="utf-8"
+                    )
+                    with patch.object(
+                        playground_publish.time, "time", return_value=synced_at
+                    ):
+                        playground_publish.record_project_github_sync(
+                            user_id=7,
+                            project_name="Housing",
+                            package_name=package,
+                            repository_url=f"https://github.com/LegalAid/docassemble-{package}",
+                            branch="main",
+                            commit_sha="a" * 40,
+                        )
+                # Downloading/editing an older package must not select it.
+                for path in project_dir.iterdir():
+                    stamp = 900 if "Old" in path.name else 300
+                    os.utime(path, (stamp, stamp))
+                sync = find_project_github_sync(user_id=7, project_name="Housing")
+                self.assertEqual(sync["package"], "Latest")
+
+    def test_edited_legacy_manifest_does_not_replace_a_reliable_sync(self):
+        for use_stamp in (True, False):
+            with (
+                self.subTest(use_stamp=use_stamp),
+                tempfile.TemporaryDirectory() as temp_dir,
+            ):
+                project_dir = Path(temp_dir) / "Housing"
+                project_dir.mkdir()
+                for package, stamp in (("Legacy", 900), ("Latest", 200)):
+                    manifest = {
+                        "github_url": f"https://github.com/LegalAid/docassemble-{package}",
+                        "github_branch": "main",
+                        "github_commit": "a" * 40,
+                    }
+                    if package == "Latest" and use_stamp:
+                        manifest["weaver_github_synced_at"] = 200
+                    path = project_dir / f"docassemble.{package}"
+                    path.write_text(yaml.safe_dump(manifest), encoding="utf-8")
+                    os.utime(path, (stamp, stamp))
+                if not use_stamp:
+                    # Native records still compete by their commit marker time.
+                    marker = project_dir / ".docassemble-Latest"
+                    marker.write_text("a" * 40 + "\n", encoding="utf-8")
+                    os.utime(marker, (200, 200))
+
+                class FakeArea:
+                    directory = temp_dir
+
+                with patch.object(
+                    playground_publish, "create_saved_file", return_value=FakeArea()
+                ):
+                    sync = find_project_github_sync(user_id=7, project_name="Housing")
+                self.assertEqual(sync["package"], "Latest")
+
     def test_failed_retarget_preserves_docassembles_last_published_target(self):
         old_url = "https://github.com/OldOrg/docassemble-HousingForms"
         new_url = "https://github.com/NewOrg/docassemble-HousingForms"
