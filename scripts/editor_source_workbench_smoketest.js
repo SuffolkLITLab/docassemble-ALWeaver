@@ -220,6 +220,34 @@ const source =
     await page.getByRole('button', { name: /Unsaved question.*line/ }).click();
     assert.equal((await editor()).source, unsaved);
     assert.equal((await editor()).line, 'id: unsaved_name');
+    await page.locator('#full-source-editor .cm-content').focus();
+    await page.keyboard.press('F11');
+    await page.locator('#source-rail-outline').click();
+    await page
+      .locator(
+        '.editor-outline-item[data-block-id="ask_name"] .editor-outline-title',
+      )
+      .click();
+    assert.match(
+      await page.locator('#source-outline-status').textContent(),
+      /Save your YAML/,
+    );
+    assert.equal(
+      await page.locator('#source-outline-status').isVisible(),
+      true,
+    );
+    assert.equal(
+      await page
+        .locator('#source-outline-status')
+        .evaluate((node) =>
+          Boolean(node.closest('.editor-source-full-screen')),
+        ),
+      true,
+    );
+    await page.locator('#source-rail-variables').click();
+    await page
+      .getByRole('button', { name: 'Exit full screen (F11)', exact: true })
+      .click();
     await editor('replace', source);
     await page.locator('#full-source-editor .cm-content').focus();
     await page.keyboard.press('F11');
@@ -264,10 +292,21 @@ const source =
       [],
     );
     await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.locator('#variable-report-filter').fill('answer_name');
+    await page.locator('#source-rail-outline').click();
     await editor('append', '\n# saved through the UI\n');
     await page.locator('#save-full-yaml').click();
     await page.waitForTimeout(1000);
     assert.match((await saved()).raw_yaml, /saved through the UI/);
+    assert.equal(
+      await page.locator('#source-rail-outline').getAttribute('aria-pressed'),
+      'true',
+    );
+    await page.locator('#source-rail-variables').click();
+    assert.equal(
+      await page.locator('#variable-report-filter').inputValue(),
+      'answer_name',
+    );
     await page.locator('#full-source-editor .cm-content').focus();
     await page.keyboard.press('F11');
     await page.getByRole('button', { name: 'Findings', exact: true }).click();
@@ -283,6 +322,26 @@ const source =
     assert.equal(await page.locator('#left-rail').isVisible(), true);
     assert.equal(await page.locator('#source-rail-tabs').isVisible(), false);
     assert.equal(await rail.isVisible(), false);
+    await page.locator('[data-action="toggle-rail"]').click();
+    await page
+      .locator('#editor-location [data-action="open-full-yaml"]')
+      .click();
+    await page.locator('#full-source-editor .cm-content').waitFor();
+    await page
+      .getByRole('button', { name: 'Debug interview', exact: true })
+      .click();
+    await page.locator('.editor-runtime-inspector').waitFor();
+    await page.waitForTimeout(300);
+    assert.equal(
+      await page.locator('.editor-runtime-inspector').isVisible(),
+      true,
+    );
+    assert.equal(
+      await page
+        .locator('#editor-layout')
+        .evaluate((node) => node.classList.contains('editor-rail-collapsed')),
+      true,
+    );
     assert.deepEqual(errors, []);
     fs.writeFileSync(
       output + '/results.json',

@@ -53,3 +53,15 @@ refactoring remain follow-up work; this change does not implement them.
 - `mypy . --exclude '^build/' --explicit-package-bases`: passed, 147 files.
 - Localhost source-workbench smoke test: passed, including narrow full screen,
   Findings exit, graphical-editor return, and accessibility checks.
+
+Argon's follow-up review of the single-sidebar revision identified four additional
+issues, all addressed: restoring collapse state now updates DOM state directly
+instead of emitting a click that could dismiss the runtime inspector; source tab
+and filter preferences survive Save/remount; outline status lives in the shared
+rail so it remains visible in full screen; and Findings exit repositions the block
+menu. The localhost smoke test now covers saving with Outline selected and a
+variable filter, full-screen stale-outline feedback, and opening the runtime
+inspector after restoring a previously collapsed rail. All passed. The frontend
+suite (47 passed, 1 skipped, 57 subtests) and `npm run check` passed again after
+these fixes. The existing localhost cursor smoke test also passed with the
+consolidated sidebar.

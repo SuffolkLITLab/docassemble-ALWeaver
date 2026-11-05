@@ -6408,3 +6408,5 @@ body:has(.editor-source-full-screen) { overflow: hidden; }
 .source-variable-browser .variable-browser-advanced-content { position: absolute; top: 100%; right: 0; width: 16rem; padding: .65rem; background: var(--bs-body-bg, white); border: 1px solid var(--editor-border); border-radius: .35rem; box-shadow: var(--editor-card-shadow); z-index: 3; }
 .source-variable-browser #variable-report-insert-help { font-size: .8125rem; }
 .source-variable-browser #variable-report-results > p { margin-bottom: .35rem; }
+
+#source-outline-status:empty, .editor-left:not(.editor-source-rail) > #source-outline-status { display: none; }

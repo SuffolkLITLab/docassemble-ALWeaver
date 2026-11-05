@@ -1,7 +1,7 @@
 /* Shared report controls. Analysis stays in interview_scan.py. */
 (function (root) {
   'use strict';
-  var bridge, report, requestNumber = 0, timer, lastKey, sourceHost, sourceFilters, sourceWasCollapsed;
+  var bridge, report, requestNumber = 0, timer, lastKey, sourceHost, sourceFilters, sourceWasCollapsed, sourcePreferences, sourceVariablesView = true;
   function el(id) { return document.getElementById(id); }
   function key() {
     var state = bridge.getState();
@@ -143,6 +143,7 @@
   }
   function showSourceView(variables) {
     if (!sourceHost) return;
+    sourceVariablesView = variables;
     sourceHost.classList.toggle('source-rail-variables', variables);
     el('source-rail-outline').setAttribute('aria-pressed', String(!variables));
     el('source-rail-variables').setAttribute('aria-pressed', String(variables));
@@ -170,13 +171,18 @@
       el('source-rail-tabs').hidden = false;
       el('source-rail-outline').onclick = function () { showSourceView(false); };
       el('source-rail-variables').onclick = function () { showSourceView(true); };
-      showSourceView(true);
+      showSourceView(sourceVariablesView);
+      el('source-outline-status').textContent = '';
       if (!sourceFilters) {
         sourceFilters = {};
         ['filter', 'kind', 'scope', 'status'].forEach(function (name) { sourceFilters[name] = el('variable-report-' + name).value; });
       }
-      el('variable-report-kind').value = 'all';
-      el('variable-report-scope').value = 'all';
+      if (sourcePreferences) {
+        Object.keys(sourcePreferences).forEach(function (name) { el('variable-report-' + name).value = sourcePreferences[name]; });
+      } else {
+        el('variable-report-kind').value = 'all';
+        el('variable-report-scope').value = 'all';
+      }
     }
     panel.querySelector('h2').textContent = sourceHost ? 'Variables & references' : 'Interview variables';
     el('variable-report-insert-help').hidden = !sourceHost;
@@ -208,9 +214,18 @@
     var panel = el('variable-report-rail');
     sourceHost.classList.remove('editor-source-rail', 'source-rail-variables');
     el('source-rail-tabs').hidden = true;
+    sourcePreferences = {};
+    ['filter', 'kind', 'scope', 'status'].forEach(function (name) { sourcePreferences[name] = el('variable-report-' + name).value; });
     if (sourceFilters) Object.keys(sourceFilters).forEach(function (name) { el('variable-report-' + name).value = sourceFilters[name]; });
     sourceFilters = null;
-    if (sourceWasCollapsed) sourceHost.querySelector('[data-action="toggle-rail"]').click();
+    if (sourceWasCollapsed) {
+      el('editor-layout').classList.add('editor-rail-collapsed');
+      var toggle = sourceHost.querySelector('[data-action="toggle-rail"]');
+      toggle.setAttribute('aria-expanded', 'false');
+      toggle.setAttribute('aria-label', 'Expand sidebar');
+      toggle.title = 'Expand sidebar';
+    }
+    sourceWasCollapsed = false;
     sourceHost = null;
     document.body.appendChild(panel);
     panel.classList.add('d-none');

@@ -986,6 +986,7 @@
           );
           window.ALWeaverReports.restoreSourceRail();
           view.requestMeasure();
+          blockMenu.update();
           state.validationOpen = true;
           if (state.validationDock === 'full') setValidationDock('side');
           renderValidationDrawer();
@@ -18416,7 +18417,6 @@
   function renderFullYaml() {
     canvasContent.innerHTML =
       '<div class="editor-full-yaml-shell">' +
-      '<p id="source-outline-status" role="status"></p>' +
       '<div class="editor-card"><div class="editor-card-body">' +
       '<div class="editor-source-container" id="full-source-editor"></div>' +
       '</div></div><div class="d-flex justify-content-end">' +
