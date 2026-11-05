@@ -36,7 +36,7 @@ def test_next_steps_runtime_headings_and_independent_custom_sections(
         }
         context["showifdef"] = lambda name, default="": context.get(name, default)
         document = DocxTemplate(str(runtime))
-        environment = Environment(undefined=StrictUndefined)
+        environment = Environment(undefined=StrictUndefined, autoescape=True)
         environment.filters["markdown"] = lambda value: value
         document.render(context, jinja_env=environment)
         output = tmp_path / "rendered.docx"
