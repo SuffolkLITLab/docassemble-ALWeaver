@@ -132,3 +132,43 @@ preferences, hiding the covered left rail from keyboard focus in full screen,
 and placing source-navigation feedback below the toolbar. Existing panel overflow,
 minimum-height, hidden controls and absolute action positioning were checked
 against the actual styles and browser layouts.
+
+The dedicated Argon review of the right-sidebar move timed out without a result.
+The subsequent grouping/pagination review below completed successfully.
+
+## Complete, grouped variable catalog
+
+Removed the 150-result display cutoff. The browser now appends batches while
+scrolling, with a keyboard-operable Show more fallback and an explicit loaded
+count. Search still covers all names. Observer generation guards prevent old
+filter results from appending to a new list; diagnostic refresh preserves the
+loaded count and restores focus where the same symbol remains available.
+
+All-names results have semantic headings for variables, templates, tables,
+functions, methods, classes, events, and files. Selecting a type removes redundant
+headings. Typed declarations retain scanner usage metadata and replace duplicate
+variable rows. Catalog entries retain type and origin metadata. Visible text
+badges accompany contrasting status colors for errors, possibly unused or
+unreachable names, built-ins, and other provided symbols. Unknown catalog usage
+is not reported as used or unused; local declarations take precedence over
+catalog names.
+
+`editor_variable_browser_smoketest.js` creates a disposable localhost interview
+with 350 alphabetically early variables, a later variable, typed declarations,
+and an undefined name. It verifies manual and scroll pagination through the
+complete catalog, search beyond the first batch, unique type headings, template
+filtering/deduplication, unused and built-in labels, insertion without saved-file
+writes, and Axe accessibility checks with no violations. The existing full
+workbench localhost smoke also passed. Frontend tests: 47 passed, 1 skipped,
+57 subtests; source-tools Node tests and npm checks passed.
+
+Claude identified the catalog Used-filter false positives, filtered declaration
+re-addition, lost usage metadata, duplicated non-source badges, and focus concerns;
+these were corrected. Built-in origins are recognized without overwriting local
+declarations with catalog metadata. Argon's grouping/pagination review reported
+no findings.
+
+Claude's follow-up confirmed those fixes and prompted additional guards against
+renaming screen titles/catalog symbols, accurate catalog-origin help, and retention
+of all definition links when a declaration name occurs more than once. Typed
+variable declarations are also retained if a future scanner emits them directly.

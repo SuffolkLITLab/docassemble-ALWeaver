@@ -645,6 +645,11 @@ collapse/expand button frees editor space and remembers the choice across saves
 and reopening the page. Full screen retains the same source-and-variables grid;
 narrow screens stack the variables below the editor. Outside source mode, the
 Variables command defaults to the right dock and honors saved dock preferences.
+All-names results are grouped by symbol type; selecting one type omits redundant
+headings. Status badges pair contrasting colors with text labels for errors,
+possibly unused/unreachable names, built-ins, and provided catalog symbols.
+Results load in batches of 150 as the sidebar scrolls, with a keyboard-operable
+Show more fallback. Search always covers the complete catalog.
 
 Source mode embeds the existing Variables and reachability browser beside the
 editor, including in F11 full-screen mode. Names insert at the retained source

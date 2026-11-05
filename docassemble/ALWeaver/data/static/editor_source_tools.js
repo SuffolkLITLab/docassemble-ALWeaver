@@ -27,7 +27,23 @@
     var entries = new Map();
     Object.keys(groups).forEach(function (group) {
       (groups[group] || []).forEach(function (name) {
-        entries.set(name, { label: name, detail: group.replace(/_/g, ' ') });
+        var types = {
+          functions: 'function',
+          methods: 'method',
+          classes: 'class',
+          templates: 'template',
+          tables: 'table',
+          events: 'event',
+          yaml_files: 'file',
+          template_files: 'file',
+          static_files: 'file',
+          static_images: 'file',
+        };
+        entries.set(name, {
+          label: name,
+          detail: group.replace(/_/g, ' '),
+          symbolKind: types[group] || 'variable',
+        });
       });
     });
     names.forEach(function (name) {
@@ -38,6 +54,10 @@
       entries.set(entry.name, {
         label: entry.name,
         type: 'function',
+        symbolKind: 'function',
+        origin: entry.origin,
+        builtin:
+          entry.origin === 'Python' || entry.origin === 'docassemble.base.util',
         detail: entry.signature || 'function',
         info: entry.doc || entry.description || '',
       });

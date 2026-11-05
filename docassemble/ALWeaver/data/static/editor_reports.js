@@ -1,7 +1,7 @@
 /* Shared report controls. Analysis stays in interview_scan.py. */
 (function (root) {
   'use strict';
-  var bridge, report, requestNumber = 0, timer, lastKey, sourceHost, sourceFilters, sourcePreferences, sourceCollapsed = false;
+  var bridge, report, requestNumber = 0, timer, lastKey, sourceHost, sourceFilters, sourcePreferences, sourceCollapsed = false, listObserver, listGeneration = 0, listPageKey = '', listShown = 150;
   function el(id) { return document.getElementById(id); }
   function key() {
     var state = bridge.getState();
@@ -29,26 +29,49 @@
     });
     try { if (value !== 'source') localStorage.setItem('alweaver-variable-dock', value); } catch (_) { /* Storage is optional. */ }
   }
+  function stopListObserver() {
+    listGeneration++;
+    if (listObserver) listObserver.disconnect();
+    listObserver = null;
+  }
   function render() {
+    stopListObserver();
+    var generation = listGeneration;
     var box = el('variable-report-results');
+    var focused = box.contains(document.activeElement) ? document.activeElement : null;
+    var focusedLabel = focused && focused.getAttribute('aria-label');
+    var focusedMore = focused && focused.classList.contains('variable-browser-more');
     box.replaceChildren();
     if (!report && !sourceHost) return;
     var data = report || { blocks: [], variables: [], symbols: [], warnings: [] };
     var filter = el('variable-report-filter').value.toLowerCase();
     var kind = el('variable-report-kind').value;
     var status = el('variable-report-status').value;
+    var pageKey = JSON.stringify([bridge.getState().project, bridge.getState().filename, filter, kind, status, el('variable-report-scope').value]);
+    if (pageKey !== listPageKey) { listPageKey = pageKey; listShown = 150; }
     var blocks = {};
     data.blocks.forEach(function (b) { blocks[b.scan_id] = b; });
-    var entries = kind === 'variable' ? data.variables : kind === 'screen' ? data.blocks.filter(function (b) { return b.data && b.data.question; }).map(function (b) { return {name: b.report_title || b.title, definitions: [b.scan_id], references: b.possibly_unreachable ? [] : ['flow'], possibly_unused: b.possibly_unreachable}; }) : (data.symbols || []).filter(function (s) { return s.kind === kind; });
-    if (kind === 'all') entries = data.variables.concat(data.symbols || []);
+    var declarations = new Map();
+    (data.symbols || []).forEach(function (symbol) {
+      var previous = declarations.get(symbol.name);
+      declarations.set(symbol.name, Object.assign({}, symbol, {definitions: Array.from(new Set((previous ? previous.definitions : []).concat(symbol.definitions || [])))}));
+    });
+    var variables = new Map(data.variables.map(function (entry) { return [entry.name, entry]; }));
+    var symbols = Array.from(declarations.values()).map(function (symbol) { return Object.assign({}, variables.get(symbol.name), symbol); });
+    var entries = kind === 'variable' ? data.variables : kind === 'screen' ? data.blocks.filter(function (b) { return b.data && b.data.question; }).map(function (b) { return {name: b.report_title || b.title, definitions: [b.scan_id], references: b.possibly_unreachable ? [] : ['flow'], possibly_unused: b.possibly_unreachable}; }) : symbols.filter(function (s) { return s.kind === kind; });
+    if (kind === 'all' || kind === 'variable') {
+      var declaredKinds = new Set(declarations.keys());
+      entries = data.variables.filter(function (entry) { return !declaredKinds.has(entry.name); });
+      entries = entries.concat(kind === 'all' ? symbols : symbols.filter(function (symbol) { return symbol.kind === 'variable'; }));
+    }
     entries = entries.slice();
     if (sourceHost && bridge.sourceSymbols) {
-      var known = new Set(entries.map(function (entry) { return entry.name; }));
+      var known = new Set(Array.from(declarations.keys()).concat(Array.from(variables.keys()), entries.map(function (entry) { return entry.name; })));
       bridge.sourceSymbols().forEach(function (symbol) {
-        var symbolKind = symbol.type === 'function' ? 'function' : /template/.test(symbol.detail) ? 'template' : /class/.test(symbol.detail) ? 'class' : 'variable';
+        var symbolKind = symbol.symbolKind || (symbol.type === 'function' ? 'function' : 'variable');
         if (!known.has(symbol.label) && (kind === 'all' || kind === symbolKind)) {
           known.add(symbol.label);
-          entries.push({ name: symbol.label, kind: symbolKind, definitions: [], references: [], catalog: true, origin: symbol.detail });
+          entries.push({ name: symbol.label, kind: symbolKind, definitions: [], references: [], catalog: true, builtin: symbol.builtin, origin: symbol.origin });
         }
       });
     }
@@ -65,19 +88,26 @@
       }
       // An undefined name has no definition, so it belongs where it is used.
       var located = entry.undefined ? references.map(function (id) { return blocks[id]; }).filter(Boolean) : definitions;
-      return {entry: entry, definitions: definitions, located: located, references: references, errors: errors, unused: !references.length, unreachable: definitions.some(function (b) { return b.possibly_unreachable; })};
+      return {entry: entry, definitions: definitions, located: located, references: references, errors: errors, unused: !entry.catalog && (typeof entry.possibly_unused === 'boolean' ? entry.possibly_unused : !references.length), unreachable: definitions.some(function (b) { return b.possibly_unreachable; })};
     }).filter(function (item) {
       return (item.entry.name + ' ' + item.located.map(function (b) { return b.sourceFile; }).join(' ')).toLowerCase().includes(filter) &&
         (el('variable-report-scope').value === 'all' || item.located.some(function (b) { return !b.sourceFile.includes(':'); })) &&
-        (status === 'all' || status === 'used' && !item.unused || status === 'unused' && item.unused || status === 'unreachable' && item.unreachable || status === 'error' && item.errors.length);
+        (status === 'all' || status === 'used' && !item.unused && !item.entry.catalog || status === 'unused' && item.unused || status === 'unreachable' && item.unreachable || status === 'error' && item.errors.length);
     });
-    // Errors first; otherwise the scanner's alphabetical order.
-    matches.sort(function (a, b) { return (b.errors.length ? 1 : 0) - (a.errors.length ? 1 : 0) || a.entry.name.localeCompare(b.entry.name); });
+    var kinds = ['variable', 'template', 'table', 'function', 'method', 'class', 'event', 'file'];
+    var headings = {variable: 'Variables', template: 'Templates', table: 'Tables', function: 'Functions', method: 'Methods', class: 'Classes', event: 'Events', file: 'Files'};
+    function group(item) { return item.entry.kind || 'variable'; }
+    // Keep each type together; errors lead within their group.
+    matches.sort(function (a, b) { return (kind === 'all' ? kinds.indexOf(group(a)) - kinds.indexOf(group(b)) : 0) || (b.errors.length ? 1 : 0) - (a.errors.length ? 1 : 0) || a.entry.name.localeCompare(b.entry.name); });
     var count = document.createElement('p');
     count.className = 'small text-muted';
-    count.textContent = matches.length + (matches.length === 1 ? ' result' : ' results') + (matches.length > 150 ? ' · Showing the first 150. Narrow your search to see more.' : '') + (data.warnings.length ? ' · ' + data.warnings.join(' ') : '');
     box.appendChild(count);
-    matches.slice(0, 150).forEach(function (item) {
+    var more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'btn btn-sm btn-outline-secondary w-100 mt-2 variable-browser-more';
+    box.appendChild(more);
+    var rendered = 0, previousGroup;
+    function renderRow(item) {
       var row = document.createElement('div');
       row.className = 'variable-browser-row';
       var info = document.createElement('div');
@@ -89,17 +119,25 @@
         name.setAttribute('aria-label', 'Insert ' + item.entry.name);
         name.onclick = function () { bridge.insertSymbol(item.entry.name); };
       }
-      if (item.errors.length) name.classList.add('text-danger');
+      var state = item.errors.length ? 'error' : (item.entry.builtin || item.entry.origin === 'Python' || item.entry.origin === 'docassemble.base.util') ? 'builtin' : item.unused ? 'unused' : item.unreachable ? 'unreachable' : item.entry.catalog || item.entry.origin ? 'provided' : 'used';
+      var labels = {error: 'Error', builtin: 'Built-in', unreachable: 'Possibly unreachable', unused: 'Possibly unused', provided: 'Provided'};
+      row.dataset.symbolStatus = state;
       var detail = document.createElement('div');
       detail.className = 'small text-muted';
       detail.textContent = (item.entry.origin ? item.entry.origin + ' · imported at ' : item.entry.undefined ? 'Used at ' : '') + item.located.map(function (b) { return b.sourceFile + ':' + b.line_start; }).join(', ');
       var usage = document.createElement('div');
       usage.className = 'small';
       if (item.errors.length) usage.className += ' text-danger';
-      usage.textContent = item.entry.undefined ? 'Error · Not defined' : (item.errors.length ? 'Error · ' : '') + (item.unused ? 'Possibly unused' : 'Used') + (item.unreachable ? ' · Possibly unreachable' : '');
+      usage.textContent = item.entry.catalog ? (item.entry.builtin ? 'Built-in symbol' : 'Provided by the symbol catalog') : item.entry.undefined ? 'Error · Not defined' : (item.errors.length ? 'Error · ' : '') + (item.unused ? 'Possibly unused' : 'Used') + (item.unreachable ? ' · Possibly unreachable' : '');
       info.append(name);
       if (!sourceHost) info.append(detail, usage);
-      else if (item.errors.length) { var badge = document.createElement('span'); badge.className = 'text-danger small ms-1'; badge.textContent = '!'; badge.title = item.errors[0].message; info.appendChild(badge); }
+      if (sourceHost && labels[state]) {
+        var badge = document.createElement('span');
+        badge.className = 'variable-browser-status';
+        badge.textContent = labels[state] + (state === 'unused' && item.unreachable ? ' · unreachable' : '');
+        if (item.errors.length) badge.title = item.errors[0].message;
+        info.appendChild(badge);
+      }
       var button = document.createElement('button');
       button.type = 'button';
       button.className = 'btn btn-sm btn-link variable-browser-details';
@@ -108,10 +146,10 @@
       button.onclick = function () {
         var dialog = reportDialog(item.entry.name);
         if (item.entry.signature) { var signature = document.createElement('pre'); signature.textContent = item.entry.signature; dialog.appendChild(signature); }
-        if (item.entry.origin) { var origin = document.createElement('p'); origin.textContent = 'Declared in ' + item.entry.origin + '. The source links below show where this module is included.'; dialog.appendChild(origin); }
+        if (item.entry.origin) { var origin = document.createElement('p'); origin.textContent = 'Provided by ' + item.entry.origin + '.' + (item.definitions.length ? ' The source links below show where this module is included.' : ''); dialog.appendChild(origin); }
         if (item.entry.documentation) { var docs = document.createElement('p'); docs.textContent = item.entry.documentation; dialog.appendChild(docs); }
         item.errors.forEach(function (error) { var message = document.createElement('p'); message.className = 'text-danger'; message.textContent = error.message || String(error); dialog.appendChild(message); });
-        if (sourceHost && bridge.renameSymbol && (!item.entry.kind || item.entry.kind === 'variable')) {
+        if (sourceHost && kind !== 'screen' && !item.entry.catalog && !item.entry.origin && bridge.renameSymbol && (!item.entry.kind || item.entry.kind === 'variable')) {
           var rename = document.createElement('button'); rename.type = 'button'; rename.className = 'btn btn-sm btn-outline-secondary mb-2'; rename.textContent = 'Rename variable…';
           rename.onclick = function () { dialog.close(); bridge.renameSymbol(item.entry.name); };
           dialog.appendChild(rename);
@@ -121,8 +159,48 @@
         dialog.querySelectorAll('button:not(.btn-close)').forEach(function (link) { link.addEventListener('click', function () { dialog.close(); if (dock === 'full') setDock('side'); }); });
       };
       row.append(info, button);
-      box.appendChild(row);
-    });
+      return row;
+    }
+    function appendRows(amount, focusNew) {
+      if (generation !== listGeneration) return;
+      var end = Math.min(rendered + amount, matches.length);
+      var firstNew;
+      matches.slice(rendered, end).forEach(function (item) {
+        if (kind === 'all' && group(item) !== previousGroup) {
+          previousGroup = group(item);
+          var heading = document.createElement('h3');
+          heading.className = 'variable-browser-group';
+          heading.textContent = headings[previousGroup] || previousGroup;
+          box.insertBefore(heading, more);
+        }
+        var row = renderRow(item);
+        if (!firstNew) firstNew = row;
+        box.insertBefore(row, more);
+      });
+      rendered = end;
+      listShown = Math.max(listShown, rendered);
+      count.textContent = (rendered < matches.length ? 'Showing ' + rendered + ' of ' + matches.length + ' results' : matches.length + (matches.length === 1 ? ' result' : ' results')) + (data.warnings.length ? ' · ' + data.warnings.join(' ') : '');
+      more.hidden = rendered === matches.length;
+      more.textContent = 'Show more (' + (matches.length - rendered) + ' remaining)';
+      if (more.hidden && listObserver) { listObserver.disconnect(); listObserver = null; }
+      if (focusNew && firstNew) {
+        var next = firstNew.querySelector('button');
+        if (next) next.focus({ preventScroll: true });
+        firstNew.scrollIntoView({ block: 'nearest' });
+      }
+    }
+    more.onclick = function () { appendRows(150, true); };
+    appendRows(listShown, false);
+    if (focusedLabel) {
+      var replacement = Array.from(box.querySelectorAll('button[aria-label]')).find(function (button) { return button.getAttribute('aria-label') === focusedLabel; });
+      if (replacement) replacement.focus({ preventScroll: true });
+    } else if (focusedMore && !more.hidden) more.focus({ preventScroll: true });
+    if (!more.hidden && root.IntersectionObserver) {
+      listObserver = new root.IntersectionObserver(function (entries) {
+        if (entries.some(function (entry) { return entry.isIntersecting; })) appendRows(150, false);
+      }, { root: el('variable-report-rail'), rootMargin: '150px 0px' });
+      listObserver.observe(more);
+    }
   }
   function refresh() {
     var sequence = ++requestNumber;
@@ -183,6 +261,7 @@
     el('variable-report-insert-help').hidden = !sourceHost;
     el('variable-report-rail').classList.remove('d-none');
     el('variable-report-close').onclick = function () {
+      stopListObserver();
       el('variable-report-rail').classList.add('d-none');
       (el('editor-workspace') || document.body).classList.remove('variable-browser-pinned');
       clearInterval(timer);
@@ -205,6 +284,7 @@
   }
   function closeSource() {
     if (!sourceHost) return;
+    stopListObserver();
     var panel = el('variable-report-rail');
     sourceHost.classList.remove('editor-source-with-variables', 'source-variables-collapsed');
     el('variable-source-collapse').hidden = true;

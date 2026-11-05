@@ -6431,3 +6431,13 @@ body:has(.editor-source-full-screen) { overflow: hidden; }
 }
 
 body:has(.editor-source-full-screen) #left-rail { visibility: hidden; }
+
+/* Status text remains visible without color; fixed foreground/background pairs
+   retain contrast in either application theme. */
+.variable-browser-group { font-size: .875rem; font-weight: 700; margin: .8rem 0 .25rem; padding-bottom: .25rem; border-bottom: 1px solid var(--bs-border-color, #ddd); }
+.variable-browser-status { display: inline-block; font: 600 .6875rem/1.4 var(--bs-font-sans-serif, sans-serif); padding: .05rem .3rem; margin-left: .3rem; border-radius: .2rem; color: #374151; background: #f3f4f6; }
+[data-symbol-status="error"] .variable-browser-status { color: #842029; background: #f8d7da; }
+[data-symbol-status="unused"] .variable-browser-status,
+[data-symbol-status="unreachable"] .variable-browser-status { color: #664d03; background: #fff3cd; }
+[data-symbol-status="builtin"] .variable-browser-status { color: #084298; background: #cfe2ff; }
+[data-symbol-status="provided"] .variable-browser-status { color: #432874; background: #e8def8; }
