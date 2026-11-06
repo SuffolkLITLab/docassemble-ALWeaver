@@ -200,6 +200,7 @@
         </div>
         <button type="button" class="btn btn-sm btn-outline-secondary editor-rail-toggle" data-action="toggle-rail" aria-controls="left-rail" aria-expanded="true" aria-label="Collapse sidebar" title="Collapse sidebar"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i></button>
       </div>
+      <p id="source-outline-status" class="small px-2 my-1" role="status"></p>
       <div class="editor-section editor-section-search" id="editor-quick-jump-section">
         <div class="mb-2" id="jump-targets">
           <label class="editor-tiny" for="jump-select">Show</label>
@@ -258,7 +259,7 @@
     </main>
 
     <aside id="variable-report-rail" class="d-none variable-browser" aria-label="Interview variables">
-      <div class="d-flex align-items-center gap-2 flex-wrap"><h2 class="h5 me-auto mb-0">Interview variables</h2>
+      <div class="variable-browser-heading d-flex align-items-center gap-2 flex-wrap"><h2 class="h5 me-auto mb-0">Interview variables</h2>
         <div role="group" aria-label="Where to put the variable browser">
 <button type="button" class="btn btn-sm btn-outline-secondary" data-variable-dock="bottom" aria-label="Dock along the bottom" title="Dock along the bottom"><i class="fa-solid fa-window-minimize" aria-hidden="true"></i></button>
 <button type="button" class="btn btn-sm btn-outline-secondary" data-variable-dock="tall" aria-label="Make the panel taller" title="Make the panel taller"><i class="fa-solid fa-up-down" aria-hidden="true"></i></button>
@@ -266,16 +267,24 @@
 <button type="button" class="btn btn-sm btn-outline-secondary" data-variable-dock="full" aria-label="Fill the window" title="Fill the window"><i class="fa-solid fa-expand" aria-hidden="true"></i></button>
         </div>
         <button type="button" class="btn btn-sm btn-outline-secondary" id="variable-report-refresh" aria-label="Refresh variables"><i class="fa-solid fa-rotate-right" aria-hidden="true"></i></button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="variable-source-collapse" aria-expanded="true" aria-controls="variable-report-content" aria-label="Collapse variables" title="Collapse variables" hidden><i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button>
         <button type="button" class="btn-close" id="variable-report-close" aria-label="Close variable browser"></button>
       </div>
+      <div id="variable-report-content">
       <div class="variable-browser-filters">
         <div class="variable-browser-filter"><label for="variable-report-filter">Search</label><input class="form-control" id="variable-report-filter" type="search"></div>
-        <div class="variable-browser-filter"><label for="variable-report-kind">Show</label><select class="form-select" id="variable-report-kind"><option value="variable">Variables</option><option value="function">Functions</option><option value="method">Methods</option><option value="class">Classes</option><option value="template">Templates</option><option value="table">Tables</option><option value="event">Events</option><option value="screen">Screens</option></select></div>
+        <div class="variable-browser-filter"><label for="variable-report-kind">Show</label><select class="form-select" id="variable-report-kind"><option value="all">All names</option><option value="variable">Variables</option><option value="function">Functions</option><option value="method">Methods</option><option value="class">Classes</option><option value="template">Templates</option><option value="table">Tables</option><option value="event">Events</option><option value="screen">Screens</option></select></div>
+        <details class="variable-browser-advanced"><summary>Filters &amp; context</summary>
+          <div class="variable-browser-advanced-content">
         <div class="variable-browser-filter"><label for="variable-report-scope">Scope</label><select class="form-select" id="variable-report-scope"><option value="local">Interview files</option><option value="all">Include shared packages</option></select></div>
         <div class="variable-browser-filter"><label for="variable-report-status">Status</label><select class="form-select" id="variable-report-status"><option value="all">All</option><option value="used">Used</option><option value="unused">Possibly unused</option><option value="unreachable">Possibly unreachable</option><option value="error">Errors</option></select></div>
+      <p class="small text-muted my-2 variable-browser-scope-note">Updates after saving. Usage and reachability are static hints; dynamic names and imported Python may add uses.</p>
+          </div>
+        </details>
       </div>
-      <p class="small text-muted my-2">Updates after saving. Usage and reachability are static hints; dynamic names and imported Python may add uses.</p>
+      <p id="variable-report-insert-help" class="small text-muted my-1" hidden>Click to insert · Ctrl-Space to complete</p>
       <div id="variable-report-results" aria-live="polite"></div>
+      </div>
     </aside>
 
     <!-- ASSISTANT DRAWER (opt-in; hidden unless the agent editor is enabled) -->
@@ -901,6 +910,7 @@
         <span class="editor-insert-header-spacer" aria-hidden="true"></span>
       </div>
       <div class="modal-body editor-insert-body">
+        <p id="source-insert-status" class="small" role="status" hidden></p>
         <div class="editor-insert-group-label" style="color:#334155">Screens</div>
         <div class="editor-insert-list">
           <button type="button" class="editor-insert-card" data-insert="question">
@@ -1400,6 +1410,7 @@
 <script src="/al/editor/static/editor_dirty_state.js"></script>
 <script src="/al/editor/static/editor_validation_source.js"></script>
 <script src="/al/editor/static/editor_source_tools.js"></script>
+<script src="/al/editor/static/editor_source_workbench.js"></script>
 <script src="/al/editor/static/editor_screen_preview.js"></script>
 <script src="/al/editor/static/editor_interview_report.js"></script>
 <script src="/al/editor/static/html2canvas.min.js"></script>

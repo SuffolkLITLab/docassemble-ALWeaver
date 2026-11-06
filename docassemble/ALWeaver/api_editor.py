@@ -5576,6 +5576,61 @@ def editor_api_get_file() -> Response:
         )
 
 
+@app.route(f"{EDITOR_BASE_PATH}/api/source-preview", methods=["POST"])
+def editor_api_source_preview() -> Response:
+    """Preview source operations without writing files or executing code."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        from .editor_source_workbench import preview_source_action
+
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            raise ValueError("Request body must be a JSON object")
+        project = _normalize_project(data.get("project"))
+        filename = _normalize_filename(data.get("filename"))
+        working = data.get("raw_yaml")
+        if not isinstance(working, str):
+            raise ValueError("raw_yaml must be a YAML string")
+        if len(working.encode("utf-8")) > MAX_CANDIDATE_SOURCE_BYTES:
+            raise ValueError("The source is too large for a source preview")
+        saved = playground_read_yaml(_current_user_id(), project, filename)
+        action = data.get("action")
+        if not isinstance(action, str):
+            raise ValueError("action must be a string")
+        result = preview_source_action(
+            filename,
+            saved.replace("\r\n", "\n").replace("\r", "\n"),
+            working,
+            action,
+            block_yaml=data.get("block_yaml"),
+            at_start=data.get("at_start", False),
+            cursor=data.get("cursor", 0),
+        )
+        result["base_revision_matches"] = data.get("revision") == source_revision(saved)
+        return jsonify({"success": True, "request_id": request_id, "data": result})
+    except (ValueError, FileNotFoundError) as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            404 if isinstance(exc, FileNotFoundError) else 400,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: source preview error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"message": "Could not prepare the source preview."},
+            },
+            500,
+        )
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/validate-source", methods=["POST"])
 def editor_api_validate_source() -> Response:
     """Validate source supplied by the editor without reading it back from disk."""

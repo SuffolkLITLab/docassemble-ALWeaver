@@ -768,10 +768,39 @@
       );
     }
     var view = bundle.ev;
+    function updateNativeCompletions(event) {
+      if (
+        event &&
+        event.type === 'keydown' &&
+        !(event.ctrlKey && event.code === 'Space')
+      )
+        return;
+      var enabled =
+        isInterviewView() && ['yaml', 'yml', 'py', 'html'].indexOf(mode) !== -1;
+      var entries = enabled ? sourceCompletionOptions() : [];
+      var before = view.state.doc.sliceString(
+        0,
+        view.state.selection.main.head,
+      );
+      var start = before.length;
+      while (start > 0 && /[\w.[\]]/.test(before[start - 1])) start--;
+      var token = before.slice(start);
+      var dot = token.lastIndexOf('.');
+      if (dot >= 0) {
+        var prefix = token.slice(0, dot + 1).replace(/\[\w+\]/g, '[]');
+        entries = entries.filter(function (entry) {
+          return entry.label.replace(/\[\w+\]/g, '[]').startsWith(prefix);
+        });
+      }
+      window.daAutoComp = entries;
+    }
+    view.contentDOM.addEventListener('focus', updateNativeCompletions);
+    view.contentDOM.addEventListener('keydown', updateNativeCompletions, true);
     var subscribers = [];
     var blockMenu = null;
     var searchPanel = null;
     var sourceTools = null;
+    var sourceWorkbench = null;
     var originalDispatch = view.dispatch.bind(view);
     view.dispatch = function () {
       var before = view.state.doc.toString();
@@ -806,6 +835,26 @@
     var identity = sourceWorkspaceIdentity(containerId);
     var editor = {
       identity: identity,
+      getCursor: function () {
+        return view.state.selection.main.head;
+      },
+      focus: function () {
+        view.focus();
+      },
+      applySourceInsertion: function (snapshot, edit) {
+        if (
+          view.state.doc.toString() !== snapshot ||
+          snapshot.slice(edit.from, edit.to) !== edit.before
+        )
+          return false;
+        view.dispatch({
+          changes: { from: edit.from, to: edit.to, insert: edit.insert },
+          selection: { anchor: edit.from + edit.insert.length },
+          userEvent: 'input',
+          scrollIntoView: true,
+        });
+        return true;
+      },
       reveal: function (from, to) {
         view.dispatch({
           selection: { anchor: from, head: to },
@@ -816,6 +865,16 @@
             y: 'start',
             yMargin: 8,
           }),
+        });
+        view.focus();
+      },
+      insertText: function (text) {
+        var selection = view.state.selection.main;
+        view.dispatch({
+          changes: { from: selection.from, to: selection.to, insert: text },
+          selection: { anchor: selection.from + text.length },
+          userEvent: 'input.complete',
+          scrollIntoView: true,
         });
         view.focus();
       },
@@ -855,9 +914,18 @@
               : null,
         };
         subscribers = [];
+        if (containerId === 'full-source-editor')
+          window.ALWeaverReports.closeSource();
+        if (sourceWorkbench) sourceWorkbench.dispose();
         if (sourceTools) sourceTools.dispose();
         if (searchPanel) searchPanel.dispose();
         if (blockMenu) blockMenu.dispose();
+        view.contentDOM.removeEventListener('focus', updateNativeCompletions);
+        view.contentDOM.removeEventListener(
+          'keydown',
+          updateNativeCompletions,
+          true,
+        );
         view.destroy();
         if (_sourceEditors[containerId] === editor)
           delete _sourceEditors[containerId];
@@ -927,12 +995,14 @@
     if (containerId === 'full-source-editor') {
       sourceTools = window.ALWeaverSourceTools.attach(bundle, container, {
         validate: function () {
+          if (state.validationDock === 'full') setValidationDock('side');
           state.validationOpen = true;
           runValidation();
         },
         findings: function (index) {
           blockMenu.wrapper.classList.remove('editor-source-full-screen');
           view.requestMeasure();
+          blockMenu.update();
           state.validationOpen = true;
           if (state.validationDock === 'full') setValidationDock('side');
           renderValidationDrawer();
@@ -950,6 +1020,33 @@
           return sourceCompletionOptions();
         },
       });
+      sourceWorkbench = window.ALWeaverSourceWorkbench.attach(
+        bundle,
+        container,
+        {
+          insertBlock: function () {
+            openSourceBlockInsert();
+          },
+          preview: function (request) {
+            return apiPost(
+              '/api/source-preview',
+              Object.assign(
+                {
+                  project: state.project,
+                  filename: state.filename,
+                  revision: state.revision,
+                },
+                request,
+              ),
+            );
+          },
+        },
+      );
+      window.ALWeaverReports.openVariables(
+        Object.assign(reportBridge(), {
+          sourceHost: blockMenu.wrapper,
+        }),
+      );
       editor.sourceTools = sourceTools;
       syncSourceDiagnostics();
       loadAvailableSymbols();
@@ -6483,6 +6580,20 @@
     navigate();
   }
 
+  function openSourceProjectSearch(name, rename) {
+    var open = projectSearchElement('btn-project-search');
+    if (open) open.click();
+    projectSearchElement('project-search-query').value = name;
+    projectSearchElement('project-search-variable').checked = Boolean(rename);
+    projectSearchElement('project-search-replacement').value = '';
+    projectSearchElement('project-search-word').checked = true;
+    projectSearchElement('project-search-case').checked = true;
+    invalidateProjectSearchPreview();
+    updateProjectSearchMode();
+    if (rename) projectSearchElement('project-search-replacement').focus();
+    else runProjectSearch();
+  }
+
   function initProjectSearch() {
     var openButton = projectSearchElement('btn-project-search');
     var form = projectSearchElement('project-search-form');
@@ -7091,6 +7202,8 @@
   }
 
   function sourceCompletionOptions() {
+    if (state.symbolCatalog.loadedFor !== state.project + '::' + state.filename)
+      return [];
     return window.ALWeaverSourceTools.completions(
       state.symbolCatalog.groups || {},
       state.symbolCatalog.all || [],
@@ -7123,9 +7236,8 @@
 
   function refreshActiveSymbolPickers() {
     window.daAutoComp = sourceCompletionOptions();
-    var sourceEditor = _sourceEditors['full-source-editor'];
-    if (sourceEditor && sourceEditor.sourceTools)
-      sourceEditor.sourceTools.refreshSymbols();
+    if (window.ALWeaverReports.refreshSourceSymbols)
+      window.ALWeaverReports.refreshSourceSymbols();
     var expressionInput = document.activeElement;
     if (expressionInput && expressionInput.closest('.expression-picker'))
       expressionInput.dispatchEvent(new Event('expression-catalog-refresh'));
@@ -7163,8 +7275,11 @@
         encodeURIComponent(state.filename),
     )
       .then(function (res) {
-        if (!res.success || !res.data) return;
         if (key !== state.project + '::' + state.filename) return;
+        if (!res.success || !res.data) {
+          resetSymbolCatalog();
+          return;
+        }
         var data = res.data;
         state.symbolCatalog = {
           loadedFor: key,
@@ -7176,7 +7291,11 @@
         refreshActiveSymbolPickers();
       })
       .catch(function (error) {
-        if (isSupersededRequest(error)) return;
+        if (
+          isSupersededRequest(error) ||
+          key !== state.project + '::' + state.filename
+        )
+          return;
         resetSymbolCatalog();
       });
   }
@@ -11472,6 +11591,7 @@
     state.validationBusy = false;
     state.validationErrors = [];
     state.validationFilename = null;
+    resetSymbolCatalog();
     state.sourceDiagnostics = null;
     renderValidationDrawer();
     var project = state.project;
@@ -14048,6 +14168,117 @@
       '</div>';
   }
 
+  var sourceInsertTarget = null;
+  function openSourceBlockInsert(blockId, atStart) {
+    var editor = _sourceEditors['full-source-editor'];
+    if (!editor || state.canvasMode !== 'full-yaml') return;
+    var snapshot = editor.getValue();
+    var cursor = editor.getCursor();
+    if (blockId) {
+      var block = getBlockById(blockId);
+      var range =
+        block &&
+        sourceBlockRange(
+          snapshot,
+          block,
+          (block.yaml || '').replace(/\r\n?/g, '\n'),
+        );
+      if (!range) {
+        window.alert(
+          'This block changed. Place the cursor in the source and use Tools → Insert block.',
+        );
+        return;
+      }
+      cursor = range.from;
+    }
+    var modal = document.getElementById('insert-modal');
+    var status = document.getElementById('source-insert-status');
+    var target = {
+      editor: editor,
+      snapshot: snapshot,
+      cursor: cursor,
+      atStart: Boolean(atStart),
+      project: state.project,
+      filename: state.filename,
+      revision: state.revision,
+    };
+    sourceInsertTarget = target;
+    modal.classList.add('source-insert-modal');
+    status.hidden = false;
+    status.textContent = atStart
+      ? 'Insert at the start of this file. Changes remain unsaved.'
+      : 'Insert after this YAML block. Changes remain unsaved.';
+    modal.addEventListener(
+      'hidden.bs.modal',
+      function () {
+        if (sourceInsertTarget === target) sourceInsertTarget = null;
+        modal.classList.remove('source-insert-modal');
+        status.hidden = true;
+        modal.querySelectorAll('[data-insert]').forEach(function (button) {
+          button.disabled = false;
+        });
+        if (_sourceEditors['full-source-editor'] === editor) editor.focus();
+      },
+      { once: true },
+    );
+    getOrCreateBootstrapModal('insert-modal').show();
+  }
+  function insertBlockInSource(kind) {
+    var target = sourceInsertTarget;
+    if (!target || kind === 'ai-screen' || kind === 'question-library') return;
+    var modal = document.getElementById('insert-modal');
+    var status = document.getElementById('source-insert-status');
+    var blockYaml = makeNewBlockYaml(kind);
+    var buttons = modal.querySelectorAll('[data-insert]');
+    buttons.forEach(function (button) {
+      button.disabled = true;
+    });
+    status.textContent = 'Preparing insertion…';
+    apiPost('/api/source-preview', {
+      project: target.project,
+      filename: target.filename,
+      revision: target.revision,
+      action: 'insert-block',
+      raw_yaml: target.snapshot,
+      cursor: target.cursor,
+      at_start: target.atStart,
+      block_yaml: blockYaml,
+    })
+      .then(function (response) {
+        if (sourceInsertTarget !== target || !modal.classList.contains('show'))
+          return;
+        if (!response.success)
+          throw new Error(
+            (response.error && response.error.message) ||
+              'Could not insert this block.',
+          );
+        if (
+          _sourceEditors['full-source-editor'] !== target.editor ||
+          !target.editor.applySourceInsertion(
+            target.snapshot,
+            response.data.edit,
+          )
+        ) {
+          throw new Error(
+            'Source changed. Close this picker and choose the insertion location again.',
+          );
+        }
+        closeBootstrapModal('insert-modal');
+      })
+      .catch(function (error) {
+        if (sourceInsertTarget === target) status.textContent = error.message;
+      })
+      .finally(function () {
+        if (sourceInsertTarget === target) {
+          buttons.forEach(function (button) {
+            button.disabled = false;
+          });
+          if (modal.classList.contains('show'))
+            modal.querySelector('[data-insert="' + kind + '"]').focus();
+        }
+      });
+  }
+
   function sourceBlockMenu(blockId) {
     var block = getBlockById(blockId);
     // The menu can follow the pointer rather than the cursor, so each action
@@ -14078,7 +14309,13 @@
       (block && PREVIEWABLE_BLOCK_TYPES.indexOf(block.type) !== -1
         ? ''
         : ' disabled') +
-      '>Preview</button></li></ul></div>'
+      '>Preview</button></li>' +
+      (state.canvasMode === 'full-yaml'
+        ? '<li><button type="button" class="dropdown-item" data-action="insert-source-block"' +
+          blockAttr +
+          '>Insert block after this…</button></li>'
+        : '') +
+      '</ul></div>'
     );
   }
 
@@ -14159,6 +14396,25 @@
   }
 
   function sourceBlockRange(content, block, blockSource) {
+    if (content !== state.rawYaml.replace(/\r\n?/g, '\n')) {
+      var found = blockSource ? content.indexOf(blockSource) : -1;
+      if (found < 0 || content.indexOf(blockSource, found + 1) !== -1)
+        return null;
+      var separator = /^---[ \t]*(?:#[^\n]*)?(?:\n|$)/m;
+      var before = content.slice(0, found).split(separator).pop();
+      var after = content.slice(found + blockSource.length).split(separator)[0];
+      function onlyComments(text) {
+        return text.split('\n').every(function (line) {
+          return !line.trim() || line.trim().startsWith('#');
+        });
+      }
+      if (
+        (!blockSource.startsWith('---\n') && !onlyComments(before)) ||
+        !onlyComments(after)
+      )
+        return null;
+      return { from: found, to: found + blockSource.length };
+    }
     // Server ranges identify even duplicate documents. Check the text as well
     // before trusting offsets; older responses without ranges use a unique match.
     // Cursor movement checks many blocks in the same buffer. Index line starts
@@ -15072,6 +15328,15 @@
    */
   function reportBridge() {
     return {
+      insertSymbol: function (name) {
+        var editor = _sourceEditors['full-source-editor'];
+        if (editor && isInterviewView() && state.canvasMode === 'full-yaml')
+          editor.insertText(name);
+      },
+      sourceSymbols: sourceCompletionOptions,
+      renameSymbol: function (name) {
+        openSourceProjectSearch(name, true);
+      },
       getState: function () {
         return state;
       },
@@ -15106,13 +15371,18 @@
       },
       openBlock: function (block) {
         if (block.sourceFile.indexOf(':') !== -1) return;
+        var keepSource = isInterviewView() && state.canvasMode === 'full-yaml';
+        if (keepSource && block.sourceFile === state.filename) {
+          revealBlockInFullSource(block.id);
+          return;
+        }
         deferNavigationForUnsavedChanges(
           'open the report location',
           function () {
             state.filename = block.sourceFile;
             state.selectedBlockId = block.id;
             state.currentView = 'interview';
-            state.canvasMode = 'question';
+            state.canvasMode = keepSource ? 'full-yaml' : 'question';
             state.jumpTarget = 'all';
             syncJumpSelect();
             loadFile();
@@ -18273,7 +18543,6 @@
   function renderFullYaml() {
     canvasContent.innerHTML =
       '<div class="editor-full-yaml-shell">' +
-      '<p id="source-outline-status" role="status"></p>' +
       '<div class="editor-card"><div class="editor-card-body">' +
       '<div class="editor-source-container" id="full-source-editor"></div>' +
       '</div></div><div class="d-flex justify-content-end">' +
@@ -23392,6 +23661,10 @@
         sourceEditor &&
         sourceEditor.sourceTools
       ) {
+        if (state.validationDock === 'full') {
+          setValidationDock('side');
+          renderValidationDrawer();
+        }
         var located = sourceEditor.sourceTools.revealFinding(
           Number(validationItem.getAttribute('data-finding-index')),
         );
@@ -23748,6 +24021,12 @@
 
     // Outline insert
     if (outlineInsertBtn) {
+      if (state.canvasMode === 'full-yaml') {
+        var afterId =
+          outlineInsertBtn.getAttribute('data-insert-after-id') || '';
+        openSourceBlockInsert(afterId, !afterId);
+        return;
+      }
       function openInsertModal() {
         state.insertAfterBlockId =
           outlineInsertBtn.getAttribute('data-insert-after-id') || '';
@@ -23766,6 +24045,10 @@
     if (insertChoiceBtn) {
       if (!state.filename) return;
       var kind = insertChoiceBtn.getAttribute('data-insert');
+      if (sourceInsertTarget) {
+        insertBlockInSource(kind);
+        return;
+      }
       if (kind === 'question-library') {
         // The library writes whole blocks of its own, so it replaces the blank
         // block this modal would otherwise insert. It reads the file from the
@@ -25318,6 +25601,11 @@
           (res.error && res.error.message) || 'Unable to re-enable block.',
         );
       });
+      return;
+    }
+
+    if (uiAction === 'insert-source-block') {
+      openSourceBlockInsert(actionControl.getAttribute('data-source-block-id'));
       return;
     }
 
