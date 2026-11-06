@@ -601,3 +601,89 @@ read from available Python source without importing or executing modules;
 dynamic exports and inherited methods may not be discoverable. Validation errors
 from the open file mark affected declarations red. The results remain static
 hints and do not substitute for executing an interview.
+
+## Full-source authoring tools
+
+Full file YAML keeps the existing semantic block outline, cursor-following,
+block/visual editor return path, expression editor, preview actions, and durable
+source route. Outline jumps now also work in unsaved buffers when the original
+block can still be located exactly. Changed or ambiguous blocks require a save
+and reparse; navigation never rewrites YAML.
+
+`editor_source_tools.js` connects the saved interview's existing variable and
+function catalogs to docassemble's native Ctrl-Space completion provider. The
+compact variable sidebar searches those same names and inserts at the source selection.
+The catalog is scoped to the active saved interview and its includes, rather
+than treating all files in a project as one interview. It is not an analysis of
+unsaved Python, and does not choose a parent interview for an included file.
+
+Validate submits the working source through the existing full-source validator.
+A source-tools snapshot contains the exact normalized buffer, project, filename,
+and diagnostics. Source markers, CSS Highlight underlines, and previous/next
+problem navigation only use a snapshot matching that buffer. Edits invalidate
+locations immediately, including when a validation response arrives late; undo
+back to the validated text restores them. Findings without locations remain in
+the existing findings panel. Clicking a located finding while in source mode
+keeps that mode. Browsers without CSS Highlights retain markers and navigation.
+The adapter uses the upstream bundle's public compartment and EditorView update
+listener, avoiding a second copy of CodeMirror's state types. It removes listeners,
+markers, and highlights when the editor is disposed.
+
+This is the first source-authoring tranche of #1117. Automatic quick fixes,
+a parent-interview context chooser, live unsaved symbol parsing,
+a source/runtime split debugger, move-to-include transactions, and deeper test
+integration remain future work. The workbench below adds mechanical ID repair,
+recipes, and contextual block insertion using the existing revision-aware
+patch and saved-runtime boundaries.
+
+### Source workbench and compact variable rail
+
+Source mode shows the block outline on the left and the existing Variables
+browser as an inline right sidebar. Names insert at the CodeMirror selection
+and are not underlined; a “Click to insert” note explains the behavior. A
+collapse/expand button frees editor space and remembers the choice across saves
+and reopening the page. Full screen retains the same source-and-variables grid;
+narrow screens stack the variables below the editor. Outside source mode, the
+Variables command defaults to the right dock and honors saved dock preferences.
+All-names results are grouped by symbol type; selecting one type omits redundant
+headings. Status badges pair contrasting colors with text labels for errors,
+possibly unused/unreachable names, built-ins, and provided catalog symbols.
+Results load in batches of 150 as the sidebar scrolls, with a keyboard-operable
+Show more fallback. Search always covers the complete catalog.
+
+Source mode embeds the existing Variables and reachability browser beside the
+editor, including in F11 full-screen mode. Names insert at the retained source
+selection; details retain static definition/reference links and expose the
+existing revision-aware project rename preview. Filters and analysis caveats
+are collapsed into a compact disclosure. The independent Symbols popup has been
+removed. Catalog completions are cleared across file changes and constrained to
+the active source editor's context.
+
+The source Tools button uses the application’s standard Bootstrap dropdown,
+with a visible caret, keyboard navigation, and normal dismissal behavior. It
+opens native dialogs for Changes, Repair block IDs, and Recipes. `/api/source-preview` authenticates the Playground
+owner and reads the saved file, but never writes or executes author code.
+`editor_source_workbench.py` builds exact diff hunks, mechanical ID repairs,
+and example and block insertions at parsed document boundaries. Browser previews are bound to their exact source
+snapshot; applying a proposal is an undoable CodeMirror transaction. Saving
+still uses the original file revision, including after a preview reports a
+server conflict. Source positions sent to the browser use UTF-16 offsets.
+
+Recipes use the installed Playground's configured example hierarchy, including
+package-specific catalogs. A searchable disclosure tree stays beside the selected
+source, documentation, runnable example link, and plain-text surrounding code.
+The adapter supports both the newer `develop.helpers` and older `server` helper
+locations. Only selected example blocks are inserted.
+
+The existing Insert block picker is available from the full-YAML block context
+menu, Tools menu, and outline insertion gaps. Standard blocks become unsaved,
+undoable buffer edits; graphical-only AI/library actions remain in the block
+editor. Insertions check the exact snapshot and editor identity before applying,
+and top insertion preserves leading comments/directives and separators.
+
+Mechanical ID repairs reuse the existing
+range planner, also when missing IDs are warnings; a proposed patch must remain
+structurally valid and cannot increase blocking diagnostics. Unsupported source
+remains author-owned. Block navigation uses the shared sidebar outline and its
+last parsed model. Saving refreshes that outline; edited blocks that cannot be
+located reliably show the existing save-to-refresh instruction.

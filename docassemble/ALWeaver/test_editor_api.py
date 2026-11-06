@@ -2402,6 +2402,68 @@ class TestEditorApiFileCreation(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.get_json())
         mock_write.assert_called_once_with(7, "default", "test.yml", updated)
 
+    def test_source_preview_is_read_only_and_revision_scoped(self):
+        saved = "id: original\nquestion: Original\n"
+        working = "id: original\nquestion: Unsaved\n"
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "playground_read_yaml", return_value=saved),
+            patch.object(api_editor, "playground_write_yaml") as write,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/source-preview",
+                method="POST",
+                json={
+                    "project": "default",
+                    "filename": "test.yml",
+                    "raw_yaml": working,
+                    "action": "diff",
+                    "revision": "outdated",
+                },
+            ):
+                response = api_editor.editor_api_source_preview()
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()["data"]
+        self.assertFalse(data["base_revision_matches"])
+        self.assertIn("+question: Unsaved", data["diff"])
+        self.assertEqual(data["saved_source"], saved)
+        write.assert_not_called()
+
+    def test_source_block_insertion_is_unsaved_and_uses_submitted_source(self):
+        working = "# author comment\nid: original\nquestion: Unsaved\n"
+        snippet = 'code: |\n  raise RuntimeError("do not execute")\n'
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor, "playground_read_yaml", return_value="question: Saved"
+            ),
+            patch.object(api_editor, "playground_write_yaml") as write,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/source-preview",
+                method="POST",
+                json={
+                    "project": "default",
+                    "filename": "test.yml",
+                    "raw_yaml": working,
+                    "action": "insert-block",
+                    "block_yaml": snippet,
+                    "at_start": True,
+                    "cursor": 0,
+                },
+            ):
+                response = api_editor.editor_api_source_preview()
+        self.assertEqual(response.status_code, 200, response.get_json())
+        data = response.get_json()["data"]
+        self.assertEqual(
+            data["source"],
+            "# author comment\n" + snippet + "---\n" + working.split("\n", 1)[1],
+        )
+        self.assertEqual(data["edit"]["from"], len("# author comment\n"))
+        write.assert_not_called()
+
     def test_validate_source_uses_submitted_buffer(self):
         submitted = "---\nid: unsaved\nquestion: Unsaved title\n"
         saved = "---\nid: saved\nquestion: Saved title\n"

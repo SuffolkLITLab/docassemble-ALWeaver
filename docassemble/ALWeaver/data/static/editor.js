@@ -96,6 +96,7 @@
     fullYamlStash: {},
     validationErrors: [],
     validationFilename: null,
+    sourceDiagnostics: null,
     validationOpen: false,
     validationBusy: false,
     //: 'bottom' | 'tall' | 'side' | 'full' -- where the findings panel sits
@@ -767,9 +768,39 @@
       );
     }
     var view = bundle.ev;
+    function updateNativeCompletions(event) {
+      if (
+        event &&
+        event.type === 'keydown' &&
+        !(event.ctrlKey && event.code === 'Space')
+      )
+        return;
+      var enabled =
+        isInterviewView() && ['yaml', 'yml', 'py', 'html'].indexOf(mode) !== -1;
+      var entries = enabled ? sourceCompletionOptions() : [];
+      var before = view.state.doc.sliceString(
+        0,
+        view.state.selection.main.head,
+      );
+      var start = before.length;
+      while (start > 0 && /[\w.[\]]/.test(before[start - 1])) start--;
+      var token = before.slice(start);
+      var dot = token.lastIndexOf('.');
+      if (dot >= 0) {
+        var prefix = token.slice(0, dot + 1).replace(/\[\w+\]/g, '[]');
+        entries = entries.filter(function (entry) {
+          return entry.label.replace(/\[\w+\]/g, '[]').startsWith(prefix);
+        });
+      }
+      window.daAutoComp = entries;
+    }
+    view.contentDOM.addEventListener('focus', updateNativeCompletions);
+    view.contentDOM.addEventListener('keydown', updateNativeCompletions, true);
     var subscribers = [];
     var blockMenu = null;
     var searchPanel = null;
+    var sourceTools = null;
+    var sourceWorkbench = null;
     var originalDispatch = view.dispatch.bind(view);
     view.dispatch = function () {
       var before = view.state.doc.toString();
@@ -804,6 +835,26 @@
     var identity = sourceWorkspaceIdentity(containerId);
     var editor = {
       identity: identity,
+      getCursor: function () {
+        return view.state.selection.main.head;
+      },
+      focus: function () {
+        view.focus();
+      },
+      applySourceInsertion: function (snapshot, edit) {
+        if (
+          view.state.doc.toString() !== snapshot ||
+          snapshot.slice(edit.from, edit.to) !== edit.before
+        )
+          return false;
+        view.dispatch({
+          changes: { from: edit.from, to: edit.to, insert: edit.insert },
+          selection: { anchor: edit.from + edit.insert.length },
+          userEvent: 'input',
+          scrollIntoView: true,
+        });
+        return true;
+      },
       reveal: function (from, to) {
         view.dispatch({
           selection: { anchor: from, head: to },
@@ -814,6 +865,16 @@
             y: 'start',
             yMargin: 8,
           }),
+        });
+        view.focus();
+      },
+      insertText: function (text) {
+        var selection = view.state.selection.main;
+        view.dispatch({
+          changes: { from: selection.from, to: selection.to, insert: text },
+          selection: { anchor: selection.from + text.length },
+          userEvent: 'input.complete',
+          scrollIntoView: true,
         });
         view.focus();
       },
@@ -853,8 +914,18 @@
               : null,
         };
         subscribers = [];
+        if (containerId === 'full-source-editor')
+          window.ALWeaverReports.closeSource();
+        if (sourceWorkbench) sourceWorkbench.dispose();
+        if (sourceTools) sourceTools.dispose();
         if (searchPanel) searchPanel.dispose();
         if (blockMenu) blockMenu.dispose();
+        view.contentDOM.removeEventListener('focus', updateNativeCompletions);
+        view.contentDOM.removeEventListener(
+          'keydown',
+          updateNativeCompletions,
+          true,
+        );
         view.destroy();
         if (_sourceEditors[containerId] === editor)
           delete _sourceEditors[containerId];
@@ -922,6 +993,63 @@
       blockMenu = attachSourceBlockMenu(container, view);
     }
     if (containerId === 'full-source-editor') {
+      sourceTools = window.ALWeaverSourceTools.attach(bundle, container, {
+        validate: function () {
+          if (state.validationDock === 'full') setValidationDock('side');
+          state.validationOpen = true;
+          runValidation();
+        },
+        findings: function (index) {
+          blockMenu.wrapper.classList.remove('editor-source-full-screen');
+          view.requestMeasure();
+          blockMenu.update();
+          state.validationOpen = true;
+          if (state.validationDock === 'full') setValidationDock('side');
+          renderValidationDrawer();
+          if (Number.isInteger(index)) {
+            var finding = document.querySelector(
+              '[data-finding-index="' + index + '"]',
+            );
+            if (finding) {
+              finding.scrollIntoView({ block: 'nearest' });
+              finding.focus();
+            }
+          }
+        },
+        symbols: function () {
+          return sourceCompletionOptions();
+        },
+      });
+      sourceWorkbench = window.ALWeaverSourceWorkbench.attach(
+        bundle,
+        container,
+        {
+          insertBlock: function () {
+            openSourceBlockInsert();
+          },
+          preview: function (request) {
+            return apiPost(
+              '/api/source-preview',
+              Object.assign(
+                {
+                  project: state.project,
+                  filename: state.filename,
+                  revision: state.revision,
+                },
+                request,
+              ),
+            );
+          },
+        },
+      );
+      window.ALWeaverReports.openVariables(
+        Object.assign(reportBridge(), {
+          sourceHost: blockMenu.wrapper,
+        }),
+      );
+      editor.sourceTools = sourceTools;
+      syncSourceDiagnostics();
+      loadAvailableSymbols();
       searchPanel = keepSearchPanelOpen(view);
       attachFullScreenToggle(blockMenu.wrapper, view, blockMenu.update);
     }
@@ -6452,6 +6580,20 @@
     navigate();
   }
 
+  function openSourceProjectSearch(name, rename) {
+    var open = projectSearchElement('btn-project-search');
+    if (open) open.click();
+    projectSearchElement('project-search-query').value = name;
+    projectSearchElement('project-search-variable').checked = Boolean(rename);
+    projectSearchElement('project-search-replacement').value = '';
+    projectSearchElement('project-search-word').checked = true;
+    projectSearchElement('project-search-case').checked = true;
+    invalidateProjectSearchPreview();
+    updateProjectSearchMode();
+    if (rename) projectSearchElement('project-search-replacement').focus();
+    else runProjectSearch();
+  }
+
   function initProjectSearch() {
     var openButton = projectSearchElement('btn-project-search');
     var form = projectSearchElement('project-search-form');
@@ -7059,7 +7201,31 @@
     return html;
   }
 
+  function sourceCompletionOptions() {
+    if (state.symbolCatalog.loadedFor !== state.project + '::' + state.filename)
+      return [];
+    return window.ALWeaverSourceTools.completions(
+      state.symbolCatalog.groups || {},
+      state.symbolCatalog.all || [],
+      state.symbolCatalog.functions || [],
+    );
+  }
+
+  function syncSourceDiagnostics() {
+    var editor = _sourceEditors['full-source-editor'];
+    if (!editor || !editor.sourceTools) return;
+    var snapshot = state.sourceDiagnostics;
+    editor.sourceTools.setDiagnostics(
+      snapshot &&
+        snapshot.project === state.project &&
+        snapshot.filename === state.filename
+        ? snapshot
+        : null,
+    );
+  }
+
   function resetSymbolCatalog() {
+    window.daAutoComp = [];
     state.symbolCatalog = {
       loadedFor: null,
       all: [],
@@ -7069,6 +7235,9 @@
   }
 
   function refreshActiveSymbolPickers() {
+    window.daAutoComp = sourceCompletionOptions();
+    if (window.ALWeaverReports.refreshSourceSymbols)
+      window.ALWeaverReports.refreshSourceSymbols();
     var expressionInput = document.activeElement;
     if (expressionInput && expressionInput.closest('.expression-picker'))
       expressionInput.dispatchEvent(new Event('expression-catalog-refresh'));
@@ -7106,8 +7275,11 @@
         encodeURIComponent(state.filename),
     )
       .then(function (res) {
-        if (!res.success || !res.data) return;
         if (key !== state.project + '::' + state.filename) return;
+        if (!res.success || !res.data) {
+          resetSymbolCatalog();
+          return;
+        }
         var data = res.data;
         state.symbolCatalog = {
           loadedFor: key,
@@ -7119,7 +7291,11 @@
         refreshActiveSymbolPickers();
       })
       .catch(function (error) {
-        if (isSupersededRequest(error)) return;
+        if (
+          isSupersededRequest(error) ||
+          key !== state.project + '::' + state.filename
+        )
+          return;
         resetSymbolCatalog();
       });
   }
@@ -11415,6 +11591,8 @@
     state.validationBusy = false;
     state.validationErrors = [];
     state.validationFilename = null;
+    resetSymbolCatalog();
+    state.sourceDiagnostics = null;
     renderValidationDrawer();
     var project = state.project;
     var filename = state.filename;
@@ -12864,6 +13042,8 @@
 
   function runValidation() {
     if (!state.project || !state.filename || _validationInFlight) return;
+    state.sourceDiagnostics = null;
+    syncSourceDiagnostics();
     discardResultsFromTheOtherCheck('validation');
     state.validationMode = 'validation';
     var requestSequence = ++_validationRequestSequence;
@@ -12916,6 +13096,13 @@
           state.validationErrors =
             res.data.diagnostics || res.data.errors || [];
           state.validationBaseRevisionMatches = res.data.base_revision_matches;
+          state.sourceDiagnostics = {
+            project: requestProject,
+            filename: requestFilename,
+            source: validationSource.replace(/\r\n?/g, '\n'),
+            diagnostics: state.validationErrors,
+          };
+          syncSourceDiagnostics();
         } else {
           state.validationErrors = [];
         }
@@ -12952,6 +13139,8 @@
   function runStyleCheck(includeLlm) {
     if (!state.project || !state.filename || _validationInFlight) return;
     var wantsLlm = Boolean(includeLlm);
+    state.sourceDiagnostics = null;
+    syncSourceDiagnostics();
     discardResultsFromTheOtherCheck('style');
     state.validationMode = 'style';
     var requestSequence = ++_validationRequestSequence;
@@ -13230,7 +13419,9 @@
         (err.block_id
           ? ' data-block-id="' + esc(String(err.block_id)) + '"'
           : '') +
-        ' data-source-filename="' +
+        ' data-finding-index="' +
+        state.validationErrors.indexOf(err) +
+        '" data-source-filename="' +
         esc(String(err.filename || state.validationFilename || '')) +
         '" aria-label="' +
         esc(findingLabel + String(err.message || 'Unknown issue')) +
@@ -13977,6 +14168,117 @@
       '</div>';
   }
 
+  var sourceInsertTarget = null;
+  function openSourceBlockInsert(blockId, atStart) {
+    var editor = _sourceEditors['full-source-editor'];
+    if (!editor || state.canvasMode !== 'full-yaml') return;
+    var snapshot = editor.getValue();
+    var cursor = editor.getCursor();
+    if (blockId) {
+      var block = getBlockById(blockId);
+      var range =
+        block &&
+        sourceBlockRange(
+          snapshot,
+          block,
+          (block.yaml || '').replace(/\r\n?/g, '\n'),
+        );
+      if (!range) {
+        window.alert(
+          'This block changed. Place the cursor in the source and use Tools → Insert block.',
+        );
+        return;
+      }
+      cursor = range.from;
+    }
+    var modal = document.getElementById('insert-modal');
+    var status = document.getElementById('source-insert-status');
+    var target = {
+      editor: editor,
+      snapshot: snapshot,
+      cursor: cursor,
+      atStart: Boolean(atStart),
+      project: state.project,
+      filename: state.filename,
+      revision: state.revision,
+    };
+    sourceInsertTarget = target;
+    modal.classList.add('source-insert-modal');
+    status.hidden = false;
+    status.textContent = atStart
+      ? 'Insert at the start of this file. Changes remain unsaved.'
+      : 'Insert after this YAML block. Changes remain unsaved.';
+    modal.addEventListener(
+      'hidden.bs.modal',
+      function () {
+        if (sourceInsertTarget === target) sourceInsertTarget = null;
+        modal.classList.remove('source-insert-modal');
+        status.hidden = true;
+        modal.querySelectorAll('[data-insert]').forEach(function (button) {
+          button.disabled = false;
+        });
+        if (_sourceEditors['full-source-editor'] === editor) editor.focus();
+      },
+      { once: true },
+    );
+    getOrCreateBootstrapModal('insert-modal').show();
+  }
+  function insertBlockInSource(kind) {
+    var target = sourceInsertTarget;
+    if (!target || kind === 'ai-screen' || kind === 'question-library') return;
+    var modal = document.getElementById('insert-modal');
+    var status = document.getElementById('source-insert-status');
+    var blockYaml = makeNewBlockYaml(kind);
+    var buttons = modal.querySelectorAll('[data-insert]');
+    buttons.forEach(function (button) {
+      button.disabled = true;
+    });
+    status.textContent = 'Preparing insertion…';
+    apiPost('/api/source-preview', {
+      project: target.project,
+      filename: target.filename,
+      revision: target.revision,
+      action: 'insert-block',
+      raw_yaml: target.snapshot,
+      cursor: target.cursor,
+      at_start: target.atStart,
+      block_yaml: blockYaml,
+    })
+      .then(function (response) {
+        if (sourceInsertTarget !== target || !modal.classList.contains('show'))
+          return;
+        if (!response.success)
+          throw new Error(
+            (response.error && response.error.message) ||
+              'Could not insert this block.',
+          );
+        if (
+          _sourceEditors['full-source-editor'] !== target.editor ||
+          !target.editor.applySourceInsertion(
+            target.snapshot,
+            response.data.edit,
+          )
+        ) {
+          throw new Error(
+            'Source changed. Close this picker and choose the insertion location again.',
+          );
+        }
+        closeBootstrapModal('insert-modal');
+      })
+      .catch(function (error) {
+        if (sourceInsertTarget === target) status.textContent = error.message;
+      })
+      .finally(function () {
+        if (sourceInsertTarget === target) {
+          buttons.forEach(function (button) {
+            button.disabled = false;
+          });
+          if (modal.classList.contains('show'))
+            modal.querySelector('[data-insert="' + kind + '"]').focus();
+        }
+      });
+  }
+
   function sourceBlockMenu(blockId) {
     var block = getBlockById(blockId);
     // The menu can follow the pointer rather than the cursor, so each action
@@ -14007,7 +14309,13 @@
       (block && PREVIEWABLE_BLOCK_TYPES.indexOf(block.type) !== -1
         ? ''
         : ' disabled') +
-      '>Preview</button></li></ul></div>'
+      '>Preview</button></li>' +
+      (state.canvasMode === 'full-yaml'
+        ? '<li><button type="button" class="dropdown-item" data-action="insert-source-block"' +
+          blockAttr +
+          '>Insert block after this…</button></li>'
+        : '') +
+      '</ul></div>'
     );
   }
 
@@ -14088,6 +14396,25 @@
   }
 
   function sourceBlockRange(content, block, blockSource) {
+    if (content !== state.rawYaml.replace(/\r\n?/g, '\n')) {
+      var found = blockSource ? content.indexOf(blockSource) : -1;
+      if (found < 0 || content.indexOf(blockSource, found + 1) !== -1)
+        return null;
+      var separator = /^---[ \t]*(?:#[^\n]*)?(?:\n|$)/m;
+      var before = content.slice(0, found).split(separator).pop();
+      var after = content.slice(found + blockSource.length).split(separator)[0];
+      function onlyComments(text) {
+        return text.split('\n').every(function (line) {
+          return !line.trim() || line.trim().startsWith('#');
+        });
+      }
+      if (
+        (!blockSource.startsWith('---\n') && !onlyComments(before)) ||
+        !onlyComments(after)
+      )
+        return null;
+      return { from: found, to: found + blockSource.length };
+    }
     // Server ranges identify even duplicate documents. Check the text as well
     // before trusting offsets; older responses without ranges use a unique match.
     // Cursor movement checks many blocks in the same buffer. Index line starts
@@ -14117,7 +14444,14 @@
         return { from: from, to: to };
     }
     var start = blockSource ? content.indexOf(blockSource) : -1;
-    if (start < 0 || content.indexOf(blockSource, start + 1) !== -1)
+    if (
+      start < 0 ||
+      content.indexOf(blockSource, start + 1) !== -1 ||
+      (start > 0 && content[start - 1] !== '\n') ||
+      (start + blockSource.length < content.length &&
+        !blockSource.endsWith('\n') &&
+        content[start + blockSource.length] !== '\n')
+    )
       return null;
     return { from: start, to: start + blockSource.length };
   }
@@ -14128,24 +14462,30 @@
     var status = document.getElementById('source-outline-status');
     if (!editor || !block) return;
     var content = editor.getValue();
-    // CodeMirror positions use LF regardless of the file's original line endings.
-    var parsedSource = state.rawYaml.replace(/\r\n?/g, '\n');
     var blockSource = (block.yaml || '').replace(/\r\n?/g, '\n');
-    if (content !== parsedSource) {
-      if (status)
-        status.textContent =
-          'The outline shows the last parsed version. Save your YAML before navigating to a block in source.';
-      return;
-    }
+
     var range = sourceBlockRange(content, block, blockSource);
+    // Saved line numbers cannot distinguish identical blocks after an edit
+    // shifts documents; require a unique exact match in an unsaved buffer.
+    if (
+      content !== state.rawYaml.replace(/\r\n?/g, '\n') &&
+      content.indexOf(blockSource) !== content.lastIndexOf(blockSource)
+    )
+      range = null;
     if (!range) {
       if (status)
         status.textContent =
-          'This block cannot be located uniquely in the source. Use Blocks to open its block editor.';
+          content === state.rawYaml.replace(/\r\n?/g, '\n')
+            ? 'This block cannot be located uniquely in the source. Use Blocks to open its block editor.'
+            : 'This block was edited or cannot be located uniquely. Save your YAML to refresh the outline.';
       return;
     }
     editor.reveal(range.from, range.to);
-    if (status) status.textContent = '';
+    if (status)
+      status.textContent =
+        content === state.rawYaml.replace(/\r\n?/g, '\n')
+          ? ''
+          : 'Outline from the last parsed version; unchanged blocks remain navigable.';
     // Also synchronize when revealing an already-selected range dispatches no
     // selection change; the usual listener makes this call a no-op.
     updateSourceCursorBlock(content, range.from);
@@ -14988,6 +15328,15 @@
    */
   function reportBridge() {
     return {
+      insertSymbol: function (name) {
+        var editor = _sourceEditors['full-source-editor'];
+        if (editor && isInterviewView() && state.canvasMode === 'full-yaml')
+          editor.insertText(name);
+      },
+      sourceSymbols: sourceCompletionOptions,
+      renameSymbol: function (name) {
+        openSourceProjectSearch(name, true);
+      },
       getState: function () {
         return state;
       },
@@ -15022,13 +15371,18 @@
       },
       openBlock: function (block) {
         if (block.sourceFile.indexOf(':') !== -1) return;
+        var keepSource = isInterviewView() && state.canvasMode === 'full-yaml';
+        if (keepSource && block.sourceFile === state.filename) {
+          revealBlockInFullSource(block.id);
+          return;
+        }
         deferNavigationForUnsavedChanges(
           'open the report location',
           function () {
             state.filename = block.sourceFile;
             state.selectedBlockId = block.id;
             state.currentView = 'interview';
-            state.canvasMode = 'question';
+            state.canvasMode = keepSource ? 'full-yaml' : 'question';
             state.jumpTarget = 'all';
             syncJumpSelect();
             loadFile();
@@ -18189,7 +18543,6 @@
   function renderFullYaml() {
     canvasContent.innerHTML =
       '<div class="editor-full-yaml-shell">' +
-      '<p id="source-outline-status" role="status"></p>' +
       '<div class="editor-card"><div class="editor-card-body">' +
       '<div class="editor-source-container" id="full-source-editor"></div>' +
       '</div></div><div class="d-flex justify-content-end">' +
@@ -23301,6 +23654,24 @@
     if (validationItem) {
       var sourceFilename = validationItem.getAttribute('data-source-filename');
       if (sourceFilename && sourceFilename !== state.filename) return;
+      var sourceEditor = _sourceEditors['full-source-editor'];
+      if (
+        state.canvasMode === 'full-yaml' &&
+        state.validationMode !== 'style' &&
+        sourceEditor &&
+        sourceEditor.sourceTools
+      ) {
+        if (state.validationDock === 'full') {
+          setValidationDock('side');
+          renderValidationDrawer();
+        }
+        var located = sourceEditor.sourceTools.revealFinding(
+          Number(validationItem.getAttribute('data-finding-index')),
+        );
+        if (located === false && validationItem.getAttribute('data-block-id'))
+          revealBlockInFullSource(validationItem.getAttribute('data-block-id'));
+        return;
+      }
       var validationBlockId = validationItem.getAttribute('data-block-id');
       if (validationBlockId) {
         var validationBlock = getBlockById(validationBlockId);
@@ -23650,6 +24021,12 @@
 
     // Outline insert
     if (outlineInsertBtn) {
+      if (state.canvasMode === 'full-yaml') {
+        var afterId =
+          outlineInsertBtn.getAttribute('data-insert-after-id') || '';
+        openSourceBlockInsert(afterId, !afterId);
+        return;
+      }
       function openInsertModal() {
         state.insertAfterBlockId =
           outlineInsertBtn.getAttribute('data-insert-after-id') || '';
@@ -23668,6 +24045,10 @@
     if (insertChoiceBtn) {
       if (!state.filename) return;
       var kind = insertChoiceBtn.getAttribute('data-insert');
+      if (sourceInsertTarget) {
+        insertBlockInSource(kind);
+        return;
+      }
       if (kind === 'question-library') {
         // The library writes whole blocks of its own, so it replaces the blank
         // block this modal would otherwise insert. It reads the file from the
@@ -25220,6 +25601,11 @@
           (res.error && res.error.message) || 'Unable to re-enable block.',
         );
       });
+      return;
+    }
+
+    if (uiAction === 'insert-source-block') {
+      openSourceBlockInsert(actionControl.getAttribute('data-source-block-id'));
       return;
     }
 
