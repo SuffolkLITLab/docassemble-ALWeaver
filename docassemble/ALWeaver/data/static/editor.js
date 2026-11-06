@@ -1140,6 +1140,13 @@
   // own F11 binding needs jQuery, which this page does not load, so it is
   // intercepted before CodeMirror sees the key.
   function attachFullScreenToggle(wrapper, view, onChange) {
+    var enter = document.createElement('button');
+    enter.type = 'button';
+    enter.className =
+      'btn btn-sm btn-secondary editor-source-enter-full-screen';
+    enter.textContent = 'Full screen';
+    enter.title = 'Full screen (F11)';
+    wrapper.querySelector('.editor-source-tools').appendChild(enter);
     // Full screen covers the Save button and F11 is easy to forget (and is
     // fn+F11 on a Mac), so it always shows a visible way out.
     var exit = document.createElement('button');
@@ -1148,12 +1155,13 @@
     exit.textContent = 'Exit full screen (F11)';
     wrapper.appendChild(exit);
     function toggle() {
-      var full = wrapper.classList.toggle('editor-source-full-screen');
+      wrapper.classList.toggle('editor-source-full-screen');
       view.requestMeasure();
       if (onChange) onChange();
-      if (!full) view.focus();
+      view.focus();
     }
     exit.addEventListener('click', toggle);
+    enter.addEventListener('click', toggle);
     wrapper.addEventListener(
       'keydown',
       function (event) {

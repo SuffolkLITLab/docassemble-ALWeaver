@@ -6240,6 +6240,9 @@ body:has(.editor-source-full-screen) { overflow: hidden; }
 #full-source-editor .cm-search button[name="close"] { display: none; }
 
 .editor-source-exit-full-screen { display: none; }
+.editor-source-enter-full-screen,
+.editor-source-exit-full-screen { min-height: 44px; }
+.editor-source-full-screen .editor-source-enter-full-screen { display: none; }
 .editor-source-full-screen > .editor-source-exit-full-screen {
   display: block;
   position: absolute;
