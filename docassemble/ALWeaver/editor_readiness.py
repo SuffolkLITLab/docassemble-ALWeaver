@@ -50,7 +50,7 @@ def recheck_template_syntax(report: dict[str, Any], root: Path) -> None:
                     if "word/document.xml" not in parts:
                         continue
                     for name in parts:
-                        Environment().parse(
+                        Environment(autoescape=True).parse(
                             engine.patch_xml(archive.read(name).decode("utf-8"))
                         )
             except Exception:
