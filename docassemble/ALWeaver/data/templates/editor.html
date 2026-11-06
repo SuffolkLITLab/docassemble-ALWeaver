@@ -58,8 +58,8 @@
               <li><hr class="dropdown-divider"></li>
 <li><button type="button" class="dropdown-item" data-action="run-style-check"><i class="fa-solid fa-ruler fa-fw me-2" aria-hidden="true"></i>Style check</button></li>
               <li><button type="button" class="dropdown-item" data-action="run-style-check-ai"><i class="fa-solid fa-wand-magic-sparkles fa-fw me-2" aria-hidden="true"></i>Style check + AI suggestions</button></li>
+              <li><button type="button" class="dropdown-item" data-action="open-readiness-check"><i class="fa-solid fa-wand-magic-sparkles fa-fw me-2" aria-hidden="true"></i>Readiness check + AI research</button></li>
               <li><hr class="dropdown-divider"></li>
-              <li><button type="button" class="dropdown-item" data-action="open-readiness-check"><i class="fa-solid fa-clipboard-check fa-fw me-2" aria-hidden="true"></i>Readiness check</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-assemblyline-settings"><i class="fa-solid fa-sliders fa-fw me-2" aria-hidden="true"></i>AssemblyLine settings</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-standard-playground"><i class="fa-solid fa-flask fa-fw me-2" aria-hidden="true"></i>Open in Playground</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-tests-overview"><i class="fa-solid fa-vial-circle-check fa-fw me-2" aria-hidden="true"></i>Tests</button></li>
@@ -114,8 +114,8 @@
               <li><hr class="dropdown-divider"></li>
 <li><button type="button" class="dropdown-item" data-action="run-style-check"><i class="fa-solid fa-ruler fa-fw me-2" aria-hidden="true"></i>Style check</button></li>
               <li><button type="button" class="dropdown-item" data-action="run-style-check-ai"><i class="fa-solid fa-wand-magic-sparkles fa-fw me-2" aria-hidden="true"></i>Style check + AI suggestions</button></li>
+              <li><button type="button" class="dropdown-item" data-action="open-readiness-check"><i class="fa-solid fa-wand-magic-sparkles fa-fw me-2" aria-hidden="true"></i>Readiness check + AI research</button></li>
               <li><hr class="dropdown-divider"></li>
-              <li><button type="button" class="dropdown-item" data-action="open-readiness-check"><i class="fa-solid fa-clipboard-check fa-fw me-2" aria-hidden="true"></i>Readiness check</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-assemblyline-settings"><i class="fa-solid fa-sliders fa-fw me-2" aria-hidden="true"></i>AssemblyLine settings</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-standard-playground"><i class="fa-solid fa-flask fa-fw me-2" aria-hidden="true"></i>Open in Playground</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-tests-overview"><i class="fa-solid fa-vial-circle-check fa-fw me-2" aria-hidden="true"></i>Tests</button></li>
@@ -1402,20 +1402,35 @@
   <div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
     <div class="modal-header"><h2 class="modal-title fs-5" id="readiness-title">Readiness check</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
     <div class="modal-body">
-      <p>Check the current Playground package, including unsaved interview edits. This is a local publication pre-flight, not legal approval, Court Forms Online acceptance, or maturity certification. Runtime behavior and the accuracy of review attestations need separate verification.</p>
-      <p><a href="https://assemblyline.suffolklitlab.org/docs/authoring/weaver/authoring_checklist/" target="_blank" rel="noopener">Authoring checklist (opens in a new tab)</a> · <a href="https://projects.suffolklitlab.org/legal-tech-class/docs/legal-tech-overview/maturity-model/" target="_blank" rel="noopener">Maturity model (opens in a new tab)</a></p>
-      <div class="row g-3 mb-3">
-        <div class="col-md-4"><label for="readiness-review-level" class="form-label">Style review breadth</label><select id="readiness-review-level" class="form-select"><option value="precision">Precision</option><option value="thorough">Thorough</option></select></div>
-        <div class="col-md-4"><label for="readiness-model" class="form-label">AI model (optional)</label><input id="readiness-model" class="form-control" type="text"><div class="form-text">Leave blank to use the server's checker configuration.</div></div>
-        <div class="col-md-4 align-self-center"><div class="form-check"><input id="readiness-include-llm" class="form-check-input" type="checkbox"><label for="readiness-include-llm" class="form-check-label">Include remote AI style review</label></div><div class="form-text">Sends question YAML from all files in this package to the configured provider and may incur costs. Credentials stay on the server.</div></div>
-      </div>
-      <label for="readiness-evidence" class="form-label">Review evidence JSON (optional)</label>
-      <textarea id="readiness-evidence" class="form-control font-monospace mb-2" rows="3" aria-describedby="readiness-evidence-help"></textarea>
-      <p id="readiness-evidence-help" class="form-text">Paste a prior evidence file. Reviews need passed: true, reviewer, date, and evidence, and must match the report's package source hash. Source changes invalidate prior evidence.</p>
-      <div id="readiness-status" role="status" aria-live="polite"></div>
+      <p>Check the current Playground package against a minimum floor for publication, including unsaved interview edits. Optional polish can wait.</p>
+      <details class="editor-readiness-help mb-3" id="readiness-help">
+        <summary>What is this?</summary>
+        <div class="pt-2">
+          <p>This check uses the automatable parts of the authoring checklist to look for a minimum floor for publication: an interview that is useful compared with the original blank form and does not introduce clear errors. A narrowly focused interview can meet that floor. Perfect wording, extra features, and optional polish can wait.</p>
+          <p>Start with <strong>Fix before publishing</strong>, then resolve findings that <strong>need your review</strong>. Optional improvements are separate. Use the separate Style check for wording and style suggestions.</p>
+          <p class="mb-0">The check inspects package source and templates. With legal-source research enabled, it uses AI web search to compare instructions with substantive-law sources. Sources and interpretations may be incomplete or wrong and need human review. It does not run the interview, certify a maturity level, or approve publication. AI can miss context or flag something that is already handled elsewhere; the report identifies incomplete review and limited context. Human review is still needed for legal accuracy and the publication decision.</p>
+        </div>
+      </details>
+      <p class="small mb-3">Reference guides: <a href="https://assemblyline.suffolklitlab.org/docs/authoring/weaver/authoring_checklist/" target="_blank" rel="noopener">Authoring checklist<span class="visually-hidden"> (opens in a new tab)</span></a> · <a href="https://projects.suffolklitlab.org/legal-tech-class/docs/legal-tech-overview/maturity-model/" target="_blank" rel="noopener">Legal app maturity model<span class="visually-hidden"> (opens in a new tab)</span></a></p>
+      <div class="form-check mb-2"><input id="readiness-research" class="form-check-input" type="checkbox" checked aria-describedby="readiness-research-help"><label for="readiness-research" class="form-check-label">Research legal sources</label></div>
+      <p id="readiness-research-help" class="form-text">Use AI web search to check instructions against legal sources. Sends package source and template text to the server's AI provider. Sources and interpretations need your review. Uncheck to skip research.</p>
+      <div class="form-check mb-2"><input id="readiness-precision" class="form-check-input" type="checkbox" checked aria-describedby="readiness-mode-help"><label for="readiness-precision" class="form-check-label">Precision mode (AI second opinion)</label></div>
+      <p id="readiness-mode-help" class="form-text">Sends package source and template text to the server's AI provider to review findings for false alarms. Uncheck for a thorough report without this second AI check.</p>
+      <div id="readiness-status" role="status" class="mb-2" aria-live="polite"></div>
       <div id="readiness-results"></div>
+      <section id="readiness-issue-draft" class="mt-4 border-top pt-3" hidden aria-labelledby="readiness-issue-heading">
+        <h3 id="readiness-issue-heading" class="h6">Review your GitHub issue</h3>
+        <p>Repository: <strong id="readiness-issue-repository"></strong></p>
+        <label for="readiness-issue-title" class="form-label">Issue title</label>
+        <input id="readiness-issue-title" class="form-control mb-3" maxlength="256">
+        <label for="readiness-issue-body" class="form-label">Findings and checklist (Markdown)</label>
+        <textarea id="readiness-issue-body" class="form-control mb-2" rows="16" maxlength="60000" aria-describedby="readiness-issue-help"></textarea>
+        <p id="readiness-issue-help" class="form-text">Edit the draft before creating the issue. It will be visible to everyone who can access this repository.</p>
+        <button type="button" class="btn btn-primary" id="readiness-issue-submit" data-action="publish-readiness-issue">Create issue on GitHub</button>
+        <div id="readiness-issue-status" class="mt-2" role="status" aria-live="polite"></div>
+      </section>
     </div>
-    <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-action="download-readiness-report" id="readiness-download" disabled>Download report</button><button type="button" class="btn btn-primary" data-action="run-readiness-check" id="readiness-run">Run readiness check</button></div>
+    <div class="modal-footer"><button type="button" class="btn btn-outline-primary" id="readiness-issue" data-action="draft-readiness-issue" disabled>Draft GitHub issue</button><button type="button" class="btn btn-outline-secondary" data-action="download-readiness-report" id="readiness-download" disabled>Download report</button><button type="button" class="btn btn-primary" data-action="run-readiness-check" id="readiness-run">Run readiness check</button></div>
   </div></div>
 </div>
 <script src="/static/bootstrap/js/bootstrap.bundle.min.js"></script>

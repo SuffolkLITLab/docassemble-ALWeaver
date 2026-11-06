@@ -6441,3 +6441,106 @@ body:has(.editor-source-full-screen) #left-rail { visibility: hidden; }
 [data-symbol-status="unreachable"] .variable-browser-status { color: #664d03; background: #fff3cd; }
 [data-symbol-status="builtin"] .variable-browser-status { color: #084298; background: #cfe2ff; }
 [data-symbol-status="provided"] .variable-browser-status { color: #432874; background: #e8def8; }
+
+/* Readiness uses the editor's card geometry and Bootstrap status palette. */
+.editor-readiness-assessment {
+  --readiness-color: var(--bs-success-text-emphasis, #0a3622);
+  --readiness-bg: var(--bs-success-bg-subtle, #d1e7dd);
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--editor-border);
+  border-inline-start: 4px solid var(--readiness-color);
+  border-radius: var(--editor-radius);
+  background: var(--bs-body-bg, #fff);
+}
+
+.editor-readiness-danger {
+  --readiness-color: var(--bs-danger-text-emphasis, #58151c);
+  --readiness-bg: var(--bs-danger-bg-subtle, #f8d7da);
+}
+
+.editor-readiness-warning {
+  --readiness-color: var(--bs-warning-text-emphasis, #664d03);
+  --readiness-bg: var(--bs-warning-bg-subtle, #fff3cd);
+}
+
+.editor-readiness-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 2.75rem;
+  height: 2.75rem;
+  border-radius: 50%;
+  font-size: 1.5rem;
+  color: var(--readiness-color);
+  background: var(--readiness-bg);
+}
+
+.editor-readiness-summary {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.editor-readiness-summary > :last-child {
+  margin-bottom: 0;
+}
+
+.editor-readiness-help {
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--editor-border);
+  border-radius: var(--editor-radius);
+  background: var(--editor-bg);
+}
+
+.editor-readiness-help > summary {
+  color: var(--editor-primary);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.editor-readiness-help > summary:focus-visible {
+  outline: 2px solid var(--editor-primary);
+  outline-offset: 4px;
+}
+
+.editor-readiness-summary > h3 {
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+
+#readiness-results {
+  overflow-wrap: anywhere;
+}
+
+#readiness-results > h3 {
+  font-weight: 600;
+}
+
+.editor-readiness-excerpt {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+#readiness-assessment {
+  scroll-margin-top: 0.5rem;
+}
+
+#readiness-assessment:focus-visible {
+  outline: 2px solid var(--editor-primary);
+  outline-offset: 2px;
+}
+
+@media (max-width: 575.98px) {
+  .editor-readiness-assessment {
+    gap: 0.75rem;
+  }
+
+  .editor-readiness-icon {
+    flex-basis: 2rem;
+    height: 2rem;
+    font-size: 1.125rem;
+  }
+}

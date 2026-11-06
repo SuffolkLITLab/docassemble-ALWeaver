@@ -75,15 +75,35 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("toggle.setAttribute('data-bs-toggle', 'dropdown')", workbench)
         self.assertNotIn("'Source outline'", workbench)
 
-    def test_readiness_check_has_independent_options_and_accessible_report(self):
+    def test_readiness_check_has_research_and_precision_options_and_accessible_report(
+        self,
+    ):
         template = (self.package_dir / "data/templates/editor.html").read_text()
         self.assertIn('data-action="open-readiness-check"', template)
         self.assertIn('aria-labelledby="readiness-title"', template)
-        self.assertIn('for="readiness-review-level"', template)
-        self.assertIn('for="readiness-model"', template)
-        self.assertIn('for="readiness-include-llm"', template)
+        self.assertIn('for="readiness-precision"', template)
+        for removed in (
+            "readiness-model",
+            "readiness-evidence",
+            "readiness-include-llm",
+            "readiness-review-level",
+        ):
+            self.assertNotIn(removed, template)
         self.assertIn('id="readiness-status" role="status"', template)
-        self.assertIn("Court Forms Online acceptance", template)
+        self.assertIn("separate Style check", template)
+        self.assertIn("<summary>What is this?</summary>", template)
+        self.assertIn('id="readiness-help"', template)
+        self.assertIn('data-action="draft-readiness-issue"', template)
+        self.assertIn('for="readiness-issue-body"', template)
+        self.assertIn('data-action="publish-readiness-issue"', template)
+        self.assertIn("minimum floor for publication", template)
+        self.assertIn("With legal-source research enabled", template)
+        self.assertIn(
+            'id="readiness-research" class="form-check-input" type="checkbox" checked',
+            template,
+        )
+        self.assertIn("authoring/weaver/authoring_checklist/", template)
+        self.assertIn("legal-tech-overview/maturity-model/", template)
 
     def test_question_library_offers_standalone_addresses(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
@@ -735,6 +755,7 @@ class TestEditorFrontend(unittest.TestCase):
         ai_markers = (
             "toggle-assistant",
             "run-style-check-ai",
+            "open-readiness-check",
             "ai-screen",
             "ai-generate-screen",
             "ai-generate-fields",

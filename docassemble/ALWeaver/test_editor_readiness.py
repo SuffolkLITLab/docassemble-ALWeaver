@@ -6,6 +6,8 @@ import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 from dayamlchecker.readiness import REVIEWS
 from dayamlchecker.yaml_structure import RuntimeOptions, parse_interview_documents
 
@@ -37,6 +39,7 @@ def snapshot(source=SOURCE, template=b"original"):
 
 
 def check(files=None, **kwargs):
+    kwargs.setdefault("include_research", False)
     return check_package_snapshot(
         files or snapshot(),
         package="Test",
@@ -78,6 +81,7 @@ def test_snapshot_includes_unsaved_source_templates_and_invalidates_evidence():
         package="Test",
         filename="main.yml",
         raw_yaml=SOURCE + "# edit\n",
+        include_research=False,
         evidence=evidence,
     )
     assert not unsaved["review_evidence_current"]
@@ -208,7 +212,12 @@ def test_readiness_api_checks_working_package_without_writing_manifest():
         client = api_editor.app.test_client()
         response = client.post(
             "/al/editor/api/weaver/readiness",
-            json={"project": "test", "filename": "main.yml", "raw_yaml": SOURCE},
+            json={
+                "project": "test",
+                "filename": "main.yml",
+                "raw_yaml": SOURCE,
+                "include_research": False,
+            },
         )
         assert response.status_code == 200, response.get_json()
         assert (
@@ -225,20 +234,33 @@ def test_readiness_api_checks_working_package_without_writing_manifest():
         assert (
             client.post(
                 "/al/editor/api/weaver/readiness",
-                json={"project": "missing", "filename": "main.yml", "raw_yaml": SOURCE},
+                json={
+                    "project": "missing",
+                    "filename": "main.yml",
+                    "raw_yaml": SOURCE,
+                    "include_research": False,
+                },
             ).status_code
             == 400
         )
 
 
-def test_readiness_api_remote_review_is_explicit_and_queued():
+@pytest.mark.parametrize(
+    "mode",
+    [
+        {},
+        {"include_research": True, "ai_second_opinion": False},
+        {"include_research": False, "ai_second_opinion": True},
+    ],
+)
+def test_readiness_api_research_defaults_on_and_ai_stages_are_queued(mode):
     from .test_editor_api import api_editor
 
     payload = {
         "project": "test",
         "filename": "main.yml",
         "raw_yaml": SOURCE,
-        "include_llm": True,
+        **mode,
         "review_level": "thorough",
         "model": "deployment-name",
     }
@@ -298,6 +320,7 @@ def test_readiness_worker_uses_captured_identity_without_a_logged_in_user():
         "project": "test",
         "filename": "main.yml",
         "raw_yaml": SOURCE,
+        "include_research": False,
         "_readiness_package": "Test",
         "_readiness_owner": {"name": "Tester", "email": "test@example.com"},
     }
@@ -358,23 +381,15 @@ def test_readiness_worker_uses_captured_identity_without_a_logged_in_user():
     )
 
 
-def test_failed_ai_review_cannot_produce_a_clean_report():
-    report = {
-        "status": "pass",
-        "checks": [],
-        "findings": [
-            {
-                "message_id": "style_llm_request_failed",
-                "severity": "warning",
-                "message": "Provider unavailable",
-            }
-        ],
-    }
-    with patch("dayamlchecker.readiness.publication_readiness", return_value=report):
-        result = check(include_llm=True)
-    assert result["status"] == "needs_review"
-    assert result["checks"][-1]["id"] == "ai_style_review"
-    assert result["checks"][-1]["status"] == "needs_review"
+def test_failed_second_opinion_preserves_local_findings():
+    with patch(
+        "dayamlchecker.readiness_ai_review.review_candidates",
+        return_value={"execution_status": "failed"},
+    ):
+        result = check(ai_second_opinion=True)
+    assert result["ai_review"]["execution_status"] == "failed"
+    assert result["review"]["actionable"]
+    assert result["findings"] == check()["findings"]
 
 
 def test_repair_context_accepts_crlf_and_cr_source_with_normalized_checker_blocks():
@@ -394,33 +409,48 @@ def test_repair_context_accepts_crlf_and_cr_source_with_normalized_checker_block
     assert repair_context_current(SOURCE.replace("\n", "\r"), finding)
 
 
-def test_remote_timeout_retains_local_report_and_marks_incomplete():
+def test_second_opinion_timeout_retains_local_report_and_server_configuration():
     from billiard.exceptions import SoftTimeLimitExceeded  # type: ignore[import-untyped]
 
-    local = {
-        "status": "pass",
-        "checks": [{"id": "static_validation", "status": "pass"}],
-        "findings": [],
-    }
     with patch(
-        "dayamlchecker.readiness.publication_readiness",
-        side_effect=[local, SoftTimeLimitExceeded()],
+        "dayamlchecker.readiness_ai_review.review_candidates",
+        side_effect=SoftTimeLimitExceeded(),
     ) as run:
         result = check(
-            include_llm=True,
+            ai_second_opinion=True,
             model="deployment",
             openai_api_key="test-secret",
             openai_base_url="https://provider.example/v1",
         )
-    assert run.call_args_list[0].kwargs["style_options"].style_include_llm is False
-    options = run.call_args_list[1].kwargs["style_options"]
-    assert options.style_include_llm is True
-    assert options.style_openai_api_key == "test-secret"
-    assert options.style_openai_base_url == "https://provider.example/v1"
-    assert result["checks"][0]["id"] == "static_validation"
-    assert result["status"] == "needs_review"
-    assert "timed out" in result["checks"][-1]["detail"]
+    options = run.call_args.args[2]
+    assert options.model == "deployment"
+    assert options.timeout == 480
+    assert options.api_key == "test-secret"
+    assert options.base_url == "https://provider.example/v1"
+    assert result["review"]["actionable"]
+    assert result["ai_review"]["execution_status"] == "failed"
+    assert "timed out" in result["ai_review"]["error"]
     assert "test-secret" not in json.dumps(result)
+
+
+def test_readiness_disables_style_and_applies_second_opinion():
+    from dayamlchecker.readiness import publication_readiness
+
+    with (
+        patch(
+            "dayamlchecker.readiness.publication_readiness", wraps=publication_readiness
+        ) as run,
+        patch(
+            "dayamlchecker.readiness_ai_review.review_candidates",
+            return_value={"execution_status": "not_needed"},
+        ),
+        patch("dayamlchecker.readiness_ai_review.apply_ai_review") as apply,
+    ):
+        check(ai_second_opinion=True)
+    assert run.call_count == 1
+    assert run.call_args.kwargs["style_options"].style_enabled is False
+    assert run.call_args.kwargs["style_options"].style_include_llm is False
+    apply.assert_called_once()
 
 
 def test_repeated_block_source_is_deduplicated_only_in_model_payload():
@@ -448,3 +478,234 @@ def test_real_jinja_findings_keep_rendered_location_without_original_offsets():
         assert finding["rendered_line_number"] is not None
         assert finding["line_number"] is None
         assert finding["source_range"] is None
+
+
+def test_author_report_demotes_missing_ids_and_explains_delivery_errors():
+    from .editor_readiness import author_review
+
+    report = {
+        "findings": [
+            {"message_id": "missing_question_id"},
+            {"message_id": "yaml_duplicate_block_id"},
+        ],
+        "review": {
+            "actionable": [
+                {
+                    "source": "static",
+                    "finding_indexes": [0],
+                    "release_gate": True,
+                    "priority": "high",
+                },
+                {
+                    "source": "static",
+                    "finding_indexes": [1],
+                    "release_gate": True,
+                    "priority": "high",
+                },
+                {
+                    "source": "check",
+                    "check_id": "document_delivery",
+                    "release_gate": True,
+                    "priority": "high",
+                    "message": "Generic delivery summary",
+                    "evidence": {
+                        "errors": [
+                            {
+                                "file": "questions/main.yml",
+                                "reference": "missing.pdf",
+                                "detail": "Missing template",
+                            },
+                            {
+                                "file": "questions/other.yml",
+                                "reference": "other.docx",
+                                "detail": "Missing template",
+                            },
+                        ]
+                    },
+                },
+            ],
+            "cleanup": [],
+        },
+    }
+    original = copy.deepcopy(report)
+    view = author_review(report)
+    assert report == original
+    assert len(view["actionable"]) == 3
+    assert view["actionable"][0]["finding_indexes"] == [1]
+    assert view["actionable"][1]["file"] == "questions/main.yml"
+    assert "missing.pdf" in view["actionable"][1]["message"]
+    assert "cannot be generated" in view["actionable"][1]["reason"]
+    assert "other.docx" in view["actionable"][2]["message"]
+    assert len(view["cleanup"]) == 1
+    assert view["cleanup"][0]["release_gate"] is False
+
+
+def test_author_report_groups_repeated_advice_without_losing_repair_indexes():
+    from .editor_readiness import author_review
+
+    report = {
+        "review": {
+            "actionable": [
+                {
+                    "source": "static",
+                    "file": "main.yml",
+                    "message": "Duplicate ID",
+                    "line": line,
+                    "finding_indexes": [index],
+                }
+                for index, line in enumerate([12, 20])
+            ]
+        },
+        "findings": [{}, {}],
+    }
+    items = author_review(report)["actionable"]
+    assert len(items) == 1
+    assert items[0]["lines"] == [12, 20]
+    assert items[0]["finding_indexes"] == [0, 1]
+
+
+def test_research_runs_by_default_before_second_opinion_and_preserves_citations():
+    research = {
+        "status": "needs_review",
+        "execution_status": "completed",
+        "coverage_gaps": [],
+        "findings": [
+            {
+                "file": QUESTION,
+                "line_number": 5,
+                "concern": "Check the filing instruction",
+                "local_quote": "What is your name?",
+                "source_urls": ["https://court.example/rules"],
+                "source_explanation": "The instructions differ from the cited rule.",
+            }
+        ],
+    }
+    with (
+        patch(
+            "dayamlchecker.readiness_research.research_readiness", return_value=research
+        ) as run,
+        patch(
+            "dayamlchecker.readiness_ai_review.review_candidates",
+            return_value={"execution_status": "not_needed"},
+        ) as second,
+    ):
+        result = check_package_snapshot(
+            snapshot(),
+            package="Test",
+            filename="main.yml",
+            raw_yaml=SOURCE,
+            ai_second_opinion=True,
+            model="server-model",
+            openai_api_key="secret",
+            openai_base_url="https://provider.example/v1",
+        )
+    options = run.call_args.args[1]
+    assert options.model == "server-model"
+    assert options.api_key == "secret"
+    assert options.timeout == 480
+    assert second.call_args.args[0]["research"] == research
+    items = [
+        item
+        for item in result["author_review"]["actionable"]
+        if item["source"] == "research"
+    ]
+    assert len(items) == 1
+    assert items[0]["release_gate"] is False
+    assert result["research"]["findings"][0]["source_urls"] == [
+        "https://court.example/rules"
+    ]
+    assert "secret" not in json.dumps(result)
+
+
+def test_research_opt_out_does_not_call_provider():
+    with patch("dayamlchecker.readiness_research.research_readiness") as run:
+        report = check(include_research=False)
+    run.assert_not_called()
+    assert report["research"] is None
+
+
+def test_research_soft_timeout_preserves_local_report_and_skips_second_opinion():
+    from billiard.exceptions import SoftTimeLimitExceeded
+
+    with (
+        patch(
+            "dayamlchecker.readiness_research.research_readiness",
+            side_effect=SoftTimeLimitExceeded,
+        ),
+        patch("dayamlchecker.readiness_ai_review.review_candidates") as second,
+    ):
+        report = check(include_research=True, ai_second_opinion=True)
+    assert report["checks"]
+    assert report["research"]["execution_status"] == "failed"
+    assert report["ai_review"]["execution_status"] == "failed"
+    assert report["review"]["coverage"]
+    second.assert_not_called()
+
+
+def test_author_metadata_identifies_actual_missing_fields():
+    from .editor_readiness import author_review
+
+    view = author_review(
+        {
+            "review": {
+                "actionable": [
+                    {
+                        "check_id": "metadata",
+                        "file": "main.yml",
+                        "evidence": {"missing": ["jurisdiction", "before_you_start"]},
+                    }
+                ],
+                "process_evidence": [{"id": "legal_review"}],
+            }
+        }
+    )
+    assert (
+        view["actionable"][0]["message"]
+        == "Add publication metadata: jurisdiction, before_you_start."
+    )
+    assert "process_evidence" not in view
+
+
+def test_word_paragraph_tag_is_not_a_jinja_syntax_defect(tmp_path):
+    from docx import Document
+    from .editor_readiness import recheck_template_syntax
+
+    path = tmp_path / "instructions.docx"
+    doc = Document()
+    doc.add_paragraph('{{p qr_code(help_url, width="1in") | markdown }}')
+    doc.save(path)
+    note = {
+        "kind": "template_syntax_unverified",
+        "detail": "Static extraction is incomplete",
+    }
+    report = {
+        "root": str(tmp_path),
+        "checks": [
+            {
+                "id": "document_templates",
+                "status": "warning",
+                "templates": [
+                    {
+                        "file": "instructions.docx",
+                        "notes": [
+                            note,
+                            {"kind": "title", "detail": "Missing document title"},
+                        ],
+                    }
+                ],
+            }
+        ],
+        "findings": [],
+        "local_scope": {},
+    }
+    recheck_template_syntax(report, tmp_path)
+    template = report["checks"][0]["templates"][0]
+    assert [n["kind"] for n in template["notes"]] == ["title"]
+    assert "docxtpl" in template["syntax_recheck"]
+    # A genuinely invalid expression must keep its warning.
+    doc = Document()
+    doc.add_paragraph("{{p qr_code( }}")
+    doc.save(path)
+    template["notes"] = [note]
+    recheck_template_syntax(report, tmp_path)
+    assert template["notes"] == [note]

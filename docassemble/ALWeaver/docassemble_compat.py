@@ -1196,6 +1196,31 @@ def _github_json_request(
     return response, payload
 
 
+def create_github_issue(
+    *, repository_url: str, title: str, body: str, user_id: int
+) -> Dict[str, Any]:
+    """Publish an explicitly reviewed issue using the acting user's connection."""
+    repository = normalize_github_repository_url(repository_url)
+    http = _github_authorized_http(user_id=user_id)
+    response, payload = _github_json_request(
+        http,
+        _github_repository_api_url(repository) + "/issues",
+        "POST",
+        {"title": title, "body": body},
+    )
+    if int(response.status) != 201:
+        raise RuntimeError(
+            _github_error_message(
+                payload,
+                "GitHub could not create the issue. Check repository access and whether issues are enabled.",
+            )
+        )
+    return {
+        "url": f"{repository['url']}/issues/{int(payload['number'])}",
+        "number": payload["number"],
+    }
+
+
 def _github_next_page_url(response: Any) -> Optional[str]:
     """Return the ``rel="next"`` URL from a GitHub ``Link`` header, if any."""
     next_match = re.search(r'<([^>]+)>;\s*rel="next"', str(response.get("link") or ""))

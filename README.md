@@ -285,26 +285,48 @@ pre-flight against a temporary package snapshot of the Playground project. The
 current interview's unsaved YAML is included; save pending template, module, and
 document-setup edits first. No project files are changed by the check.
 
-Precision/thorough style review and optional remote AI review are independent.
-Remote review runs only when selected, uses the checker's server-side OpenAI
-configuration (`open ai: key`, `base url`, and `model`, their legacy keys, or
-`OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL`), and supports a
-model/deployment override. All question YAML in the package is included. Remote
-requests have a 128 KiB limit. If remote review times out, the report retains
-local checks and marks AI review incomplete. Provider failures appear
-in the findings. This check does not imply publication, legal approval, runtime
-verification, or maturity certification.
+Legal-source research is enabled by default. It uses DAYamlChecker’s research mode
+with AI web search to compare instructions with substantive-law sources. Authors can
+uncheck **Research legal sources** to skip it. Sourced findings retain excerpts and
+clickable citations and require human judgment. Incomplete research is reported as
+a coverage limitation, even when no problems were found.
 
-The report separates automated checks from human review evidence and can be
-downloaded as JSON. To supply prior reviews, paste an evidence object with the
-report's `source_sha256` and review entries containing `passed: true`, `reviewer`,
-`date`, and `evidence`. Use the human review keys shown by the installed checker;
-changed package contents invalidate the evidence. Findings for the current file
+Precision mode asks AI for a second opinion on the local and research findings
+against package source. Uncheck it for the thorough, unfiltered candidate report.
+Wording and style review remain in the separate Style check. The model and credentials come from
+server configuration; authors do not need to select a model or supply prior review
+JSON.
+
+The AI review runs in Weaver's Celery worker, with an eight-minute provider timeout,
+a twenty-minute soft job limit, and a twenty-one-minute hard limit for the
+combined research and second-opinion stages. Queue reservations,
+capacity locks, and browser polling allow for that longer execution time. A caught
+AI timeout or provider failure preserves local findings and marks the affected stage
+incomplete. The server still limits AI jobs to two at a time and one per account.
+
+The report opens with a status icon and short assessment explaining what to address
+first, followed by fixes before publication and findings needing author judgment. Expandable sections
+show source excerpts, file-specific notes, and readable review limitations. Optional
+improvements stay collapsed. Human-review attestation reminders are omitted because
+Weaver does not collect those records. Raw JSON is available
+only through the complete report download. This check does not establish legal
+accuracy, runtime behavior, or publication approval. Findings for the current file
 can seed an assistant repair request after their block hash has been verified.
 The assistant's existing diff, validation, and Apply workflow remains in control.
-Rendered-Jinja findings require inspection of the original template.
+Rendered-Jinja findings require inspection of the original template. Extraction-only
+Word syntax warnings are rechecked against docxtpl-preprocessed XML without rendering
+expressions, including paragraph tags such as `{{p ... }}`. This does not verify
+runtime variable values or imported-library behavior.
+
+**Draft GitHub issue** prepares an editable issue with an assessment, pre-publication
+checklist, evidence and legal-source links, separate optional improvements, and
+coverage notes. The draft identifies the Playground snapshot (including unsaved YAML)
+and does not claim it matches GitHub. **Create issue on GitHub** publishes the edited
+draft using the acting user's Docassemble GitHub connection. The server resolves the
+destination from the project's stored repository connection and rejects a changed
+repository; the browser rejects changed interview source. No issue is posted by
+running a readiness check alone.
 
 This integration targets [issue #1209](https://github.com/SuffolkLITLab/docassemble-ALWeaver/issues/1209).
-The readiness API is merged upstream but is absent from published DAYamlChecker
-1.8.0. Before merging this integration, update its minimum version to the
-numbered release that includes readiness.
+The integration uses DAYamlChecker 1.9.0, which includes readiness and the
+AI second-opinion report.

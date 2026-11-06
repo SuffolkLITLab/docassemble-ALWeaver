@@ -1,0 +1,20 @@
+Local verification, November 6, 2026
+
+Live package: local MAPetitionToSealEviction repository; current YAML main.yml.
+Actual DAYamlChecker research plus second opinion: 84.2 seconds.
+Research: 3 web actions, 30 source references, 3 candidate findings.
+Research execution status: incomplete because of 6 source-context limitations (truncation and unexpanded includes), not a provider failure.
+Second opinion: completed.
+Desktop/mobile screenshots render this actual report with repository modal markup, Weaver CSS, Bootstrap and Font Awesome. The surrounding editor is a preview harness.
+
+Claude inspected desktop and mobile screenshots in three review rounds. Its final review found the layout readable with no overflow. The remaining requested corrections were applied: duplicate excerpts suppressed, source titles/URLs shown with external-source attribution, second-opinion reasoning labeled separately, singular/plural summary fixed.
+Also applied: stronger headings; focus and scroll to completed results; visible minimum-publication-floor explanation; explicit source-context limitations; monospace multiline excerpts; long mobile paths wrap; source scope moved into methodology; incomplete-review announcements; smaller mobile icon.
+
+No deployment performed.
+
+Follow-up verification, November 6, 2026:
+- Targeted readiness, frontend, AI jobs, and worker tests: 110 passed, 1 skipped, 60 subtests passed.
+- npm run check and git diff --check passed.
+- Desktop/mobile issue-draft browser test: edited Markdown submitted once to a mocked endpoint, success link displayed, duplicate submission disabled, no horizontal overflow. No GitHub issue created.
+- Actual localhost AppelleeBrief next-steps DOCX: docxtpl XML preprocessing resolves the false syntax warning for the valid paragraph tag. This was a syntax parse, not a populated document render.
+- Localhost report identifies the remaining metadata issue as a missing entrypoint title. External ALAnyState/AssemblyLine context and full-page legal-source coverage remain limitations.

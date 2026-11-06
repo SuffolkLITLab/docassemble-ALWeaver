@@ -24,11 +24,14 @@ class Redis:
     def __init__(self):
         self.values = {}
         self.locks = {}
+        self.expiries = {}
+        self.lock_timeouts = {}
 
     def set(self, key, value, nx=False, ex=None):
         if nx and key in self.values:
             return False
         self.values[key] = value
+        self.expiries[key] = ex
         return True
 
     def get(self, key):
@@ -50,6 +53,7 @@ class Redis:
         return 0
 
     def lock(self, name, **kwargs):
+        self.lock_timeouts[name] = kwargs.get("timeout")
         return self.locks.setdefault(name, threading.Lock())
 
 
@@ -285,3 +289,54 @@ def test_template_context_cache_invalidates_changed_and_added_files(tmp_path):
         (tmp_path / "new.pdf").write_bytes(b"Another form")
         api_editor._project_template_context_text(7, "default")
         assert extract.call_count == 4
+
+
+def test_readiness_worker_has_extended_limits_locks_and_polling(jobs):
+    redis, send = jobs
+    with api_editor.app.test_request_context("/"):
+        response = api_editor._queue_ai_job("readiness-check", 7, {}, "test-request")
+    assert response.status_code == 202
+    queued = response.get_json()["data"]
+    job_id = queued["job_id"]
+    assert send.call_args.kwargs["soft_time_limit"] == 1200
+    assert send.call_args.kwargs["time_limit"] == 1260
+    assert redis.expiries[api_editor.AI_JOB_OWNER_PREFIX + "7"] == 2220
+    assert queued["poll_timeout_ms"] == 2220000
+    with patch.object(
+        api_editor,
+        "_readiness_check_result",
+        return_value={"review": {"actionable": []}},
+    ):
+        assert api_editor._run_ai_job_with_capacity(**send.call_args.kwargs["kwargs"])
+    assert redis.lock_timeouts["da:alweaver:editor:ai-slot:0"] == 1320
+    assert (
+        api_editor._load_job_state(api_editor.AI_JOB, job_id)["status"] == "succeeded"
+    )
+    assert redis.get(api_editor.AI_JOB_OWNER_PREFIX + "7") is None
+
+
+def test_readiness_poll_does_not_expire_long_running_worker_early(jobs):
+    with api_editor.app.test_request_context("/"):
+        response = api_editor._queue_ai_job("readiness-check", 7, {}, "test-request")
+    job_id = response.get_json()["data"]["job_id"]
+    api_editor._update_job_state(
+        api_editor.AI_JOB, job_id, status="running", queued_at=time.time() - 1200
+    )
+    with patch.object(
+        api_editor.workerapp,
+        "AsyncResult",
+        return_value=SimpleNamespace(state="STARTED"),
+    ):
+        with api_editor.app.test_request_context("/"):
+            assert (
+                api_editor.editor_api_ai_job(job_id).get_json()["data"]["status"]
+                == "running"
+            )
+    api_editor._update_job_state(
+        api_editor.AI_JOB, job_id, queued_at=time.time() - 2200
+    )
+    with api_editor.app.test_request_context("/"):
+        assert (
+            api_editor.editor_api_ai_job(job_id).get_json()["data"]["status"]
+            == "expired"
+        )
