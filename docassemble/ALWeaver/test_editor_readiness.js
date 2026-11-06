@@ -11,6 +11,7 @@ elements['readiness-review-level'].value = 'precision';
 let pending;
 const requests = [];
 const context = {
+  BOOT: {features: {assistant_status: {available: true}}},
   document: {getElementById: id => elements[id]},
   state: {project: 'project', filename: 'main.yml'},
   getValidationSourceSnapshot: () => ({rawYaml: 'unsaved YAML'}),
@@ -78,5 +79,45 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
   assert.match(elements['readiness-results'].innerHTML, /Automated checks and coverage/);
   assert.ok(!elements['readiness-results'].innerHTML.includes('<script>'));
   assert.strictEqual(elements['readiness-download'].disabled, false);
+  // A long finding becomes a bounded, persisted draft. Existing assistant
+  // sessions are preserved, and unavailable assistants expose no repair button.
+  const finding = {
+    code: 'STYLE001', message: 'Review this label', file_name: 'docassemble/Test/data/questions/changed.yml',
+    context: {repair_context: {schema_version: 1, block_index: 0, source_sha256: 'hash', source_yaml: 'x'.repeat(12000)}},
+  };
+  context.readinessReport.findings = [finding];
+  context.agentEditorEnabled = () => true;
+  context.BOOT.features.assistant_status.available = false;
+  context.renderReadinessReport();
+  assert.ok(!elements['readiness-results'].innerHTML.includes('data-finding-index'));
+  context.BOOT.features.assistant_status.available = true;
+  context.renderReadinessReport();
+  assert.ok(elements['readiness-results'].innerHTML.includes('data-finding-index'));
+  let prepared;
+  let allowDraft = false;
+  let closed = false;
+  context.agentChat = {prepareDraft: (message, expectedSource) => {
+    prepared = {message, expectedSource}; return allowDraft;
+  }};
+  context.closeBootstrapModal = () => {closed = true;};
+  context.setAssistantOpen = () => {};
+  context.draftReadinessRepair(0);
+  pending({success: true, data: finding});
+  await flush();
+  assert.ok(!closed, 'existing candidate is preserved');
+  assert.match(elements['readiness-status'].textContent, /busy or unavailable/);
+  allowDraft = true;
+  context.draftReadinessRepair(0);
+  pending({success: true, data: finding});
+  await flush();
+  assert.ok(closed);
+  assert.ok(prepared.message.length < 8000);
+  assert.ok(prepared.message.includes('source_sha256'));
+  assert.strictEqual(prepared.expectedSource, 'unsaved YAML');
+  context.getValidationSourceSnapshot = () => {throw new Error('Order builder has unsaved edits');};
+  const before = requests.length;
+  context.draftReadinessRepair(0);
+  assert.strictEqual(requests.length, before);
+  assert.strictEqual(elements['readiness-status'].textContent, 'Order builder has unsaved edits');
   console.log('Readiness controls passed');
 })().catch(error => {console.error(error); process.exitCode = 1;});

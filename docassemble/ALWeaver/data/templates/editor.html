@@ -1407,7 +1407,7 @@
       <div class="row g-3 mb-3">
         <div class="col-md-4"><label for="readiness-review-level" class="form-label">Style review breadth</label><select id="readiness-review-level" class="form-select"><option value="precision">Precision</option><option value="thorough">Thorough</option></select></div>
         <div class="col-md-4"><label for="readiness-model" class="form-label">AI model (optional)</label><input id="readiness-model" class="form-control" type="text"><div class="form-text">Leave blank to use the server's checker configuration.</div></div>
-        <div class="col-md-4 align-self-center"><div class="form-check"><input id="readiness-include-llm" class="form-check-input" type="checkbox"><label for="readiness-include-llm" class="form-check-label">Include remote AI style review</label></div><div class="form-text">Sends interview text to the configured provider and may incur costs. Credentials stay on the server.</div></div>
+        <div class="col-md-4 align-self-center"><div class="form-check"><input id="readiness-include-llm" class="form-check-input" type="checkbox"><label for="readiness-include-llm" class="form-check-label">Include remote AI style review</label></div><div class="form-text">Sends question YAML from all files in this package to the configured provider and may incur costs. Credentials stay on the server.</div></div>
       </div>
       <label for="readiness-evidence" class="form-label">Review evidence JSON (optional)</label>
       <textarea id="readiness-evidence" class="form-control font-monospace mb-2" rows="3" aria-describedby="readiness-evidence-help"></textarea>

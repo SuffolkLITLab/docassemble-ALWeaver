@@ -271,7 +271,13 @@ def dayamlchecker_findings(
             level = lint_level_from_severity(getattr(severity, "value", severity))
         context = getattr(checker_error, "context", None)
         context = dict(context) if isinstance(context, Mapping) else {}
-        variable = str(context.get("variable") or context.get("field_name") or "")
+        variable = str(
+            context.get("variable")
+            or context.get("field_name")
+            or context.get("var_name")
+            or context.get("field_var")
+            or ""
+        )
         rendered_jinja = bool(getattr(checker_error, "rendered_jinja", False))
         yaml_path = getattr(checker_error, "yaml_path", None) or getattr(
             checker_error, "path", None
@@ -284,7 +290,8 @@ def dayamlchecker_findings(
                 "message": message,
                 "variable": variable,
                 "filename": filename,
-                "line_number": line_number,
+                "line_number": None if rendered_jinja else line_number,
+                "rendered_line_number": line_number if rendered_jinja else None,
                 "source_range": (
                     None
                     if rendered_jinja

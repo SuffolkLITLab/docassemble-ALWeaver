@@ -96,6 +96,7 @@
     });
     return diagnostics
       .flatMap(function (item, index) {
+        if (item.rendered_jinja) return [];
         if (item.filename && item.filename !== filename) return [];
         var start = item.source_range && item.source_range.start;
         var line = Number(start ? start.line : item.line_number);

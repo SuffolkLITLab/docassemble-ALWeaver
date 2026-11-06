@@ -43,6 +43,27 @@ def utc_timestamp() -> float:
     return time.time()
 
 
+def _model_repair_sources(value: Any, seen: set[str]) -> Any:
+    """Keep exact repair source once per block hash in each tool response."""
+    if isinstance(value, list):
+        return [_model_repair_sources(item, seen) for item in value]
+    if not isinstance(value, dict):
+        return value
+    result = {}
+    for key, item in value.items():
+        if key == "repair_context" and isinstance(item, dict):
+            item = dict(item)
+            digest = item.get("source_sha256")
+            if isinstance(digest, str) and "source_yaml" in item:
+                if digest in seen:
+                    item.pop("source_yaml")
+                    item["source_yaml_reference_sha256"] = digest
+                else:
+                    seen.add(digest)
+        result[key] = _model_repair_sources(item, seen)
+    return result
+
+
 @dataclass
 class AgentMessage:
     """One entry in the developer-visible transcript."""
@@ -95,7 +116,7 @@ class AgentToolResult:
             payload["result"] = self.data
         if self.after_revision:
             payload["candidate_revision"] = self.after_revision
-        return payload
+        return _model_repair_sources(payload, set())
 
     def event_dict(self) -> Dict[str, Any]:
         """What the browser renders as a progress line."""

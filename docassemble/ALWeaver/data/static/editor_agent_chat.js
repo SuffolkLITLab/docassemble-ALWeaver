@@ -1006,7 +1006,7 @@
     return {
       render: render,
       prepareDraft: function (message, expectedSource) {
-        if (session || busy) return false;
+        if (session || busy || !isAvailable() || isExhausted()) return false;
         draft = String(message || '');
         externalDraftSource = expectedSource;
         askOnly = false;

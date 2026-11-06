@@ -13340,11 +13340,16 @@
         ' <code>' +
         esc(finding.file_name || '') +
         ':' +
-        esc(String(finding.line_number || '')) +
+        esc(
+          (finding.rendered_jinja ? 'rendered line ' : '') +
+            String(finding.line_number || ''),
+        ) +
         '</code>';
       var currentFile = '/data/questions/' + readinessSnapshot.filename;
       if (
         agentEditorEnabled() &&
+        (!BOOT.features.assistant_status ||
+          BOOT.features.assistant_status.available) &&
         !finding.rendered_jinja &&
         finding.context &&
         finding.context.repair_context &&
@@ -13366,7 +13371,13 @@
 
   function draftReadinessRepair(index) {
     if (!readinessReport || !readinessSnapshot) return;
-    var snapshot = getValidationSourceSnapshot();
+    var snapshot;
+    try {
+      snapshot = getValidationSourceSnapshot();
+    } catch (error) {
+      document.getElementById('readiness-status').textContent = error.message;
+      return;
+    }
     if (
       state.project !== readinessSnapshot.project ||
       state.filename !== readinessSnapshot.filename ||
@@ -13415,7 +13426,7 @@
           JSON.stringify(evidence);
         if (!agentChat.prepareDraft(message, snapshot.rawYaml))
           throw new Error(
-            'Finish the current assistant chat and start a fresh chat before requesting this repair.',
+            'The assistant is busy or unavailable, or already has a candidate. Finish the current chat and start a fresh chat before requesting this repair.',
           );
         closeBootstrapModal('readiness-modal');
         setAssistantOpen(true);

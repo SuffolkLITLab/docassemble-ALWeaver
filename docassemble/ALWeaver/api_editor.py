@@ -5753,6 +5753,31 @@ def _readiness_check_result(uid: int, payload: Dict[str, Any]) -> Dict[str, Any]
         manifest_path=prepared["manifest_path"],
         extra_repository_files=repository_files["files"],
     )
+    config = _daconfig()
+    open_ai = config.get("open ai") or {}
+    assembly_line = config.get("assembly line") or {}
+    if not isinstance(open_ai, dict):
+        open_ai = {}
+    if not isinstance(assembly_line, dict):
+        assembly_line = {}
+    # Resolve provider settings inside the worker. Credentials never enter the
+    # request payload, Redis job state, reports, or the browser.
+    api_key = (
+        os.getenv("OPENAI_API_KEY")
+        or open_ai.get("key")
+        or config.get("openai api key")
+    )
+    base_url = (
+        open_ai.get("base url")
+        or config.get("openai base url")
+        or os.getenv("OPENAI_BASE_URL")
+    )
+    model = (
+        payload.get("model")
+        or assembly_line.get("weaver llm model")
+        or open_ai.get("model")
+        or os.getenv("OPENAI_MODEL")
+    )
     return check_package_snapshot(
         files,
         package=package,
@@ -5761,7 +5786,9 @@ def _readiness_check_result(uid: int, payload: Dict[str, Any]) -> Dict[str, Any]
         evidence=evidence,
         review_level=payload.get("review_level", "precision"),
         include_llm=payload.get("include_llm") is True,
-        model=payload.get("model") or None,
+        model=model or None,
+        openai_api_key=api_key or None,
+        openai_base_url=base_url or None,
     )
 
 

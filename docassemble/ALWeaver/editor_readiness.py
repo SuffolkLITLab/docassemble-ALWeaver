@@ -22,7 +22,8 @@ def repair_context_current(raw_yaml: str, finding: Mapping[str, Any]) -> bool:
         return False
     from dayamlchecker.yaml_structure import parse_interview_documents
 
-    documents, _ = parse_interview_documents(raw_yaml, "interview.yml")
+    normalized = raw_yaml.replace("\r\n", "\n").replace("\r", "\n")
+    documents, _ = parse_interview_documents(normalized, "interview.yml")
     for doc in documents:
         if doc.index == repair.get("block_index"):
             return doc.source_code == repair.get("source_yaml") and hashlib.sha256(
@@ -41,6 +42,8 @@ def check_package_snapshot(
     review_level: str = "precision",
     include_llm: bool = False,
     model: str | None = None,
+    openai_api_key: str | None = None,
+    openai_base_url: str | None = None,
 ) -> dict[str, Any]:
     """Overlay unsaved YAML without changing the Playground or package manifest."""
     from dayamlchecker.readiness import publication_readiness
@@ -49,7 +52,7 @@ def check_package_snapshot(
     if review_level not in {"precision", "thorough"}:
         raise ValueError("Choose precision or thorough review")
     with tempfile.TemporaryDirectory(prefix="weaver-readiness-") as directory:
-        root = Path(directory)
+        root = Path(directory).resolve()
         for name, entry in files.items():
             path = PurePosixPath(name)
             if path.is_absolute() or ".." in path.parts or "\\" in name:
@@ -70,23 +73,48 @@ def check_package_snapshot(
             style_options=RuntimeOptions(
                 style_enabled=True,
                 style_review_level=review_level,
-                style_include_llm=include_llm,
+                style_include_llm=False,
                 style_openai_model=model,
                 spellcheck=None,
             ),
         )
 
-        if include_llm and any(
-            finding.get("message_id") == "style_llm_request_failed"
-            for finding in report.get("findings", [])
-        ):
+        remote_failure = None
+        if include_llm:
+            from billiard.exceptions import SoftTimeLimitExceeded  # type: ignore[import-untyped]
+
+            # Keep a complete local report if the optional provider stage exhausts
+            # the Celery soft limit. Never restart paid calls after the timeout.
+            try:
+                report = publication_readiness(
+                    root,
+                    evidence=evidence,
+                    style_options=RuntimeOptions(
+                        style_enabled=True,
+                        style_review_level=review_level,
+                        style_include_llm=True,
+                        style_openai_model=model,
+                        style_openai_api_key=openai_api_key,
+                        style_openai_base_url=openai_base_url,
+                        spellcheck=None,
+                    ),
+                )
+            except SoftTimeLimitExceeded:
+                remote_failure = "AI style review timed out. Local checks are available; remote review is incomplete."
+            if any(
+                finding.get("message_id")
+                in {"style_llm_request_failed", "style_llm_configuration_error"}
+                for finding in report.get("findings", [])
+            ):
+                remote_failure = "AI style review failed. Check the provider configuration and run the review again."
+        if remote_failure:
             report["checks"].append(
                 {
                     "id": "ai_style_review",
                     "status": "needs_review",
                     "severity": "warning",
                     "release_gate": True,
-                    "detail": "AI style review failed. Check the provider configuration and run the review again.",
+                    "detail": remote_failure,
                 }
             )
             if report["status"] == "pass":

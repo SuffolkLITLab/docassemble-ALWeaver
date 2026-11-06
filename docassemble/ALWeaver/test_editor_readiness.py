@@ -302,6 +302,23 @@ def test_readiness_worker_uses_captured_identity_without_a_logged_in_user():
         "_readiness_owner": {"name": "Tester", "email": "test@example.com"},
     }
     with (
+        patch.dict("os.environ", {}, clear=True),
+        patch.object(
+            api_editor,
+            "_daconfig",
+            return_value={
+                "open ai": {
+                    "key": "test-secret",
+                    "base url": "https://provider.example/v1",
+                    "model": "server-model",
+                },
+                "assembly line": {"weaver llm model": "weaver-model"},
+            },
+        ),
+        patch(
+            f"{api_editor.__package__}.editor_readiness.check_package_snapshot",
+            wraps=check_package_snapshot,
+        ) as run,
         patch.object(
             api_editor,
             "_current_user_id",
@@ -327,6 +344,15 @@ def test_readiness_worker_uses_captured_identity_without_a_logged_in_user():
         ),
     ):
         report = api_editor._readiness_check_result(7, payload)
+        assert run.call_args.kwargs["openai_api_key"] == "test-secret"
+        assert run.call_args.kwargs["openai_base_url"] == "https://provider.example/v1"
+        assert run.call_args.kwargs["model"] == "weaver-model"
+        api_editor._readiness_check_result(
+            7, dict(payload, model="selected-deployment")
+        )
+        assert run.call_args.kwargs["model"] == "selected-deployment"
+        assert "test-secret" not in json.dumps(report)
+        assert "test-secret" not in json.dumps(payload)
     assert (
         report["working_source_sha256"] == hashlib.sha256(SOURCE.encode()).hexdigest()
     )
@@ -349,3 +375,76 @@ def test_failed_ai_review_cannot_produce_a_clean_report():
     assert result["status"] == "needs_review"
     assert result["checks"][-1]["id"] == "ai_style_review"
     assert result["checks"][-1]["status"] == "needs_review"
+
+
+def test_repair_context_accepts_crlf_and_cr_source_with_normalized_checker_blocks():
+    docs, _ = parse_interview_documents(SOURCE)
+    block = docs[1]
+    finding = {
+        "context": {
+            "repair_context": {
+                "schema_version": 1,
+                "block_index": block.index,
+                "source_yaml": block.source_code,
+                "source_sha256": hashlib.sha256(block.source_code.encode()).hexdigest(),
+            }
+        }
+    }
+    assert repair_context_current(SOURCE.replace("\n", "\r\n"), finding)
+    assert repair_context_current(SOURCE.replace("\n", "\r"), finding)
+
+
+def test_remote_timeout_retains_local_report_and_marks_incomplete():
+    from billiard.exceptions import SoftTimeLimitExceeded  # type: ignore[import-untyped]
+
+    local = {
+        "status": "pass",
+        "checks": [{"id": "static_validation", "status": "pass"}],
+        "findings": [],
+    }
+    with patch(
+        "dayamlchecker.readiness.publication_readiness",
+        side_effect=[local, SoftTimeLimitExceeded()],
+    ) as run:
+        result = check(
+            include_llm=True,
+            model="deployment",
+            openai_api_key="test-secret",
+            openai_base_url="https://provider.example/v1",
+        )
+    assert run.call_args_list[0].kwargs["style_options"].style_include_llm is False
+    options = run.call_args_list[1].kwargs["style_options"]
+    assert options.style_include_llm is True
+    assert options.style_openai_api_key == "test-secret"
+    assert options.style_openai_base_url == "https://provider.example/v1"
+    assert result["checks"][0]["id"] == "static_validation"
+    assert result["status"] == "needs_review"
+    assert "timed out" in result["checks"][-1]["detail"]
+    assert "test-secret" not in json.dumps(result)
+
+
+def test_repeated_block_source_is_deduplicated_only_in_model_payload():
+    context = {"repair_context": {"source_yaml": SOURCE, "source_sha256": "same-block"}}
+    diagnostic = {"context": context}
+    result = AgentToolResult(
+        "validate", "success", diagnostics=[diagnostic, diagnostic]
+    )
+    model = result.model_dict()["diagnostics"]
+    assert model[0]["context"]["repair_context"]["source_yaml"] == SOURCE
+    assert "source_yaml" not in model[1]["context"]["repair_context"]
+    assert (
+        model[1]["context"]["repair_context"]["source_yaml_reference_sha256"]
+        == "same-block"
+    )
+    assert result.diagnostics[1]["context"]["repair_context"]["source_yaml"] == SOURCE
+
+
+def test_real_jinja_findings_keep_rendered_location_without_original_offsets():
+    source = "# use jinja\n{% if True %}\ncode: |\n  this is not python!\n{% endif %}\n"
+    findings = dayamlchecker_findings(source, "main.yml")
+    assert findings
+    for finding in findings:
+        assert finding["rendered_jinja"] is True
+        assert finding["rendered_line_number"] is not None
+        assert finding["line_number"] is None
+        assert finding["source_range"] is None

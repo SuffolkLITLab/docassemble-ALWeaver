@@ -634,3 +634,9 @@ process.on('exit', function (code) {
     assert.strictEqual(harness.applied.length, 0);
   }).catch(error => {console.error(error); process.exitCode = 1;});
 }
+
+{
+  const unavailable = createHarness({availability: {available: false, message: 'No model configured'}});
+  assert.strictEqual(unavailable.chat.prepareDraft('Repair finding', 'source'), false);
+  assert.strictEqual(unavailable.calls.length, 0);
+}
