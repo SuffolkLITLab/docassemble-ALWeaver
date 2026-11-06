@@ -27,7 +27,7 @@ dependencies = [
     "numpy>=1.0.4",
     "pikepdf>=5.1.1",
     "formfyxer>=0.3.0a1",
-    "dayamlchecker",
+    "dayamlchecker>=1.8.0",
     "tomli>=1.1.0; python_version < '3.11'",
     "tomli-w>=1.0.0",
 ]

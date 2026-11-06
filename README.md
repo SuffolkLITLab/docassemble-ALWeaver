@@ -277,3 +277,28 @@ open ai:
 ```
 
 See [expanded variable support](variable-support.md) for the unreleased label contracts, standalone address authoring, and service examples.
+
+### Readiness check in the editor
+
+Choose **Interview → Readiness check** to run DAYamlChecker's publication
+pre-flight against a temporary package snapshot of the Playground project. The
+current interview's unsaved YAML is included; save pending template, module, and
+document-setup edits first. No project files are changed by the check.
+
+Precision/thorough style review and optional remote AI review are independent.
+Remote review runs only when selected, uses the checker's server-side OpenAI
+configuration (`OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL`), and
+supports a model/deployment override. Provider failures appear
+in the findings. This check does not imply publication, legal approval, runtime
+verification, or maturity certification.
+
+The report separates automated checks from human review evidence and can be
+downloaded as JSON. To supply prior reviews, paste an evidence object with the
+report's `source_sha256` and review entries containing `passed: true`, `reviewer`,
+`date`, and `evidence`. Use the human review keys shown by the installed checker;
+changed package contents invalidate the evidence. Findings for the current file
+can seed an assistant repair request after their block hash has been verified.
+The assistant's existing diff, validation, and Apply workflow remains in control.
+Rendered-Jinja findings require inspection of the original template.
+
+This integration requires DAYamlChecker 1.8.0 or later for [issue #1209](https://github.com/SuffolkLITLab/docassemble-ALWeaver/issues/1209).

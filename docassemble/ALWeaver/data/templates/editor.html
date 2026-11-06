@@ -59,6 +59,7 @@
 <li><button type="button" class="dropdown-item" data-action="run-style-check"><i class="fa-solid fa-ruler fa-fw me-2" aria-hidden="true"></i>Style check</button></li>
               <li><button type="button" class="dropdown-item" data-action="run-style-check-ai"><i class="fa-solid fa-wand-magic-sparkles fa-fw me-2" aria-hidden="true"></i>Style check + AI suggestions</button></li>
               <li><hr class="dropdown-divider"></li>
+              <li><button type="button" class="dropdown-item" data-action="open-readiness-check"><i class="fa-solid fa-clipboard-check fa-fw me-2" aria-hidden="true"></i>Readiness check</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-assemblyline-settings"><i class="fa-solid fa-sliders fa-fw me-2" aria-hidden="true"></i>AssemblyLine settings</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-standard-playground"><i class="fa-solid fa-flask fa-fw me-2" aria-hidden="true"></i>Open in Playground</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-tests-overview"><i class="fa-solid fa-vial-circle-check fa-fw me-2" aria-hidden="true"></i>Tests</button></li>
@@ -114,6 +115,7 @@
 <li><button type="button" class="dropdown-item" data-action="run-style-check"><i class="fa-solid fa-ruler fa-fw me-2" aria-hidden="true"></i>Style check</button></li>
               <li><button type="button" class="dropdown-item" data-action="run-style-check-ai"><i class="fa-solid fa-wand-magic-sparkles fa-fw me-2" aria-hidden="true"></i>Style check + AI suggestions</button></li>
               <li><hr class="dropdown-divider"></li>
+              <li><button type="button" class="dropdown-item" data-action="open-readiness-check"><i class="fa-solid fa-clipboard-check fa-fw me-2" aria-hidden="true"></i>Readiness check</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-assemblyline-settings"><i class="fa-solid fa-sliders fa-fw me-2" aria-hidden="true"></i>AssemblyLine settings</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-standard-playground"><i class="fa-solid fa-flask fa-fw me-2" aria-hidden="true"></i>Open in Playground</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-tests-overview"><i class="fa-solid fa-vial-circle-check fa-fw me-2" aria-hidden="true"></i>Tests</button></li>
@@ -1394,6 +1396,26 @@
     <div class="modal-header"><h2 class="modal-title fs-5" id="attachment-mappings-title">Attachment field mappings</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
     <div class="modal-body" id="attachment-mappings-body"></div>
     <div class="modal-footer"><span id="attachment-mappings-status" role="status" class="me-auto"></span><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" id="save-attachment-mappings" disabled>Save mappings</button></div>
+  </div></div>
+</div>
+<div class="modal fade" id="readiness-modal" tabindex="-1" aria-labelledby="readiness-title" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><h2 class="modal-title fs-5" id="readiness-title">Readiness check</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+    <div class="modal-body">
+      <p>Check the current Playground package, including unsaved interview edits. This is a local publication pre-flight, not legal approval, Court Forms Online acceptance, or maturity certification. Runtime behavior and the accuracy of review attestations need separate verification.</p>
+      <p><a href="https://assemblyline.suffolklitlab.org/docs/authoring/weaver/authoring_checklist/" target="_blank" rel="noopener">Authoring checklist (opens in a new tab)</a> · <a href="https://projects.suffolklitlab.org/legal-tech-class/docs/legal-tech-overview/maturity-model/" target="_blank" rel="noopener">Maturity model (opens in a new tab)</a></p>
+      <div class="row g-3 mb-3">
+        <div class="col-md-4"><label for="readiness-review-level" class="form-label">Style review breadth</label><select id="readiness-review-level" class="form-select"><option value="precision">Precision</option><option value="thorough">Thorough</option></select></div>
+        <div class="col-md-4"><label for="readiness-model" class="form-label">AI model (optional)</label><input id="readiness-model" class="form-control" type="text"><div class="form-text">Leave blank to use the server's checker configuration.</div></div>
+        <div class="col-md-4 align-self-center"><div class="form-check"><input id="readiness-include-llm" class="form-check-input" type="checkbox"><label for="readiness-include-llm" class="form-check-label">Include remote AI style review</label></div><div class="form-text">Sends interview text to the configured provider and may incur costs. Credentials stay on the server.</div></div>
+      </div>
+      <label for="readiness-evidence" class="form-label">Review evidence JSON (optional)</label>
+      <textarea id="readiness-evidence" class="form-control font-monospace mb-2" rows="3" aria-describedby="readiness-evidence-help"></textarea>
+      <p id="readiness-evidence-help" class="form-text">Paste a prior evidence file. Reviews need passed: true, reviewer, date, and evidence, and must match the report's package source hash. Source changes invalidate prior evidence.</p>
+      <div id="readiness-status" role="status" aria-live="polite"></div>
+      <div id="readiness-results"></div>
+    </div>
+    <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-action="download-readiness-report" id="readiness-download" disabled>Download report</button><button type="button" class="btn btn-primary" data-action="run-readiness-check" id="readiness-run">Run readiness check</button></div>
   </div></div>
 </div>
 <script src="/static/bootstrap/js/bootstrap.bundle.min.js"></script>

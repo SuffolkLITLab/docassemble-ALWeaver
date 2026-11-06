@@ -42,9 +42,14 @@ class TestGenerateInterviewFromPath(unittest.TestCase):
     def _run_dayamlchecker(self, yaml_path: str) -> None:
         from dayamlchecker.yaml_structure import find_errors_from_string
 
-        errors = find_errors_from_string(
-            Path(yaml_path).read_text(encoding="utf-8"), input_file=yaml_path
-        )
+        # Editorial and spelling warnings do not make generated YAML invalid.
+        errors = [
+            error
+            for error in find_errors_from_string(
+                Path(yaml_path).read_text(encoding="utf-8"), input_file=yaml_path
+            )
+            if error.severity.value == "error"
+        ]
         details = "\n".join(
             str(getattr(error, "err_str", "") or error).strip() for error in errors
         )
@@ -525,6 +530,7 @@ question: |
         errors = [
             str(getattr(error, "err_str", "") or error).strip()
             for error in find_errors_from_string(yaml_text, input_file="generated.yml")
+            if error.severity.value == "error"
         ]
         # The publishing metadata only comes from the LLM drafting step
         errors = [error for error in errors if "CourtFormsOnline" not in error]

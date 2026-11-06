@@ -603,3 +603,34 @@ const READY_TURN = TURN_STARTED;
 process.on('exit', function (code) {
   if (code === 0) console.log('editor_agent_chat.js checks passed');
 });
+
+// External repair requests preserve the composer draft and require the same
+// working source at submission and Apply, even if the saved revision is stable.
+{
+  let workingSource = 'id: intro\nquestion: Hi\n';
+  const harness = createHarness({
+    getWorkingSource: () => ({raw_yaml: workingSource, base_revision: 'saved-revision'}),
+    responses: {
+      '/api/agent/sessions': {success: true, data: {agent_session_id: 'agent-1'}},
+      '/api/agent/sessions/agent-1/turn': TURN_STARTED,
+      '/api/agent/sessions/agent-1/progress': finishedProgress(READY_RESULT),
+    },
+  });
+  assert.strictEqual(harness.chat.prepareDraft('Repair verified finding', workingSource), true);
+  harness.chat.render(harness.container);
+  assert.strictEqual(findAll(harness.container, n => n.tagName === 'textarea')[0].value, 'Repair verified finding');
+  workingSource += '# unsaved edit\n';
+  harness.chat.send('Repair verified finding').then(async () => {
+    assert.strictEqual(harness.calls.length, 0, 'stale finding never reaches the assistant');
+    assert.strictEqual(harness.chat.getState(), 'error');
+    harness.chat.prepareDraft('Repair refreshed finding', workingSource);
+    await harness.chat.send('Repair refreshed finding');
+    assert.strictEqual(harness.chat.prepareDraft('Another repair', workingSource), false,
+      'an existing candidate cannot be reused for a newly checked buffer');
+    const count = harness.calls.length;
+    workingSource += '# another unsaved edit\n';
+    await harness.chat.apply();
+    assert.strictEqual(harness.calls.length, count, 'Apply rejects edits made after the repair request');
+    assert.strictEqual(harness.applied.length, 0);
+  }).catch(error => {console.error(error); process.exitCode = 1;});
+}
