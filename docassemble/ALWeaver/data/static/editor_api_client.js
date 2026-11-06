@@ -108,6 +108,7 @@
         });
       };
     var started = Date.now();
+    var pollTimeoutMs = Number(data.poll_timeout_ms) || 19 * 60 * 1000;
     function poll() {
       if (options.isCurrent && !options.isCurrent())
         return Promise.reject(
@@ -116,7 +117,7 @@
             { code: 'stale_response' },
           ),
         );
-      if (Date.now() - started > 19 * 60 * 1000)
+      if (Date.now() - started > pollTimeoutMs)
         return Promise.reject(new EditorApiError('The AI request timed out.'));
       return options.get(data.job_url).then(function (result) {
         var job = result.data || {};

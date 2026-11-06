@@ -1,0 +1,36 @@
+**Verdict: the layout is ready, and there's no overflow or breakage at either width.** Three small content and rendering fixes remain before sign-off.
+
+I read `fix.png`, `mobile.png` and `mobile-finding.png`.
+
+## Assessment
+- **Layout:** The structure holds on desktop and mobile, and the sticky footer doesn't hide any controls.
+- **Clarity:** The verdict, main issue and next step are clear within seconds. The "3 items" count matches R2–R4.
+- **Hierarchy:** The order of verdict, limitation, checklist and details works. The detail section is a bit flat, but still easy to scan.
+- **Mobile readability:** Text size, line length and path wrapping are all fine, with no horizontal scrolling.
+
+## Must-fix
+1. **The R2 excerpt is duplicated:** The `plaintiffs1_signature_date` YAML appears under "Why", then again as the full "Reviewed excerpt" (`mobile-finding.png`). This isn't the intentional repetition you described, because the disclosure reveals nothing new. The YAML is also in body font, so its leading `-` looks like a bullet. Show it once, in the disclosure, as monospace `pre`/`code`.
+2. **The R2 reasoning appears to contradict itself:** "Why" says the supplied materials don't include the acknowledgment form, but "Research rationale" states what the form provides. Both can be true if Source 1 is external, but "Source 1" doesn't show that. Use the source's title and attribute the claim, such as "According to [source title], the court's form…".
+3. **The summary has a plural mismatch:** "After those fixes" follows a single issue, so it should be "After that fix". Make this wording depend on the count, since it looks templated.
+
+## Minor issues (not blockers)
+- **Download button:** Grey outline next to solid blue makes Download report look disabled, even though it's enabled. This is the one I'd fix anyway, since it's the main action after a run.
+- **Verdict card position:** After scrolling, the card sits flush against the modal header, and the top of the desktop focus ring looks clipped. A small `scroll-margin-top` should fix it.
+- **Focus ring:** It shows on desktop but not on mobile. That may just be `:focus-visible` behavior, but it's worth confirming that focus actually lands on the card on mobile.
+
+## Preferences
+- Break paths at slashes; `data/ques` / `tions/` is readable but awkward.
+- Label the completed-state button "Run again" and make it secondary.
+- Separate must-fix from review items in the checklist, because R1 currently looks the same as R2–R4.
+- Reduce the underlining, since full-sentence links are heavy across four rows.
+- Change "so that attachment cannot be generated" to "so the attachment can't be generated", because "so that" briefly reads as purpose.
+
+## Not visible in these screenshots
+I couldn't check these, so they aren't covered by this sign-off:
+- "How this review was done"
+- The specific truncation and includes limits; only the generic banner is visible
+- The 3 web actions and 30 source references
+- Second-opinion output
+- Most of R3, and R4's details
+
+Check that the "see below" pointer lands on a section that names those limits.

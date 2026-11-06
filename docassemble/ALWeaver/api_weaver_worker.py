@@ -245,10 +245,15 @@ def weaver_editor_ai_task(
     import random
 
     with bg_context():
-        from .api_editor import _run_ai_job_with_capacity
+        from .api_editor import _ai_job_limits, _run_ai_job_with_capacity
 
         if not _run_ai_job_with_capacity(job_id, uid, operation, payload):
-            raise self.retry(countdown=random.randint(5, 10))
+            soft_limit, hard_limit = _ai_job_limits(operation)
+            raise self.retry(
+                countdown=random.randint(5, 10),
+                soft_time_limit=soft_limit,
+                time_limit=hard_limit,
+            )
 
 
 @workerapp.task(

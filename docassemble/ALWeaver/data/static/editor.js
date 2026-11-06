@@ -13219,6 +13219,8 @@
     document.getElementById('readiness-results').innerHTML = '';
     document.getElementById('readiness-status').textContent = '';
     document.getElementById('readiness-download').disabled = true;
+    document.getElementById('readiness-issue').disabled = true;
+    document.getElementById('readiness-issue-draft').hidden = true;
     document.getElementById('readiness-run').disabled = false;
     getOrCreateBootstrapModal('readiness-modal').show();
   }
@@ -13226,18 +13228,12 @@
   function runReadinessCheck() {
     var status = document.getElementById('readiness-status');
     var snapshot;
-    var evidence;
     try {
       if (state.sectionDirty || state.documentsDirty)
         throw new Error(
           'Save template, module, or document-setup changes before checking the package.',
         );
       snapshot = getValidationSourceSnapshot();
-      evidence = JSON.parse(
-        document.getElementById('readiness-evidence').value || '{}',
-      );
-      if (!evidence || Array.isArray(evidence) || typeof evidence !== 'object')
-        throw new Error('Review evidence must be a JSON object.');
     } catch (error) {
       status.textContent = error.message;
       return;
@@ -13247,17 +13243,24 @@
     var sequence = ++readinessSequence;
     readinessReport = null;
     document.getElementById('readiness-download').disabled = true;
+    document.getElementById('readiness-issue').disabled = true;
+    document.getElementById('readiness-issue-draft').hidden = true;
     document.getElementById('readiness-run').disabled = true;
     document.getElementById('readiness-results').innerHTML = '';
-    status.textContent = 'Checking the current package…';
+    status.textContent =
+      document.getElementById('readiness-precision').checked ||
+      document.getElementById('readiness-research').checked
+        ? 'Checking the package and reviewing findings with AI in the background. This can take up to 20 minutes after the job starts…'
+        : 'Checking the current package…';
     apiPost('/api/weaver/readiness', {
       project: project,
       filename: filename,
       raw_yaml: snapshot.rawYaml,
-      evidence: evidence,
-      review_level: document.getElementById('readiness-review-level').value,
-      include_llm: document.getElementById('readiness-include-llm').checked,
-      model: document.getElementById('readiness-model').value.trim(),
+      review_level: document.getElementById('readiness-precision').checked
+        ? 'precision'
+        : 'thorough',
+      ai_second_opinion: document.getElementById('readiness-precision').checked,
+      include_research: document.getElementById('readiness-research').checked,
     })
       .then(aiJobResultGuard(null, true))
       .then(function (response) {
@@ -13281,15 +13284,14 @@
           filename: filename,
           rawYaml: snapshot.rawYaml,
         };
-        status.textContent =
-          'Status: ' +
-          readinessReport.status.replace(/_/g, ' ') +
-          '. Review evidence ' +
-          (readinessReport.review_evidence_current
-            ? 'matches this source.'
-            : 'is missing or out of date.');
         renderReadinessReport();
+        var assessment = document.getElementById('readiness-assessment');
+        if (assessment) {
+          assessment.focus();
+          assessment.scrollIntoView({ block: 'start' });
+        }
         document.getElementById('readiness-download').disabled = false;
+        document.getElementById('readiness-issue').disabled = false;
       })
       .catch(function (error) {
         if (sequence === readinessSequence)
@@ -13301,71 +13303,775 @@
       });
   }
 
+  function readinessIssueMarkdown(report, snapshot) {
+    var view = report.author_review || report.review || {};
+    var fixes = (view.actionable || []).filter(function (item) {
+      return item.release_gate && item.priority === 'high';
+    });
+    var review = (view.actionable || []).filter(function (item) {
+      return fixes.indexOf(item) < 0;
+    });
+    var actions = fixes.concat(review);
+    function text(value) {
+      return String(value || '')
+        .replace(/\r/g, '')
+        .replace(/\n/g, ' ')
+        .replace(/([\\`*_{}\[\]<>#])/g, '\\$1');
+    }
+    function message(item) {
+      return text(
+        item.message ||
+          item.detail ||
+          item.description ||
+          'Review this finding',
+      );
+    }
+    function quote(value) {
+      return String(value || '')
+        .split('\n')
+        .map(function (line) {
+          return '> ' + text(line);
+        })
+        .join('\n');
+    }
+    var lines = [
+      '**Assessment: ' +
+        (fixes.length
+          ? 'Fix before publishing.'
+          : review.length
+            ? 'Resolve the findings before publishing.'
+            : 'No publication problems identified by completed checks.') +
+        '**',
+      '',
+      actions.length
+        ? 'Start here: ' + message(actions[0])
+        : 'Review the coverage notes below before drawing conclusions.',
+      '',
+      'This AI-assisted readiness review checks a minimum floor for publication: a useful interview that does not introduce clear errors. Optional improvements are not publication requirements.',
+      '',
+      '## Pre-publication checklist',
+      '',
+    ];
+    actions.forEach(function (item, index) {
+      lines.push(
+        '- [ ] ' +
+          (index < fixes.length ? 'Fix: ' : 'Resolve or explain: ') +
+          message(item) +
+          ' (R' +
+          (index + 1) +
+          ')',
+      );
+    });
+    if (!actions.length)
+      lines.push('No action items were identified by the completed checks.');
+    if (actions.length)
+      lines.push(
+        '- [ ] Re-run the readiness check after changes and link the fix commits or explain why a finding does not apply.',
+      );
+    lines.push('', '## Findings', '');
+    function details(item, label) {
+      lines.push('### ' + label + ' · ' + message(item), '');
+      if (item.file)
+        lines.push(
+          '**Where:** ' +
+            text(item.file) +
+            ((item.lines || []).length
+              ? ' (lines ' + item.lines.join(', ') + ')'
+              : item.line
+                ? ' (line ' + item.line + ')'
+                : ''),
+          '',
+        );
+      if (item.reason || item.ai_review_reason)
+        lines.push(
+          '**Why this matters:** ' + text(item.ai_review_reason || item.reason),
+          '',
+        );
+      var evidence = item.evidence || {};
+      if ((evidence.missing || []).length)
+        lines.push('**Missing:** ' + evidence.missing.map(text).join(', '), '');
+      (evidence.notes || []).forEach(function (note) {
+        lines.push(
+          '- ' +
+            text(typeof note === 'string' ? note : note.detail || note.message),
+        );
+      });
+      (evidence.templates || []).forEach(function (template) {
+        lines.push('', '**Template:** ' + text(template.file));
+        (template.notes || []).forEach(function (note) {
+          lines.push(
+            '- ' +
+              text(
+                typeof note === 'string' ? note : note.detail || note.message,
+              ),
+          );
+        });
+      });
+      (item.finding_indexes || []).forEach(function (index) {
+        var finding =
+          item.source === 'research'
+            ? ((report.research || {}).findings || [])[index]
+            : (report.findings || [])[index];
+        if (!finding) return;
+        if (finding.source_explanation)
+          lines.push(
+            '**Research interpretation:** ' + text(finding.source_explanation),
+            '',
+          );
+        var excerpt =
+          finding.local_quote ||
+          ((finding.context || {}).repair_context || {}).source_yaml;
+        if (excerpt)
+          lines.push('**Reviewed excerpt:**', '', quote(excerpt), '');
+        (finding.source_urls || [])
+          .filter(function (url) {
+            return /^https?:\/\//i.test(url);
+          })
+          .forEach(function (url) {
+            lines.push(
+              '- [Legal source](' +
+                encodeURI(url).replace(/\(/g, '%28').replace(/\)/g, '%29') +
+                ')',
+            );
+          });
+      });
+      if (item.ai_review_quote)
+        lines.push(
+          '',
+          '**Second-opinion evidence:**',
+          '',
+          quote(item.ai_review_quote),
+          '',
+        );
+      lines.push('');
+    }
+    actions.forEach(function (item, index) {
+      details(
+        item,
+        'R' +
+          (index + 1) +
+          (index < fixes.length
+            ? ' · Fix before publishing'
+            : ' · Needs review'),
+      );
+    });
+    if ((view.cleanup || []).length) {
+      lines.push(
+        '<details>',
+        '<summary>Optional improvements — not needed for publication</summary>',
+        '',
+      );
+      view.cleanup.forEach(function (item, index) {
+        details(item, 'O' + (index + 1));
+      });
+      lines.push('</details>', '');
+    }
+    lines.push(
+      '## Reviewed version and coverage',
+      '',
+      'Generated ' +
+        new Date().toISOString() +
+        ' for Playground project **' +
+        text(snapshot.project) +
+        '**, interview **' +
+        text(snapshot.filename) +
+        '**.',
+      '',
+      'Includes unsaved interview edits. This snapshot has not been verified to match GitHub. Later changes are not covered.',
+      '',
+    );
+    ((report.local_scope && report.local_scope.entrypoints) || []).forEach(
+      function (entry) {
+        lines.push('- Reviewed entrypoint: ' + text(entry.file));
+        (entry.unresolved_includes || []).forEach(function (name) {
+          lines.push(
+            '  - Included source outside the reviewed local scope: ' +
+              text(name),
+          );
+        });
+      },
+    );
+    ['research', 'ai_review'].forEach(function (key) {
+      var stage = report[key];
+      lines.push(
+        '',
+        (key === 'research'
+          ? '**Legal-source research:** '
+          : '**AI second opinion:** ') +
+          text(stage ? stage.execution_status : 'not run'),
+      );
+      if (stage && stage.error) lines.push(text(stage.error));
+      ((stage && stage.coverage_gaps) || []).forEach(function (gap) {
+        lines.push('- ' + text(gap));
+      });
+    });
+    (view.coverage || []).forEach(function (item) {
+      lines.push('- ' + message(item));
+    });
+    lines.push(
+      '',
+      'This review does not run the interview or establish legal accuracy or publication approval.',
+      '',
+      '[Authoring checklist](https://assemblyline.suffolklitlab.org/docs/authoring/weaver/authoring_checklist/) · [Legal app maturity model](https://projects.suffolklitlab.org/legal-tech-class/docs/legal-tech-overview/maturity-model/)',
+    );
+    return lines.join('\n');
+  }
+
+  function openReadinessIssueDraft() {
+    var status = document.getElementById('readiness-status');
+    if (!readinessReport || !readinessSnapshot) return;
+    var currentYaml;
+    try {
+      currentYaml = getValidationSourceSnapshot().rawYaml;
+    } catch (error) {
+      status.textContent = error.message;
+      return;
+    }
+    if (
+      state.project !== readinessSnapshot.project ||
+      state.filename !== readinessSnapshot.filename ||
+      currentYaml !== readinessSnapshot.rawYaml ||
+      state.sectionDirty ||
+      state.documentsDirty
+    ) {
+      status.textContent =
+        'The source changed. Run the readiness check again before creating an issue.';
+      return;
+    }
+    var sync = (state.projectSyncs || {})[readinessSnapshot.project];
+    if (
+      !sync ||
+      !/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+$/.test(sync.repository_url)
+    ) {
+      status.textContent =
+        'Connect this Playground project to a GitHub repository first using Publish to GitHub or import from GitHub.';
+      return;
+    }
+    var panel = document.getElementById('readiness-issue-draft');
+    panel.dataset.repository = sync.repository_url;
+    panel.dataset.project = readinessSnapshot.project;
+    document.getElementById('readiness-issue-repository').textContent =
+      sync.repository_url;
+    document.getElementById('readiness-issue-title').value =
+      'Publication readiness review: ' + readinessSnapshot.project;
+    document.getElementById('readiness-issue-body').value =
+      readinessIssueMarkdown(readinessReport, readinessSnapshot);
+    document.getElementById('readiness-issue-status').textContent = '';
+    document.getElementById('readiness-issue-submit').disabled = false;
+    panel.hidden = false;
+    document.getElementById('readiness-issue-title').focus();
+    panel.scrollIntoView({ block: 'start' });
+  }
+
+  function publishReadinessIssue() {
+    var panel = document.getElementById('readiness-issue-draft');
+    var button = document.getElementById('readiness-issue-submit');
+    var status = document.getElementById('readiness-issue-status');
+    if (button.disabled) return;
+    var currentYaml;
+    try {
+      currentYaml = getValidationSourceSnapshot().rawYaml;
+    } catch (error) {
+      status.textContent = error.message;
+      return;
+    }
+    if (
+      !readinessSnapshot ||
+      state.project !== readinessSnapshot.project ||
+      state.filename !== readinessSnapshot.filename ||
+      currentYaml !== readinessSnapshot.rawYaml ||
+      state.sectionDirty ||
+      state.documentsDirty
+    ) {
+      status.textContent =
+        'The source changed. Run the readiness check again and prepare a new draft.';
+      return;
+    }
+    var title = document.getElementById('readiness-issue-title').value.trim();
+    var body = document.getElementById('readiness-issue-body').value.trim();
+    if (!title || title.length > 256 || !body || body.length > 60000) {
+      status.textContent =
+        'Enter a title (up to 256 characters) and a description (up to 60,000 characters). Shorten the draft if needed; your edits are preserved.';
+      return;
+    }
+    button.disabled = true;
+    document.getElementById('readiness-run').disabled = true;
+    document.getElementById('readiness-issue').disabled = true;
+    status.textContent = 'Creating issue…';
+    apiPost('/api/weaver/readiness/issue', {
+      project: panel.dataset.project,
+      repository_url: panel.dataset.repository,
+      title: document.getElementById('readiness-issue-title').value,
+      body: document.getElementById('readiness-issue-body').value,
+    })
+      .then(function (response) {
+        if (!response.success)
+          throw new Error(
+            (response.error && response.error.message) ||
+              'GitHub could not create the issue.',
+          );
+        status.innerHTML =
+          'Created <a target="_blank" rel="noopener" href="' +
+          esc(response.data.url) +
+          '">issue #' +
+          esc(response.data.number) +
+          '<span class="visually-hidden"> (opens in a new tab)</span></a>.';
+        document.getElementById('readiness-issue').disabled = true;
+      })
+      .catch(function (error) {
+        status.textContent =
+          (error.message || 'Could not confirm issue creation.') +
+          ' Check the repository for an existing issue before retrying.';
+        button.disabled = false;
+        document.getElementById('readiness-issue').disabled = false;
+      })
+      .finally(function () {
+        document.getElementById('readiness-run').disabled = false;
+      });
+  }
+
   function renderReadinessReport() {
     var report = readinessReport;
-    var html =
-      '<p>Package source hash: <code>' +
-      esc(report.source_sha256) +
-      '</code></p>';
-    [false, true].forEach(function (reviews) {
-      html +=
-        '<h3 class="h6 mt-3">' +
-        (reviews ? 'Human review evidence' : 'Automated checks and coverage') +
-        '</h3><ul>';
-      (report.checks || [])
-        .filter(function (check) {
-          return Boolean(check.maturity_level) === reviews;
-        })
-        .forEach(function (check) {
-          html +=
-            '<li><strong>' +
-            esc(check.id.replace(/_/g, ' ')) +
-            '</strong>: ' +
-            esc(check.status.replace(/_/g, ' ')) +
-            ' — ' +
-            esc(check.description || check.detail || '') +
-            '<details><summary>Check details</summary><pre class="text-wrap">' +
-            esc(JSON.stringify(check, null, 2)) +
-            '</pre></details></li>';
-        });
-      html += '</ul>';
+    var view = report.author_review || report.review || {};
+    var actionable = view.actionable || [];
+    var fixes = actionable.filter(function (item) {
+      return item.release_gate && item.priority === 'high';
     });
-    html += '<h3 class="h6 mt-3">Findings</h3><ul>';
-    (report.findings || []).forEach(function (finding, index) {
+    var review = actionable.filter(function (item) {
+      return fixes.indexOf(item) === -1;
+    });
+    var ai = report.ai_review;
+    var research = report.research;
+    var researchIncomplete =
+      research && research.execution_status !== 'completed';
+    var incomplete =
+      ai && !['completed', 'not_needed'].includes(ai.execution_status);
+    var gaps = ai ? ai.coverage_gaps || [] : [];
+    var researchGaps = research ? research.coverage_gaps || [] : [];
+    var limited =
+      incomplete ||
+      researchIncomplete ||
+      researchGaps.length ||
+      gaps.length ||
+      (view.coverage || []).length;
+    document.getElementById('readiness-status').textContent =
+      fixes.length +
+      ' to fix before publishing · ' +
+      review.length +
+      ' to review' +
+      (researchIncomplete
+        ? ' · Legal-source research incomplete'
+        : incomplete
+          ? ' · AI second opinion incomplete'
+          : limited
+            ? ' · Review coverage limited'
+            : '');
+    var assessment = fixes.length
+      ? 'Fix before publishing.'
+      : review.length
+        ? 'Review the findings before publishing.'
+        : limited
+          ? 'No fixes identified in the completed checks; review coverage is limited.'
+          : 'No publication problems detected by the completed checks.';
+    var focus = fixes.length ? fixes : review;
+    var statusTone = fixes.length
+      ? 'danger'
+      : review.length || limited
+        ? 'warning'
+        : 'success';
+    var statusIcon = fixes.length
+      ? 'fa-circle-exclamation'
+      : review.length
+        ? 'fa-magnifying-glass'
+        : limited
+          ? 'fa-circle-question'
+          : 'fa-circle-check';
+    var html =
+      '<div class="editor-readiness-assessment editor-readiness-' +
+      statusTone +
+      ' mb-3" id="readiness-assessment" tabindex="-1">' +
+      '<span class="editor-readiness-icon" aria-hidden="true"><i class="fa-solid ' +
+      statusIcon +
+      '"></i></span>' +
+      '<div class="editor-readiness-summary"><h3 class="h6 mb-2"><span class="visually-hidden">Assessment: </span>' +
+      esc(assessment) +
+      '</h3>';
+    if (focus.length) html += '<p class="mb-2">';
+    if (focus.length) {
       html +=
-        '<li class="mb-2"><strong>' +
-        esc(finding.readiness_severity || finding.severity || '') +
-        '</strong> ' +
-        esc(finding.message || '') +
-        ' <code>' +
-        esc(finding.file_name || '') +
-        ':' +
+        (fixes.length ? 'The main issue: ' : 'Focus your review here: ') +
         esc(
-          (finding.rendered_jinja ? 'rendered line ' : '') +
-            String(finding.line_number || ''),
-        ) +
-        '</code>';
-      var currentFile = '/data/questions/' + readinessSnapshot.filename;
-      if (
-        agentEditorEnabled() &&
-        (!BOOT.features.assistant_status ||
-          BOOT.features.assistant_status.available) &&
-        !finding.rendered_jinja &&
-        finding.context &&
-        finding.context.repair_context &&
-        (finding.file_name || '').endsWith(currentFile)
-      )
+          (focus.length === 1 && focus[0].reason) ||
+            focus[0].message ||
+            focus[0].detail ||
+            'Review the first finding below.',
+        );
+      if (focus.length > 1)
         html +=
-          ' <button type="button" class="btn btn-sm btn-outline-primary" data-action="draft-readiness-repair" data-finding-index="' +
-          index +
-          '">Draft repair with assistant</button>';
+          ' Then address the other ' +
+          (focus.length - 1) +
+          (focus.length === 2 ? ' item' : ' items') +
+          ' in that section.';
+      if (fixes.length && review.length)
+        html +=
+          (fixes.length === 1
+            ? ' After that fix, resolve the '
+            : ' After those fixes, resolve the ') +
+          review.length +
+          (review.length === 1 ? ' item needing' : ' items needing') +
+          ' your judgment.';
+    }
+    if (focus.length) html += '</p>';
+    if (incomplete)
       html +=
-        '<details><summary>Rule and evidence</summary><pre class="text-wrap">' +
-        esc(JSON.stringify(finding, null, 2)) +
-        '</pre></details></li>';
+        '<p class="alert alert-warning">The AI second opinion did not finish. ' +
+        (actionable.length
+          ? 'Review the findings from the completed stages.'
+          : 'No findings were identified by the completed stages. Run the check again to retry the second opinion.') +
+        '</p>';
+    else if (gaps.length)
+      html +=
+        '<p class="small">The AI reviewed limited source context. It may have missed information elsewhere that changes a finding; see “How this review was done” below.</p>';
+    html += '</div></div>';
+
+    if (researchIncomplete)
+      html +=
+        '<p class="alert alert-warning">Legal-source research is incomplete. Review the findings and coverage limits; this is not a complete legal review.</p>';
+    var actions = fixes.concat(review);
+    if (actions.length > 1) {
+      html +=
+        '<h3 class="h6 mt-3">Action checklist</h3><ul class="list-unstyled">';
+      actions.forEach(function (item, index) {
+        html +=
+          '<li class="mb-2">R' +
+          (index + 1) +
+          ' · <a href="#readiness-action-' +
+          index +
+          '">' +
+          esc(item.message || '') +
+          '</a></li>';
+      });
+      html += '</ul>';
+    }
+    function renderItems(items) {
+      var result = '<ol class="list-unstyled">';
+      items.forEach(function (item) {
+        var actionIndex = actions.indexOf(item);
+        result +=
+          '<li class="mb-3"' +
+          (actionIndex >= 0
+            ? ' id="readiness-action-' + actionIndex + '"'
+            : '') +
+          '><p class="mb-1">' +
+          (actionIndex >= 0
+            ? '<strong>R' + (actionIndex + 1) + ' · What to address:</strong> '
+            : '') +
+          esc(
+            item.message || item.detail || item.description || item.id || '',
+          ) +
+          '</p>';
+        if (item.file)
+          result +=
+            '<p class="small mb-1"><strong>Where:</strong> <code>' +
+            esc(item.file) +
+            ((item.lines || []).length
+              ? ':' + esc(item.lines.join(', '))
+              : item.line
+                ? ':' + esc(item.line)
+                : '') +
+            '</code></p>';
+        if (item.reason || item.ai_review_reason)
+          result +=
+            '<p class="mb-1"><strong>' +
+            (item.source === 'research' && item.ai_review_reason
+              ? 'Second opinion:'
+              : 'Why:') +
+            '</strong> ' +
+            esc(item.ai_review_reason || item.reason) +
+            '</p>';
+        var quoteAlreadyShown =
+          item.source === 'research' &&
+          (item.finding_indexes || []).some(function (index) {
+            return (
+              research &&
+              (research.findings || [])[index] &&
+              research.findings[index].local_quote === item.ai_review_quote
+            );
+          });
+        if (item.ai_review_quote && !quoteAlreadyShown)
+          result +=
+            '<details><summary>Second-opinion evidence</summary><pre class="editor-readiness-excerpt">' +
+            esc(item.ai_review_quote) +
+            '</pre></details>';
+        if (
+          item.evidence &&
+          item.evidence.missing &&
+          item.evidence.missing.length
+        )
+          result +=
+            '<p><strong>Missing:</strong> ' +
+            esc(item.evidence.missing.join(', ')) +
+            '</p>';
+        if (item.source === 'research') {
+          (item.finding_indexes || []).forEach(function (index) {
+            var finding = research && (research.findings || [])[index];
+            if (!finding) return;
+            if (finding.source_explanation)
+              result +=
+                '<p><strong>Research interpretation of external sources:</strong> ' +
+                esc(finding.source_explanation) +
+                '</p>';
+            if (finding.local_quote)
+              result +=
+                '<details><summary>Reviewed excerpt</summary><pre class="editor-readiness-excerpt">' +
+                esc(finding.local_quote) +
+                '</pre></details>';
+            var links = (finding.source_urls || []).filter(function (url) {
+              return /^https?:\/\//i.test(url);
+            });
+            if (links.length)
+              result +=
+                '<p><strong>External legal sources:</strong> ' +
+                links
+                  .map(function (url, n) {
+                    var source = ((research && research.sources) || []).find(
+                      function (entry) {
+                        return entry.url === url;
+                      },
+                    );
+                    var title =
+                      source && source.title && source.title !== url
+                        ? source.title
+                        : url.replace(/^https?:\/\//i, '');
+                    return (
+                      '<a href="' +
+                      esc(url) +
+                      '" target="_blank" rel="noopener noreferrer">' +
+                      esc(title) +
+                      '<span class="visually-hidden"> (opens in a new tab)</span></a>'
+                    );
+                  })
+                  .join(' · ') +
+                '</p>';
+          });
+        }
+        var firstFinding =
+          item.source === 'static' && (item.finding_indexes || []).length
+            ? (report.findings || [])[item.finding_indexes[0]]
+            : null;
+        var repair =
+          firstFinding &&
+          firstFinding.context &&
+          firstFinding.context.repair_context;
+        if (repair && repair.source_yaml) {
+          var lines = repair.source_yaml.split('\n');
+          var startLine = Number(repair.block_start_line || 1);
+          var focus = Math.max(0, Number(item.line || startLine) - startLine);
+          var from = Math.max(0, focus - 4);
+          var excerpt = lines
+            .slice(from, from + 12)
+            .map(function (line, index) {
+              return startLine + from + index + ': ' + line;
+            })
+            .join('\n');
+          result +=
+            '<details><summary>Reviewed source excerpt</summary><pre class="editor-readiness-excerpt">' +
+            esc(excerpt) +
+            '</pre></details>';
+        }
+        (item.source === 'static' ? item.finding_indexes || [] : []).forEach(
+          function (index) {
+            var finding = (report.findings || [])[index];
+            if (!finding) return;
+            var currentFile = '/data/questions/' + readinessSnapshot.filename;
+            if (
+              agentEditorEnabled() &&
+              (!BOOT.features.assistant_status ||
+                BOOT.features.assistant_status.available) &&
+              !finding.rendered_jinja &&
+              finding.context &&
+              finding.context.repair_context &&
+              (finding.file_name || '').endsWith(currentFile)
+            )
+              result +=
+                '<button type="button" class="btn btn-sm btn-outline-primary" data-action="draft-readiness-repair" data-finding-index="' +
+                index +
+                '">Draft repair with assistant</button>';
+          },
+        );
+        var evidence = item.evidence || {};
+        var evidenceHtml = '';
+        function evidenceList(records) {
+          return (records || [])
+            .map(function (record) {
+              if (typeof record === 'string')
+                return '<li>' + esc(record) + '</li>';
+              var text = record.detail || record.message || record.description;
+              if (!text) return '';
+              if (Array.isArray(record.fields) && record.fields.length)
+                text += ' Names to inspect: ' + record.fields.join(', ') + '.';
+              return (
+                '<li>' +
+                (record.file ? '<code>' + esc(record.file) + '</code>: ' : '') +
+                esc(text) +
+                (record.reference
+                  ? ' <code>' + esc(record.reference) + '</code>'
+                  : '') +
+                '</li>'
+              );
+            })
+            .join('');
+        }
+        var notes =
+          evidenceList(evidence.notes) +
+          evidenceList(Array.isArray(evidence.errors) ? evidence.errors : []);
+        if (notes) evidenceHtml += '<ul>' + notes + '</ul>';
+        (evidence.templates || []).forEach(function (template) {
+          var templateNotes = evidenceList(template.notes);
+          if (templateNotes)
+            evidenceHtml +=
+              '<p><strong>Template:</strong> <code>' +
+              esc(template.file || '') +
+              '</code></p><ul>' +
+              templateNotes +
+              '</ul>';
+        });
+        if (
+          evidence.reference &&
+          !String(item.message || '').includes(evidence.reference)
+        )
+          evidenceHtml +=
+            '<p><strong>Referenced file:</strong> <code>' +
+            esc(evidence.reference) +
+            '</code></p>';
+        if (evidenceHtml)
+          result +=
+            '<details><summary>Supporting details</summary>' +
+            evidenceHtml +
+            '</details>';
+        result += '</li>';
+      });
+      return result + '</ol>';
+    }
+    if (fixes.length)
+      html +=
+        '<h3 class="h6 mt-3">Fix before publishing</h3>' + renderItems(fixes);
+    if (review.length)
+      html +=
+        '<h3 class="h6 mt-3">Needs your review</h3>' + renderItems(review);
+    [
+      ['cleanup', 'Optional improvements — not needed for publication'],
+      ['coverage', 'Review limitations'],
+      ['ai_dismissed', 'Dismissed by the AI second opinion'],
+    ].forEach(function (section) {
+      var items = view[section[0]] || [];
+      if (items.length)
+        html +=
+          '<details class="mt-3"><summary>' +
+          section[1] +
+          ' (' +
+          items.length +
+          ')</summary>' +
+          renderItems(items) +
+          '</details>';
     });
     html +=
-      '</ul><p>This report describes the snapshot at the time of the check. Run it again after editing.</p>';
+      '<p class="small mt-3">This review does not establish legal accuracy or publication approval. Run it again after editing.</p>';
+    var passed = (report.checks || []).filter(function (check) {
+      return check.status === 'pass';
+    }).length;
+    html +=
+      '<details class="mt-3"><summary>How this review was done and what it could miss</summary><p>The local checker inspected the package snapshot, including unsaved interview edits. ' +
+      passed +
+      ' checks passed; findings needing attention are listed above.</p>';
+    if (ai)
+      html +=
+        '<p>' +
+        (incomplete
+          ? 'The AI second opinion was incomplete.'
+          : ai.execution_status === 'not_needed'
+            ? 'The checker found no candidates for an AI second opinion.'
+            : 'An AI second opinion reviewed candidate findings against the source context supplied to it.') +
+        ' This second opinion does not independently verify every legal source or possible problem.</p>';
+    else
+      html +=
+        '<p>This report used local checks without an AI second opinion.</p>';
+    var scope = report.local_scope || {};
+    var entrypoints = scope.entrypoints || [];
+    if (entrypoints.length) {
+      html +=
+        '<details class="mt-3"><summary>Reviewed files and scope (' +
+        entrypoints.length +
+        ' entrypoints)</summary><ul>';
+      entrypoints.forEach(function (entry) {
+        html += '<li><code>' + esc(entry.file) + '</code>';
+        if ((entry.unresolved_includes || []).length)
+          html +=
+            '<p>Included sources outside the reviewed local scope: ' +
+            entry.unresolved_includes
+              .map(function (name) {
+                return '<code>' + esc(name) + '</code>';
+              })
+              .join(', ') +
+            '</p>';
+        html += '</li>';
+      });
+      html +=
+        '</ul><p>Findings cover these interviews and their local includes. External includes and dynamic paths may need separate review.</p></details>';
+    }
+
+    if (research) {
+      html +=
+        '<p>Legal-source research used DAYamlChecker’s AI web-search mode to compare interview instructions with external sources. Research findings are proposals for human review, not legal approval.</p>';
+      if (researchIncomplete)
+        html +=
+          '<p>Research did not complete all checks. ' +
+          esc(research.error || '') +
+          '</p>';
+      if (researchGaps.length)
+        html +=
+          '<ul>' +
+          researchGaps
+            .map(function (gap) {
+              return '<li>' + esc(gap) + '</li>';
+            })
+            .join('') +
+          '</ul>';
+      if ((research.unresolved_questions || []).length)
+        html +=
+          '<p>Unresolved questions:</p><ul>' +
+          research.unresolved_questions
+            .map(function (question) {
+              return '<li>' + esc(question) + '</li>';
+            })
+            .join('') +
+          '</ul>';
+    } else
+      html +=
+        '<p>Legal-source research was not run. This report does not compare instructions with current legal authorities.</p>';
+    if (gaps.length) {
+      html +=
+        '<p>The local YAML checks read the full local files. The AI context had these limits:</p><ul>';
+      gaps.forEach(function (gap) {
+        var explanation = String(gap)
+          .replace(
+            /^Text truncated: /,
+            'Only part of this file was sent to the AI: ',
+          )
+          .replace(
+            /^Review context shortened: /,
+            'The AI received shortened context for: ',
+          )
+          .replace(
+            /^Runtime includes are not expanded: /,
+            'Included source was not expanded for the AI at: ',
+          );
+        html += '<li>' + esc(explanation) + '</li>';
+      });
+      html +=
+        '</ul><p>Missing context may change whether a finding is valid. Check the surrounding source before acting on uncertain suggestions.</p>';
+    }
+    html += '</details>';
     document.getElementById('readiness-results').innerHTML = html;
   }
 
@@ -25233,6 +25939,16 @@
     if (uiAction === 'draft-readiness-repair') {
       e.preventDefault();
       draftReadinessRepair(Number(actionControl.dataset.findingIndex));
+      return;
+    }
+    if (uiAction === 'draft-readiness-issue') {
+      e.preventDefault();
+      openReadinessIssueDraft();
+      return;
+    }
+    if (uiAction === 'publish-readiness-issue') {
+      e.preventDefault();
+      publishReadinessIssue();
       return;
     }
     if (uiAction === 'download-readiness-report') {

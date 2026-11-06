@@ -152,6 +152,7 @@ from .docassemble_compat import (
     github_authorization_url,
     normalize_github_repository_url,
     get_native_github_integration,
+    create_github_issue,
     list_playground_users,
     select_playground_user,
     get_redis_client,
@@ -3122,6 +3123,59 @@ def _github_publish_diff(
     return changes, names
 
 
+@app.route(f"{EDITOR_BASE_PATH}/api/weaver/readiness/issue", methods=["POST"])
+def editor_api_readiness_issue() -> Response:
+    """Create the author's reviewed draft in this project's connected repository."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        data = request.get_json(silent=True) or {}
+        project = _normalize_project(data.get("project"))
+        sync = find_project_github_sync(
+            user_id=_current_user_id(), project_name=project
+        )
+        if not sync or not sync.get("repository_url"):
+            raise ValueError(
+                "Connect this Playground project to a GitHub repository first."
+            )
+        repository = normalize_github_repository_url(sync["repository_url"])["url"]
+        if data.get("repository_url") != repository:
+            raise ValueError(
+                "The connected repository changed. Open a new issue draft."
+            )
+        title, body = data.get("title"), data.get("body")
+        if not isinstance(title, str) or not 1 <= len(title.strip()) <= 256:
+            raise ValueError("Enter an issue title of 1–256 characters.")
+        if not isinstance(body, str) or not 1 <= len(body.strip()) <= 60000:
+            raise ValueError("Enter an issue description of 1–60,000 characters.")
+        result = create_github_issue(
+            repository_url=repository,
+            title=title.strip(),
+            body=body.strip(),
+            user_id=_actor_user_id(),
+        )
+        return jsonify({"success": True, "request_id": request_id, "data": result})
+    except ValueError as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+    except Exception as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "github_error", "message": str(exc)},
+            },
+            502,
+        )
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/github/repository-config", methods=["GET", "POST"])
 def editor_api_github_repository_config() -> Response:
     """Read or change the workflows and pyproject.toml a publish writes.
@@ -5785,7 +5839,8 @@ def _readiness_check_result(uid: int, payload: Dict[str, Any]) -> Dict[str, Any]
         raw_yaml=raw_yaml,
         evidence=evidence,
         review_level=payload.get("review_level", "precision"),
-        include_llm=payload.get("include_llm") is True,
+        ai_second_opinion=payload.get("ai_second_opinion") is True,
+        include_research=payload.get("include_research", True) is True,
         model=model or None,
         openai_api_key=api_key or None,
         openai_base_url=base_url or None,
@@ -5849,13 +5904,19 @@ def editor_api_readiness_check() -> Response:
             raise ValueError("Choose precision or thorough review")
         if payload.get("model") is not None and not isinstance(payload["model"], str):
             raise ValueError("Model must be a string")
+        for option in ("include_research", "ai_second_opinion"):
+            if option in payload and not isinstance(payload[option], bool):
+                raise ValueError(f"{option} must be true or false")
         # Resolve request-scoped identity now; Celery has no logged-in user.
         payload["_readiness_package"] = _repository_config_package(
             _normalize_project(payload.get("project")), None
         )
         owner = _editor_playground_context()
         payload["_readiness_owner"] = {"name": owner["name"], "email": owner["email"]}
-        if payload.get("include_llm") is True:
+        if (
+            payload.get("include_research", True) is True
+            or payload.get("ai_second_opinion") is True
+        ):
             return _queue_ai_job("readiness-check", uid, payload, request_id)
         report = _readiness_check_result(uid, payload)
         return jsonify({"success": True, "request_id": request_id, "data": report})
@@ -11611,6 +11672,14 @@ AI_JOB_HARD_LIMIT = 180
 AI_JOB_OWNER_PREFIX = "da:alweaver:editor:ai-owner:"
 
 
+def _ai_job_limits(operation: str) -> tuple[int, int]:
+    if operation == "readiness-check":
+        from .editor_readiness import READINESS_JOB_SOFT_LIMIT, READINESS_JOB_HARD_LIMIT
+
+        return READINESS_JOB_SOFT_LIMIT, READINESS_JOB_HARD_LIMIT
+    return AI_JOB_SOFT_LIMIT, AI_JOB_HARD_LIMIT
+
+
 def _job_state_key(kind: _EditorJobKind, job_id: str) -> str:
     return kind.key_prefix + job_id
 
@@ -11675,7 +11744,7 @@ def _queue_ai_job(
                 "error": {
                     "type": "unavailable",
                     "code": "editor_async_not_configured",
-                    "message": "AI drafting and AI style checks require Weaver's Celery worker module.",
+                    "message": "AI drafting, style checks, and readiness reviews require Weaver's Celery worker module.",
                     "details": get_worker_configuration_status(),
                 },
             },
@@ -11683,12 +11752,13 @@ def _queue_ai_job(
         )
     if len(json.dumps(payload).encode("utf-8")) > 128 * 1024:
         raise ValueError("AI request is too large (maximum 128 KiB)")
+    soft_limit, hard_limit = _ai_job_limits(operation)
     job_id = str(uuid.uuid4())
     if not r.set(
         AI_JOB_OWNER_PREFIX + str(uid),
         job_id,
         nx=True,
-        ex=AI_JOB_QUEUE_SECONDS + AI_JOB_HARD_LIMIT + 60,
+        ex=AI_JOB_QUEUE_SECONDS + hard_limit + 60,
     ):
         return jsonify_with_status(
             {
@@ -11697,7 +11767,7 @@ def _queue_ai_job(
                 "error": {
                     "type": "busy",
                     "code": "ai_job_in_progress",
-                    "message": "An AI draft or style check is already queued or running for your account. Wait for it to finish.",
+                    "message": "An AI draft, style check, or readiness review is already queued or running for your account. Wait for it to finish.",
                 },
             },
             429,
@@ -11725,8 +11795,8 @@ def _queue_ai_job(
                 "operation": operation,
                 "payload": payload,
             },
-            soft_time_limit=AI_JOB_SOFT_LIMIT,
-            time_limit=AI_JOB_HARD_LIMIT,
+            soft_time_limit=soft_limit,
+            time_limit=hard_limit,
             expires=AI_JOB_QUEUE_SECONDS,
         )
     except Exception:
@@ -11747,6 +11817,7 @@ def _queue_ai_job(
                 "job_id": job_id,
                 "job_url": f"{EDITOR_BASE_PATH}/api/ai/jobs/{job_id}",
                 "status": state["status"],
+                "poll_timeout_ms": (AI_JOB_QUEUE_SECONDS + hard_limit + 60) * 1000,
             },
         },
         202,
@@ -11775,10 +11846,9 @@ def _run_ai_job_with_capacity(
         return True
     # Each slot expires after the worker's hard limit, including a cleanup
     # margin for a killed worker. No web or Celery worker waits on the lock.
+    _, hard_limit = _ai_job_limits(operation)
     for slot in range(2):
-        lock = r.lock(
-            f"da:alweaver:editor:ai-slot:{slot}", timeout=AI_JOB_HARD_LIMIT + 60
-        )
+        lock = r.lock(f"da:alweaver:editor:ai-slot:{slot}", timeout=hard_limit + 60)
         if not lock.acquire(blocking=False):
             continue
         try:
@@ -11862,7 +11932,8 @@ def editor_api_ai_job(job_id: str) -> Response:
             404,
         )
     if state.get("status") not in JOB_TERMINAL_STATES:
-        if time.time() - state["queued_at"] > AI_JOB_QUEUE_SECONDS + AI_JOB_HARD_LIMIT:
+        _, hard_limit = _ai_job_limits(state.get("operation", ""))
+        if time.time() - state["queued_at"] > AI_JOB_QUEUE_SECONDS + hard_limit:
             state = _update_job_state(
                 AI_JOB,
                 job_id,

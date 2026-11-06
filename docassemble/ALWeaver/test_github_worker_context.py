@@ -246,3 +246,19 @@ def test_new_project_failure_without_terminal_owner_record_is_generic(publish_wo
         new_project(worker)
 
     assert marker not in str(exc_info.value)
+
+
+def test_readiness_capacity_retry_preserves_long_worker_limits(publish_worker):
+    worker, app, editor, native, functions = publish_worker
+    editor._run_ai_job_with_capacity = Mock(return_value=False)
+    editor._ai_job_limits = Mock(return_value=(1200, 1260))
+    task = types.SimpleNamespace(retry=Mock(side_effect=RuntimeError("retry queued")))
+    with patch.object(worker, "bg_context", app.app_context), pytest.raises(
+        RuntimeError, match="retry queued"
+    ):
+        worker.weaver_editor_ai_task(
+            task, job_id="job", uid=7, operation="readiness-check", payload={}
+        )
+    editor._ai_job_limits.assert_called_once_with("readiness-check")
+    assert task.retry.call_args.kwargs["soft_time_limit"] == 1200
+    assert task.retry.call_args.kwargs["time_limit"] == 1260

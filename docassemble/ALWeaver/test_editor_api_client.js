@@ -80,6 +80,24 @@ async function run() {
     { message: 'Worker failed' },
   );
 
+  const originalNow = Date.now;
+  let clock = 0;
+  Date.now = () => clock;
+  try {
+    const longJob = { data: { ...queued.data, poll_timeout_ms: 1620000 } };
+    const finished = await api.waitForJob(longJob, {
+      wait: async () => { clock += 20 * 60 * 1000; },
+      get: async () => ({data: {status: 'succeeded', result: 'review complete'}}),
+    });
+    assert.strictEqual(finished.data, 'review complete');
+    await expectError(api.waitForJob(longJob, {
+      wait: async () => { clock += 28 * 60 * 1000; },
+      get: async () => { throw new Error('Must stop polling expired jobs'); },
+    }), {message: 'The AI request timed out.'});
+  } finally {
+    Date.now = originalNow;
+  }
+
   const activeFile = {
     project: 'matrix_sec_project',
     filename: 'interview.yml',
