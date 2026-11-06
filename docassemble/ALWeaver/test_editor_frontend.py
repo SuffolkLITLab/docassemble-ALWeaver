@@ -13,6 +13,7 @@ NODE_TESTS = (
     "test_editor_field_labeling.js",
     "test_editor_markdown.js",
     "test_editor_controls.js",
+    "test_editor_readiness.js",
     "test_editor_project_navigation.js",
     "test_editor_playground.js",
     "test_editor_github_publish.js",
@@ -73,6 +74,16 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("toggle.textContent = 'Tools'", workbench)
         self.assertIn("toggle.setAttribute('data-bs-toggle', 'dropdown')", workbench)
         self.assertNotIn("'Source outline'", workbench)
+
+    def test_readiness_check_has_independent_options_and_accessible_report(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        self.assertIn('data-action="open-readiness-check"', template)
+        self.assertIn('aria-labelledby="readiness-title"', template)
+        self.assertIn('for="readiness-review-level"', template)
+        self.assertIn('for="readiness-model"', template)
+        self.assertIn('for="readiness-include-llm"', template)
+        self.assertIn('id="readiness-status" role="status"', template)
+        self.assertIn("Court Forms Online acceptance", template)
 
     def test_question_library_offers_standalone_addresses(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()

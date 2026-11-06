@@ -12,6 +12,7 @@ deterministic pipeline stays unit-testable without a Docassemble server.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from collections.abc import Mapping
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -67,6 +68,8 @@ def resolve_lint_block_id(
     blocks: List[Dict[str, Any]],
     lookup: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Optional[str]:
+    if finding.get("rendered_jinja"):
+        return None
     lookup = lookup or block_lookup_map(blocks)
 
     for key in ("block_id", "screen_id"):
@@ -202,7 +205,13 @@ def source_range_for_line(
     }
 
 
-def dayamlchecker_findings(raw_yaml: str, filename: str) -> List[Dict[str, Any]]:
+def dayamlchecker_findings(
+    raw_yaml: str,
+    filename: str,
+    *,
+    runtime_options: Any = None,
+    lint_mode: Optional[str] = None,
+) -> List[Dict[str, Any]]:
     """Run DAYamlChecker and translate its errors into editor diagnostics.
 
     Indirected through a module-level function so tests can substitute the
@@ -218,7 +227,14 @@ def dayamlchecker_findings(raw_yaml: str, filename: str) -> List[Dict[str, Any]]
 
     findings: List[Dict[str, Any]] = []
     try:
-        checker_errors = list(find_errors_from_string(raw_yaml, input_file=filename))
+        options = (
+            {"runtime_options": runtime_options} if runtime_options is not None else {}
+        )
+        if lint_mode is not None:
+            options["lint_mode"] = lint_mode
+        checker_errors = list(
+            find_errors_from_string(raw_yaml, input_file=filename, **options)
+        )
     except Exception as exc:  # noqa: BLE001 - the checker is third-party
         return [
             {
@@ -253,10 +269,16 @@ def dayamlchecker_findings(raw_yaml: str, filename: str) -> List[Dict[str, Any]]
         severity = getattr(checker_error, "severity", None)
         if severity is not None:
             level = lint_level_from_severity(getattr(severity, "value", severity))
-        variable = ""
-        quoted = re.search(r'"([^"]+)"', message) or re.search(r"'([^']+)'", message)
-        if quoted:
-            variable = quoted.group(1)
+        context = getattr(checker_error, "context", None)
+        context = dict(context) if isinstance(context, Mapping) else {}
+        variable = str(
+            context.get("variable")
+            or context.get("field_name")
+            or context.get("var_name")
+            or context.get("field_var")
+            or ""
+        )
+        rendered_jinja = bool(getattr(checker_error, "rendered_jinja", False))
         yaml_path = getattr(checker_error, "yaml_path", None) or getattr(
             checker_error, "path", None
         )
@@ -268,8 +290,22 @@ def dayamlchecker_findings(raw_yaml: str, filename: str) -> List[Dict[str, Any]]
                 "message": message,
                 "variable": variable,
                 "filename": filename,
-                "line_number": line_number,
-                "source_range": source_range_for_line(raw_yaml, line_number),
+                "line_number": None if rendered_jinja else line_number,
+                "rendered_line_number": line_number if rendered_jinja else None,
+                "source_range": (
+                    None
+                    if rendered_jinja
+                    else source_range_for_line(raw_yaml, line_number)
+                ),
+                "message_id": getattr(checker_error, "message_id", None),
+                "code": getattr(checker_error, "code", None),
+                "finding_class": getattr(
+                    getattr(checker_error, "finding_class", None),
+                    "value",
+                    getattr(checker_error, "finding_class", None),
+                ),
+                "rendered_jinja": rendered_jinja,
+                "context": context,
                 "yaml_path": None if yaml_path is None else str(yaml_path),
                 "source": "dayamlchecker",
             }

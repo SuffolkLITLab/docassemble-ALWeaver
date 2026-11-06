@@ -277,3 +277,34 @@ open ai:
 ```
 
 See [expanded variable support](variable-support.md) for the unreleased label contracts, standalone address authoring, and service examples.
+
+### Readiness check in the editor
+
+Choose **Interview → Readiness check** to run DAYamlChecker's publication
+pre-flight against a temporary package snapshot of the Playground project. The
+current interview's unsaved YAML is included; save pending template, module, and
+document-setup edits first. No project files are changed by the check.
+
+Precision/thorough style review and optional remote AI review are independent.
+Remote review runs only when selected, uses the checker's server-side OpenAI
+configuration (`open ai: key`, `base url`, and `model`, their legacy keys, or
+`OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL`), and supports a
+model/deployment override. All question YAML in the package is included. Remote
+requests have a 128 KiB limit. If remote review times out, the report retains
+local checks and marks AI review incomplete. Provider failures appear
+in the findings. This check does not imply publication, legal approval, runtime
+verification, or maturity certification.
+
+The report separates automated checks from human review evidence and can be
+downloaded as JSON. To supply prior reviews, paste an evidence object with the
+report's `source_sha256` and review entries containing `passed: true`, `reviewer`,
+`date`, and `evidence`. Use the human review keys shown by the installed checker;
+changed package contents invalidate the evidence. Findings for the current file
+can seed an assistant repair request after their block hash has been verified.
+The assistant's existing diff, validation, and Apply workflow remains in control.
+Rendered-Jinja findings require inspection of the original template.
+
+This integration targets [issue #1209](https://github.com/SuffolkLITLab/docassemble-ALWeaver/issues/1209).
+The readiness API is merged upstream but is absent from published DAYamlChecker
+1.8.0. Before merging this integration, update its minimum version to the
+numbered release that includes readiness.

@@ -227,9 +227,10 @@ class TemplateLifecycleTest(unittest.TestCase):
         return [
             str(getattr(error, "err_str", "") or error)
             for error in find_errors_from_string(source, input_file=filename)
-            # Publishing metadata is the author's to supply and is not what
-            # any of this touches.
-            if "missing_metadata_fields" not in str(getattr(error, "message_id", ""))
+            # Editorial/spelling warnings do not invalidate template operations.
+            # Publishing metadata is the author's to supply.
+            if error.severity.value == "error"
+            and "missing_metadata_fields" not in str(getattr(error, "message_id", ""))
         ]
 
     # -- the lifecycle ------------------------------------------------------

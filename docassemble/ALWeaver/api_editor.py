@@ -5713,6 +5713,176 @@ def editor_api_validate_source() -> Response:
         )
 
 
+def _readiness_check_result(uid: int, payload: Dict[str, Any]) -> Dict[str, Any]:
+    from .editor_readiness import check_package_snapshot
+
+    project = _normalize_project(payload.get("project"))
+    filename = _normalize_filename(payload.get("filename"))
+    if project not in playground_list_projects(uid):
+        raise ValueError("Project not found")
+    raw_yaml = payload.get("raw_yaml")
+    if not isinstance(raw_yaml, str):
+        raise ValueError("raw_yaml must be a YAML string")
+    if len(raw_yaml.encode("utf-8")) > MAX_CANDIDATE_SOURCE_BYTES:
+        raise ValueError("Working source is too large")
+    evidence = payload.get("evidence")
+    if evidence is not None and not isinstance(evidence, dict):
+        raise ValueError("Review evidence must be a JSON object")
+    package = payload["_readiness_package"]
+    owner = payload["_readiness_owner"]
+    prepared = prepare_project_github_package(
+        user_id=uid,
+        project_name=project,
+        package_name=package,
+        author_name=owner["name"],
+        author_email=owner["email"],
+        dependencies=repository_dependency_names(uid, project, package),
+        persist_manifest=False,
+        require_interview=False,
+    )
+    repository_files = repository_publish_files(
+        uid, project, package, manifest=prepared["manifest"]
+    )
+    files = build_github_package_snapshot(
+        package=package,
+        project=project,
+        user_id=uid,
+        package_info=prepared["manifest"],
+        author_name=owner["name"],
+        author_email=owner["email"],
+        manifest_path=prepared["manifest_path"],
+        extra_repository_files=repository_files["files"],
+    )
+    config = _daconfig()
+    open_ai = config.get("open ai") or {}
+    assembly_line = config.get("assembly line") or {}
+    if not isinstance(open_ai, dict):
+        open_ai = {}
+    if not isinstance(assembly_line, dict):
+        assembly_line = {}
+    # Resolve provider settings inside the worker. Credentials never enter the
+    # request payload, Redis job state, reports, or the browser.
+    api_key = (
+        os.getenv("OPENAI_API_KEY")
+        or open_ai.get("key")
+        or config.get("openai api key")
+    )
+    base_url = (
+        open_ai.get("base url")
+        or config.get("openai base url")
+        or os.getenv("OPENAI_BASE_URL")
+    )
+    model = (
+        payload.get("model")
+        or assembly_line.get("weaver llm model")
+        or open_ai.get("model")
+        or os.getenv("OPENAI_MODEL")
+    )
+    return check_package_snapshot(
+        files,
+        package=package,
+        filename=filename,
+        raw_yaml=raw_yaml,
+        evidence=evidence,
+        review_level=payload.get("review_level", "precision"),
+        include_llm=payload.get("include_llm") is True,
+        model=model or None,
+        openai_api_key=api_key or None,
+        openai_base_url=base_url or None,
+    )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/weaver/readiness/repair-context", methods=["POST"])
+def editor_api_readiness_repair_context() -> Response:
+    """Verify a finding's block evidence before offering it to the assistant."""
+    from .editor_readiness import repair_context_current
+
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    payload = request.get_json(silent=True) or {}
+    raw_yaml = payload.get("raw_yaml") if isinstance(payload, dict) else None
+    finding = payload.get("finding") if isinstance(payload, dict) else None
+    if (
+        not isinstance(raw_yaml, str)
+        or not isinstance(finding, dict)
+        or len(raw_yaml.encode("utf-8")) > MAX_CANDIDATE_SOURCE_BYTES
+    ):
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "validation_error",
+                    "message": "Provide working source and a structured finding.",
+                },
+            },
+            400,
+        )
+    if not repair_context_current(raw_yaml, finding):
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "stale_source",
+                    "message": "Finding evidence no longer matches the source, or refers to rendered Jinja. Run the readiness check again and inspect the original template.",
+                },
+            },
+            409,
+        )
+    return jsonify({"success": True, "request_id": request_id, "data": finding})
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/weaver/readiness", methods=["POST"])
+def editor_api_readiness_check() -> Response:
+    """Check the working Playground package; remote review is explicitly opt-in."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        payload = request.get_json(silent=True) or {}
+        if not isinstance(payload, dict):
+            raise ValueError("Expected a JSON object")
+        uid = _current_user_id()
+        if payload.get("review_level", "precision") not in {"precision", "thorough"}:
+            raise ValueError("Choose precision or thorough review")
+        if payload.get("model") is not None and not isinstance(payload["model"], str):
+            raise ValueError("Model must be a string")
+        # Resolve request-scoped identity now; Celery has no logged-in user.
+        payload["_readiness_package"] = _repository_config_package(
+            _normalize_project(payload.get("project")), None
+        )
+        owner = _editor_playground_context()
+        payload["_readiness_owner"] = {"name": owner["name"], "email": owner["email"]}
+        if payload.get("include_llm") is True:
+            return _queue_ai_job("readiness-check", uid, payload, request_id)
+        report = _readiness_check_result(uid, payload)
+        return jsonify({"success": True, "request_id": request_id, "data": report})
+    except (ValueError, FileNotFoundError) as exc:
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {"type": "validation_error", "message": str(exc)},
+            },
+            400,
+        )
+    except Exception as exc:
+        log(f"ALWeaver editor: readiness-check error: {exc!r}", "error")
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "server_error",
+                    "message": "Readiness check failed. Check the server configuration and try again.",
+                },
+            },
+            500,
+        )
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/weaver/validate", methods=["GET"])
 def editor_api_validate() -> Response:
     """Run DAYamlChecker on a playground YAML file and return errors."""
@@ -11635,6 +11805,8 @@ def _complete_ai_job(
             result = _generate_ai_screen(uid, payload)
         elif operation == "generate-fields":
             result = _generate_ai_fields(uid, payload)
+        elif operation == "readiness-check":
+            result = _readiness_check_result(uid, payload)
         elif operation == "style-check":
             result = _style_check_result(
                 uid,

@@ -13208,6 +13208,236 @@
       });
   }
 
+  var readinessReport = null;
+  var readinessSnapshot = null;
+  var readinessSequence = 0;
+
+  function openReadinessCheck() {
+    readinessReport = null;
+    readinessSnapshot = null;
+    readinessSequence += 1;
+    document.getElementById('readiness-results').innerHTML = '';
+    document.getElementById('readiness-status').textContent = '';
+    document.getElementById('readiness-download').disabled = true;
+    document.getElementById('readiness-run').disabled = false;
+    getOrCreateBootstrapModal('readiness-modal').show();
+  }
+
+  function runReadinessCheck() {
+    var status = document.getElementById('readiness-status');
+    var snapshot;
+    var evidence;
+    try {
+      if (state.sectionDirty || state.documentsDirty)
+        throw new Error(
+          'Save template, module, or document-setup changes before checking the package.',
+        );
+      snapshot = getValidationSourceSnapshot();
+      evidence = JSON.parse(
+        document.getElementById('readiness-evidence').value || '{}',
+      );
+      if (!evidence || Array.isArray(evidence) || typeof evidence !== 'object')
+        throw new Error('Review evidence must be a JSON object.');
+    } catch (error) {
+      status.textContent = error.message;
+      return;
+    }
+    var project = state.project;
+    var filename = state.filename;
+    var sequence = ++readinessSequence;
+    readinessReport = null;
+    document.getElementById('readiness-download').disabled = true;
+    document.getElementById('readiness-run').disabled = true;
+    document.getElementById('readiness-results').innerHTML = '';
+    status.textContent = 'Checking the current package…';
+    apiPost('/api/weaver/readiness', {
+      project: project,
+      filename: filename,
+      raw_yaml: snapshot.rawYaml,
+      evidence: evidence,
+      review_level: document.getElementById('readiness-review-level').value,
+      include_llm: document.getElementById('readiness-include-llm').checked,
+      model: document.getElementById('readiness-model').value.trim(),
+    })
+      .then(aiJobResultGuard(null, true))
+      .then(function (response) {
+        if (sequence !== readinessSequence) return;
+        if (
+          project !== state.project ||
+          filename !== state.filename ||
+          snapshot.rawYaml !== getValidationSourceSnapshot().rawYaml
+        )
+          throw new Error(
+            'Source changed during the check. Run the readiness check again.',
+          );
+        if (!response.success || !response.data)
+          throw new Error(
+            (response.error && response.error.message) ||
+              'Readiness check failed.',
+          );
+        readinessReport = response.data;
+        readinessSnapshot = {
+          project: project,
+          filename: filename,
+          rawYaml: snapshot.rawYaml,
+        };
+        status.textContent =
+          'Status: ' +
+          readinessReport.status.replace(/_/g, ' ') +
+          '. Review evidence ' +
+          (readinessReport.review_evidence_current
+            ? 'matches this source.'
+            : 'is missing or out of date.');
+        renderReadinessReport();
+        document.getElementById('readiness-download').disabled = false;
+      })
+      .catch(function (error) {
+        if (sequence === readinessSequence)
+          status.textContent = error.message || 'Readiness check failed.';
+      })
+      .finally(function () {
+        if (sequence === readinessSequence)
+          document.getElementById('readiness-run').disabled = false;
+      });
+  }
+
+  function renderReadinessReport() {
+    var report = readinessReport;
+    var html =
+      '<p>Package source hash: <code>' +
+      esc(report.source_sha256) +
+      '</code></p>';
+    [false, true].forEach(function (reviews) {
+      html +=
+        '<h3 class="h6 mt-3">' +
+        (reviews ? 'Human review evidence' : 'Automated checks and coverage') +
+        '</h3><ul>';
+      (report.checks || [])
+        .filter(function (check) {
+          return Boolean(check.maturity_level) === reviews;
+        })
+        .forEach(function (check) {
+          html +=
+            '<li><strong>' +
+            esc(check.id.replace(/_/g, ' ')) +
+            '</strong>: ' +
+            esc(check.status.replace(/_/g, ' ')) +
+            ' — ' +
+            esc(check.description || check.detail || '') +
+            '<details><summary>Check details</summary><pre class="text-wrap">' +
+            esc(JSON.stringify(check, null, 2)) +
+            '</pre></details></li>';
+        });
+      html += '</ul>';
+    });
+    html += '<h3 class="h6 mt-3">Findings</h3><ul>';
+    (report.findings || []).forEach(function (finding, index) {
+      html +=
+        '<li class="mb-2"><strong>' +
+        esc(finding.readiness_severity || finding.severity || '') +
+        '</strong> ' +
+        esc(finding.message || '') +
+        ' <code>' +
+        esc(finding.file_name || '') +
+        ':' +
+        esc(
+          (finding.rendered_jinja ? 'rendered line ' : '') +
+            String(finding.line_number || ''),
+        ) +
+        '</code>';
+      var currentFile = '/data/questions/' + readinessSnapshot.filename;
+      if (
+        agentEditorEnabled() &&
+        (!BOOT.features.assistant_status ||
+          BOOT.features.assistant_status.available) &&
+        !finding.rendered_jinja &&
+        finding.context &&
+        finding.context.repair_context &&
+        (finding.file_name || '').endsWith(currentFile)
+      )
+        html +=
+          ' <button type="button" class="btn btn-sm btn-outline-primary" data-action="draft-readiness-repair" data-finding-index="' +
+          index +
+          '">Draft repair with assistant</button>';
+      html +=
+        '<details><summary>Rule and evidence</summary><pre class="text-wrap">' +
+        esc(JSON.stringify(finding, null, 2)) +
+        '</pre></details></li>';
+    });
+    html +=
+      '</ul><p>This report describes the snapshot at the time of the check. Run it again after editing.</p>';
+    document.getElementById('readiness-results').innerHTML = html;
+  }
+
+  function draftReadinessRepair(index) {
+    if (!readinessReport || !readinessSnapshot) return;
+    var snapshot;
+    try {
+      snapshot = getValidationSourceSnapshot();
+    } catch (error) {
+      document.getElementById('readiness-status').textContent = error.message;
+      return;
+    }
+    if (
+      state.project !== readinessSnapshot.project ||
+      state.filename !== readinessSnapshot.filename ||
+      snapshot.rawYaml !== readinessSnapshot.rawYaml
+    ) {
+      document.getElementById('readiness-status').textContent =
+        'Source changed. Run the readiness check again before requesting a repair.';
+      return;
+    }
+    var finding = readinessReport.findings[index];
+    apiPost('/api/weaver/readiness/repair-context', {
+      raw_yaml: snapshot.rawYaml,
+      finding: finding,
+    })
+      .then(function (response) {
+        if (!response.success) throw new Error(response.error.message);
+        if (
+          state.project !== readinessSnapshot.project ||
+          state.filename !== readinessSnapshot.filename ||
+          snapshot.rawYaml !== getValidationSourceSnapshot().rawYaml
+        )
+          throw new Error('Source changed. Run the readiness check again.');
+        var evidence = response.data;
+        if (JSON.stringify(evidence).length > 6500) {
+          var repair = evidence.context.repair_context;
+          evidence = {
+            code: evidence.code,
+            message_id: evidence.message_id,
+            finding_class: evidence.finding_class,
+            message: String(evidence.message || '').slice(0, 1000),
+            context: {
+              repair_context: {
+                schema_version: repair.schema_version,
+                block_index: repair.block_index,
+                screen_id: repair.screen_id,
+                source_sha256: repair.source_sha256,
+                evidence: String(repair.evidence || '').slice(0, 1000),
+                requires_runtime_verification:
+                  repair.requires_runtime_verification,
+              },
+            },
+          };
+        }
+        var message =
+          'Draft a repair for this finding. Read the exact current block source with your tools, preserve expressions and logic, and show a validated diff for review. Rule and evidence: ' +
+          JSON.stringify(evidence);
+        if (!agentChat.prepareDraft(message, snapshot.rawYaml))
+          throw new Error(
+            'The assistant is busy or unavailable, or already has a candidate. Finish the current chat and start a fresh chat before requesting this repair.',
+          );
+        closeBootstrapModal('readiness-modal');
+        setAssistantOpen(true);
+        var input = document.getElementById('editor-agent-input');
+        if (input) input.focus();
+      })
+      .catch(function (error) {
+        document.getElementById('readiness-status').textContent = error.message;
+      });
+  }
+
   function openUnmappedValidationFinding() {
     // Compose the exact working source first so changing views cannot expose
     // an older saved YAML buffer in place of unsaved block or metadata edits.
@@ -24988,6 +25218,37 @@
     if (uiAction === 'open-interview-flow-report') {
       if (stashCurrentEditorState() === false) return;
       openInterviewFlowReport();
+      return;
+    }
+    if (uiAction === 'open-readiness-check') {
+      e.preventDefault();
+      openReadinessCheck();
+      return;
+    }
+    if (uiAction === 'run-readiness-check') {
+      e.preventDefault();
+      runReadinessCheck();
+      return;
+    }
+    if (uiAction === 'draft-readiness-repair') {
+      e.preventDefault();
+      draftReadinessRepair(Number(actionControl.dataset.findingIndex));
+      return;
+    }
+    if (uiAction === 'download-readiness-report') {
+      e.preventDefault();
+      if (readinessReport) {
+        var url = URL.createObjectURL(
+          new Blob([JSON.stringify(readinessReport, null, 2)], {
+            type: 'application/json',
+          }),
+        );
+        var link = document.createElement('a');
+        link.href = url;
+        link.download = 'readiness-report.json';
+        link.click();
+        URL.revokeObjectURL(url);
+      }
       return;
     }
     if (uiAction === 'run-style-check' || uiAction === 'run-style-check-ai') {

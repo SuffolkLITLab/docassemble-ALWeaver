@@ -94,6 +94,7 @@
     var busy = false;
     var container = null;
     var draft = '';
+    var externalDraftSource = null;
     var repairOffer = null;
     var lastRequest = '';
     var askOnly = false;
@@ -370,6 +371,17 @@
       var text = String(message || '').trim();
       if (!text || busy || !isAvailable() || isExhausted())
         return Promise.resolve();
+      if (externalDraftSource !== null) {
+        try {
+          if (getWorkingSource().raw_yaml !== externalDraftSource)
+            throw new Error(
+              'The editor source changed. Run the readiness check again before requesting this repair.',
+            );
+        } catch (error) {
+          fail(error);
+          return Promise.resolve();
+        }
+      }
       var askingOnly = readOnly === undefined ? askOnly : Boolean(readOnly);
       busy = true;
       draft = '';
@@ -470,6 +482,17 @@
 
     function apply() {
       if (!session || busy) return Promise.resolve();
+      if (externalDraftSource !== null) {
+        try {
+          if (getWorkingSource().raw_yaml !== externalDraftSource)
+            throw new Error(
+              'The editor source changed after this repair was requested. Run the readiness check again.',
+            );
+        } catch (error) {
+          fail(error);
+          return Promise.resolve();
+        }
+      }
       busy = true;
       setState('validating');
       render();
@@ -478,6 +501,8 @@
         .then(function (response) {
           busy = false;
           onApply(clone(response.data));
+          if (externalDraftSource !== null)
+            externalDraftSource = response.data.raw_yaml;
           setState(
             'idle',
             'Applied to the editor. Use Save to write it to the Playground.',
@@ -502,6 +527,7 @@
     }
 
     function endSession() {
+      externalDraftSource = null;
       if (!session) return Promise.resolve();
       var path = sessionPath();
       session = null;
@@ -979,6 +1005,14 @@
 
     return {
       render: render,
+      prepareDraft: function (message, expectedSource) {
+        if (session || busy || !isAvailable() || isExhausted()) return false;
+        draft = String(message || '');
+        externalDraftSource = expectedSource;
+        askOnly = false;
+        render();
+        return true;
+      },
       send: send,
       stop: stop,
       reset: reset,

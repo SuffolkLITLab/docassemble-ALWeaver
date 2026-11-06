@@ -89,3 +89,7 @@ assert.equal(workbench.filterRecipes(exampleTree, 'welcome')[0].children[0].titl
 assert.equal(workbench.filterRecipes(exampleTree, 'markdown')[0].children.length, 1);
 assert.deepEqual(workbench.filterRecipes(exampleTree, 'not-present'), []);
 assert.equal(exampleTree[0].children.length, 2);
+
+assert.deepEqual(diagnosticRanges('original\nsource\n', [
+  {rendered_jinja: true, line_number: 1, source_range: {start: {line: 1}}, message: 'Rendered location'},
+], 'main.yml'), [], 'rendered-Jinja locations must never mark original source');
