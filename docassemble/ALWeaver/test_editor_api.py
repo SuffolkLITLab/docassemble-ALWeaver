@@ -3500,6 +3500,62 @@ class TestEditorNewProjectPartialArtifacts(unittest.TestCase):
         self.assertIn("event: blank_project_complete", starter_yaml)
         self.assertIn("question: Interview ready", starter_yaml)
 
+    def test_blank_project_derived_filename_uses_final_project_name(self):
+        with (
+            patch.object(api_editor, "playground_write_yaml") as write,
+            patch.object(
+                api_editor, "get_list_of_projects", return_value=["MyProject"]
+            ),
+            patch.object(
+                api_editor, "next_available_project_name", return_value="MyProject1"
+            ),
+            patch.object(api_editor, "create_project"),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/new-project",
+                json={
+                    "project_name": "My / Project",
+                    "interview_filename": "",
+                    "create_test": False,
+                },
+            ):
+                response = api_editor._new_project_from_template(7, "req-1")
+        self.assertEqual(response.get_json()["data"]["filename"], "MyProject1.yml")
+        self.assertEqual(write.call_args.args[2], "MyProject1.yml")
+
+    def test_blank_project_custom_filename_reaches_file_response_and_test(self):
+        with (
+            patch.object(api_editor, "playground_write_yaml") as write,
+            patch.object(api_editor, "get_list_of_projects", return_value=[]),
+            patch.object(
+                api_editor, "next_available_project_name", return_value="Blank"
+            ),
+            patch.object(api_editor, "create_project"),
+            patch.object(
+                api_editor,
+                "_write_default_kiln_test",
+                return_value={"filename": "custom.feature"},
+            ) as write_test,
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/new-project",
+                json={"project_name": "Blank", "interview_filename": "custom"},
+            ):
+                response = api_editor._new_project_from_template(7, "req-1")
+        self.assertEqual(response.get_json()["data"]["filename"], "custom.yml")
+        self.assertEqual(write.call_args.args[2], "custom.yml")
+        self.assertEqual(write_test.call_args.args[2], "custom.yml")
+
+    def test_blank_project_rejects_invalid_filename_before_creating_project(self):
+        with patch.object(api_editor, "create_project") as create:
+            with api_editor.app.test_request_context(
+                "/al/editor/api/new-project",
+                json={"project_name": "Blank", "interview_filename": "../bad.yml"},
+            ):
+                with self.assertRaises(ValueError):
+                    api_editor._new_project_from_template(7, "req-1")
+        create.assert_not_called()
+
     def test_blank_project_creates_a_default_test_unless_disabled(self):
         with (
             patch.object(api_editor, "playground_write_yaml"),

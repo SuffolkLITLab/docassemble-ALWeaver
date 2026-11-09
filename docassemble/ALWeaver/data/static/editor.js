@@ -20200,8 +20200,9 @@
         '<input class="form-control form-control-sm mt-1" id="new-project-name" value="NewProject">' +
         '<div class="text-muted small mt-1">Suggested from the first uploaded document. Playground project names are letters and digits only.</div></div>' +
         '<div><label class="editor-tiny" for="new-project-filename">Interview filename</label>' +
-        '<input class="form-control form-control-sm mt-1" id="new-project-filename" value="">' +
-        '<div class="text-muted small mt-1">Leave blank and Weaver names the file after the document. AssemblyLine\'s convention is a descriptive name when the package holds one interview, and <code>main.yml</code> for a runnable file in a package with several.</div></div>' +
+        '<div class="form-check"><input type="checkbox" class="form-check-input" id="new-project-main-filename" checked><label class="form-check-label" for="new-project-main-filename">Use main.yml</label></div>' +
+        '<input class="form-control form-control-sm mt-1" id="new-project-filename" value="" disabled>' +
+        '<div class="text-muted small mt-1">For a project-specific filename, leave blank to use the document name (or the project name for a blank project), or enter your own.</div></div>' +
         '<div class="row g-3"><div class="col-md-6"><label class="editor-tiny" for="new-project-output-type">Output</label>' +
         '<select class="form-select form-select-sm mt-1" id="new-project-output-type"><option value="form">Assemble downloadable forms</option><option value="survey">Save answers only</option></select></div>' +
         '<div class="col-md-6"><label class="editor-tiny" for="new-project-default-state">Default state/province (optional)</label>' +
@@ -27105,6 +27106,10 @@
         'new-project-separate-main-order',
       );
       var filenameInput = document.getElementById('new-project-filename');
+      var primaryFilename = document.getElementById('new-project-main-filename')
+        .checked
+        ? 'main.yml'
+        : filenameInput.value.trim();
       var titleInput = document.getElementById('new-project-title');
       var shortTitleInput = document.getElementById('new-project-short-title');
       var descriptionInput = document.getElementById('new-project-description');
@@ -27180,10 +27185,7 @@
             ? 'true'
             : 'false',
         );
-        formData.append(
-          'interview_filename',
-          filenameInput ? filenameInput.value.trim() : '',
-        );
+        formData.append('interview_filename', primaryFilename);
         formData.append(
           'interview_title',
           titleInput ? titleInput.value.trim() : '',
@@ -27299,6 +27301,7 @@
       } else {
         apiPost('/api/new-project', {
           project_name: projectName,
+          interview_filename: primaryFilename,
           generation_notes: notes,
           help_source_text: notes,
           help_page_url: helpPageUrl,
@@ -27460,6 +27463,11 @@
   });
 
   document.addEventListener('change', function (e) {
+    if (e.target.id === 'new-project-main-filename') {
+      document.getElementById('new-project-filename').disabled =
+        e.target.checked;
+      return;
+    }
     // The repository URL looks its branches up when the URL is committed,
     // as the Playground's pull page does.
     if (e.target.id === 'project-github-import-url') {
