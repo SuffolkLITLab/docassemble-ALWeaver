@@ -13020,6 +13020,9 @@ def _new_project_from_template(uid: int, request_id: str) -> Response:
     """Create a project from a bundled template or a minimal starter."""
     post_data = request.get_json(silent=True) or {}
     raw_name = post_data.get("project_name", "NewProject")
+    interview_filename = _normalize_new_interview_filename(
+        post_data.get("interview_filename")
+    )
     template_id = post_data.get("template_id")
     github_url = str(post_data.get("github_url") or "").strip()
     create_test = parse_bool(post_data.get("create_test"), default=True)
@@ -13040,6 +13043,12 @@ def _new_project_from_template(uid: int, request_id: str) -> Response:
     base_name = normalize_project_name(raw_name)
     existing = get_list_of_projects(uid)
     project_name = next_available_project_name(base_name, [*existing, "default"])
+    if not interview_filename:
+        interview_filename = (
+            f"{project_name}.yml"
+            if "interview_filename" in post_data
+            else DEFAULT_NEW_INTERVIEW_FILENAME
+        )
     create_project(uid, project_name)
 
     if github_url:
@@ -13122,17 +13131,14 @@ def _new_project_from_template(uid: int, request_id: str) -> Response:
             "  This blank interview is ready for you to edit.\n"
         )
 
-    # Write starter YAML. There is no document to name it after, so a blank
-    # project gets AssemblyLine's functional name for a runnable file.
-    playground_write_yaml(
-        uid, project_name, DEFAULT_NEW_INTERVIEW_FILENAME, starter_yaml
-    )
+    # Use the requested filename for both the interview and its generated test.
+    playground_write_yaml(uid, project_name, interview_filename, starter_yaml)
     test_filename = None
     if create_test:
         test_filename = _write_default_kiln_test(
             uid,
             project_name,
-            DEFAULT_NEW_INTERVIEW_FILENAME,
+            interview_filename,
             starter_yaml,
         )["filename"]
 
@@ -13142,7 +13148,7 @@ def _new_project_from_template(uid: int, request_id: str) -> Response:
             "request_id": request_id,
             "data": {
                 "project": project_name,
-                "filename": DEFAULT_NEW_INTERVIEW_FILENAME,
+                "filename": interview_filename,
                 "template_id": template_id,
                 "test_filename": test_filename,
             },

@@ -902,6 +902,11 @@ class TestEditorFrontend(unittest.TestCase):
                 self.assertIn("window.daNewEditor = daNewEditor", result.stdout)
                 self.assertIn("this.ev = ev", result.stdout)
 
+    def test_primary_filename_toggle(self):
+        source = (Path(__file__).parent / "data/static/editor.js").read_text()
+        self.assertIn('id="new-project-main-filename" checked', source)
+        self.assertIn("interview_filename: primaryFilename", source)
+
 
 if __name__ == "__main__":
     unittest.main()
