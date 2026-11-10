@@ -558,6 +558,21 @@ Python, template files, dynamic names, and runtime conditions can add uses.
 reports use the existing preview/flow renderer and download as a ZIP with an
 index and one HTML report per selected entrypoint.
 
+Interview scans and wording workbook preparation, export, review, and apply run
+as Celery report jobs. POST requests return 202 with an owner-scoped polling URL;
+Redis stores upload payloads separately from status records, expires abandoned
+jobs, and retains job status for 24 hours. Results live separately for 15 minutes
+and are released after the browser acknowledges receipt; output storage is
+limited to 256 MB per account. The worker has a 30-minute soft limit.
+The browser renders flow-report HTML in `editor_reports_worker.js`, keeping the
+editor responsive. Screenshots, repository report HTML, and edited workbooks
+upload in bounded chunks with exact chunk-count and byte-length manifests.
+Each account can have four active transfers, using at most 256 MB total.
+Transfers expire after two hours and are removed after export or apply. Large interviews
+keep every screenshot; capturing them requires leaving the export tab open.
+Very tall screens are captured in 10,000-pixel sections stacked on the same
+worksheet, avoiding browser canvas limits without dropping screen content.
+
 `text_workbook.py` inventories explicitly supported display text rather than
 walking every YAML string. A wording workbook has instructions, one tab per
 screen or text block, locked reference cells, yellow editable cells, and hidden
@@ -568,7 +583,9 @@ editable. Template wording has no independent screen preview. Mako, HTML, and
 display directives retain the Dashboard translation tool's green/blue code
 highlighting convention.
 
-Import first presents a change review. It checks the workbook schema, complete
+Import first presents a change review with word-level removals and additions
+highlighted beside the original and revised text. Long replacements use bounded
+passage highlighting to keep the editor responsive. It checks the workbook schema, complete
 row identities, original wording, source revisions, formulas, protected syntax,
 and YAML key collisions before computing replacements. Intact expressions may
 move within the same control region; control lines cannot move or change.
@@ -576,7 +593,9 @@ Edits patch scalar source ranges, preserving surrounding comments and formatting
 A scalar choice is expanded into an explicit label/value pair when its label
 changes, so its stored answer stays the same. Apply revalidates the workbook and
 review digest, then uses the editor's existing locked, rollback-capable batch
-writer. No full-document YAML serialization occurs.
+writer. No full-document YAML serialization occurs. Image parts are removed
+before parsing an imported XLSX, preventing relationships to files under the
+media directory from bypassing the XML expansion limit.
 
 Run `npm run build:report-capture` after changing the pinned html2canvas version.
 `npm run check` verifies the committed bundle and license against the installed

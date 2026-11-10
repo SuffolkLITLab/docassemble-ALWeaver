@@ -108,6 +108,7 @@
         });
       };
     var started = Date.now();
+    var failures = 0;
     var pollTimeoutMs = Number(data.poll_timeout_ms) || 19 * 60 * 1000;
     function poll() {
       if (options.isCurrent && !options.isCurrent())
@@ -118,23 +119,44 @@
           ),
         );
       if (Date.now() - started > pollTimeoutMs)
-        return Promise.reject(new EditorApiError('The AI request timed out.'));
-      return options.get(data.job_url).then(function (result) {
-        var job = result.data || {};
-        if (options.isCurrent && !options.isCurrent())
-          throw new EditorApiError(
-            'The editor changed while the AI request was running.',
-            { code: 'stale_response' },
-          );
-        if (job.status === 'succeeded')
-          return { success: true, data: job.result };
-        if (['failed', 'expired', 'cancelled'].indexOf(job.status) !== -1)
-          throw new EditorApiError(
-            (job.error && job.error.message) || 'The AI request failed.',
-          );
-        // eslint-disable-next-line sonarjs/pseudo-random -- Timer jitter only; no security token.
-        return wait(2500 + Math.random() * 1000).then(poll);
-      });
+        return Promise.reject(
+          new EditorApiError('The background request timed out.'),
+        );
+      return options.get(data.job_url).then(
+        function (result) {
+          failures = 0;
+          var job = result.data || {};
+          if (options.isCurrent && !options.isCurrent())
+            throw new EditorApiError(
+              'The editor changed while the AI request was running.',
+              { code: 'stale_response' },
+            );
+          if (job.status === 'succeeded')
+            return { success: true, data: job.result };
+          if (['failed', 'expired', 'cancelled'].indexOf(job.status) !== -1)
+            throw new EditorApiError(
+              (job.error && job.error.message) ||
+                'The background request failed.',
+            );
+          // eslint-disable-next-line sonarjs/pseudo-random -- Timer jitter only; no security token.
+          return wait(2500 + Math.random() * 1000).then(poll);
+        },
+        function (error) {
+          if ((!error.status || error.status >= 500) && failures < 5) {
+            failures++;
+            return wait(Math.min(10000, 1000 * Math.pow(2, failures))).then(
+              poll,
+            );
+          }
+          if (!error.status || error.status >= 500) {
+            throw new EditorApiError(
+              'Could not confirm the background request result. If you applied changes, check the saved source before retrying.',
+              { status: error.status },
+            );
+          }
+          throw error;
+        },
+      );
     }
     // eslint-disable-next-line sonarjs/pseudo-random -- Timer jitter only; no security token.
     return wait(2500 + Math.random() * 1000).then(poll);
@@ -219,12 +241,16 @@
       }
       if (controller) fetchOptions.signal = controller.signal;
 
+      var requestTimeoutMs =
+        requestOptions.timeoutMs === undefined
+          ? timeoutMs
+          : Number(requestOptions.timeoutMs);
       var timeout =
-        controller && timeoutMs > 0
+        controller && requestTimeoutMs > 0
           ? setTimeout(function () {
               timedOut = true;
               controller.abort();
-            }, timeoutMs)
+            }, requestTimeoutMs)
           : null;
 
       return Promise.resolve()

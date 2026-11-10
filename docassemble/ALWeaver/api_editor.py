@@ -5277,9 +5277,201 @@ def _wording_report_sources(uid: int, project: str, filename: str) -> tuple[Any,
     return cache, scan
 
 
-@app.route(f"{EDITOR_BASE_PATH}/api/reports/wording/<operation>", methods=["POST"])
-def editor_api_wording_report(operation: str) -> Response:
-    """Prepare previews, export a workbook, or review/apply validated wording edits."""
+# Upload images and edited workbooks in bounded requests. Redis is shared by
+# web and Celery workers; transfers expire even if the browser is closed.
+REPORT_UPLOAD_LIMIT = 256 * 1024 * 1024
+REPORT_UPLOAD_TTL = 2 * 60 * 60
+REPORT_USER_TRANSFER_LIMIT = 4
+
+
+def _report_upload_key(upload_id: str) -> str:
+    return "da:alweaver:editor:report-upload:" + upload_id
+
+
+def _report_upload(uid: int, upload_id: str, kind: str = "") -> Dict[str, Any]:
+    raw = r.get(_report_upload_key(upload_id))
+    state = json.loads(raw) if raw else None
+    if not state or state["owner_user_id"] != uid:
+        raise ValueError("Upload not found or expired. Start the transfer again.")
+    if kind and state["kind"] != kind:
+        raise ValueError("Wrong upload type.")
+    return state
+
+
+def _report_upload_owner_key(uid: int) -> str:
+    return f"da:alweaver:editor:report-upload-owner:{uid}"
+
+
+def _active_report_uploads(uid: int) -> Dict[str, Any]:
+    ids = json.loads(r.get(_report_upload_owner_key(uid)) or "[]")
+    active = {}
+    for upload_id in ids:
+        raw = r.get(_report_upload_key(upload_id))
+        if raw:
+            active[upload_id] = json.loads(raw)
+    return active
+
+
+def _delete_report_upload(upload_id: str) -> None:
+    r.delete(_report_upload_key(upload_id))
+    r.delete(_report_upload_key(upload_id) + ":parts")
+
+
+def _report_upload_parts(
+    uid: int, upload_id: str, kind: str, manifest: Any = None
+) -> Dict[str, bytes]:
+    _report_upload(uid, upload_id, kind)
+    raw_parts = r.hgetall(_report_upload_key(upload_id) + ":parts")
+    parts = {
+        (key.decode() if isinstance(key, bytes) else key): value
+        for key, value in raw_parts.items()
+    }
+    if isinstance(manifest, str):
+        manifest = json.loads(manifest)
+    if not isinstance(manifest, dict):
+        raise ValueError("The upload manifest is missing. Upload again.")
+    expected = set()
+    for prefix, spec in manifest.items():
+        if (
+            not isinstance(spec, dict)
+            or not isinstance(spec.get("chunks"), int)
+            or not 1 <= spec["chunks"] <= 20000
+            or not isinstance(spec.get("bytes"), int)
+        ):
+            raise ValueError("Invalid upload manifest.")
+        keys = [prefix + str(i) for i in range(spec["chunks"])]
+        expected.update(keys)
+        if (
+            any(key not in parts for key in keys)
+            or sum(len(parts[key]) for key in keys) != spec["bytes"]
+        ):
+            raise ValueError("The upload is incomplete. Upload again.")
+    if expected != set(parts):
+        raise ValueError("The upload is incomplete. Upload again.")
+    return parts
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/reports/uploads", methods=["POST"])
+def editor_api_report_upload_create() -> Response:
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    body = request.get_json(silent=True) or {}
+    kind = body.get("kind")
+    if kind not in {"previews", "workbook", "reports"}:
+        return jsonify_with_status(
+            {"success": False, "error": {"message": "Invalid upload type."}}, 400
+        )
+    upload_id = str(uuid.uuid4())
+    uid = _current_user_id()
+    owner_key = _report_upload_owner_key(uid)
+    with r.lock(owner_key + ":lock", timeout=30):
+        active = _active_report_uploads(uid)
+        if len(active) >= REPORT_USER_TRANSFER_LIMIT:
+            return jsonify_with_status(
+                {
+                    "success": False,
+                    "error": {
+                        "message": "Too many active report uploads. Finish a report or try again after they expire."
+                    },
+                },
+                429,
+            )
+        r.set(
+            _report_upload_key(upload_id),
+            json.dumps(
+                {
+                    "owner_user_id": uid,
+                    "kind": kind,
+                    "bytes": 0,
+                    "count": 0,
+                }
+            ),
+            ex=REPORT_UPLOAD_TTL,
+        )
+        r.set(owner_key, json.dumps([*active, upload_id]), ex=REPORT_UPLOAD_TTL)
+    return jsonify(
+        {
+            "success": True,
+            "data": {
+                "upload_id": upload_id,
+                "chunk_bytes": min(
+                    512 * 1024,
+                    (app.config.get("MAX_CONTENT_LENGTH") or 16 * 1024 * 1024) // 2,
+                ),
+            },
+        }
+    )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/reports/uploads/<upload_id>", methods=["POST"])
+def editor_api_report_upload_part(upload_id: str) -> Response:
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        uid = _current_user_id()
+        key = _report_upload_key(upload_id)
+        part = request.files.get("part")
+        index = request.form.get("index", "")
+        if part is None or not index or len(index) > 512:
+            raise ValueError("An upload part and index are required.")
+        content = part.read()
+        owner_key = _report_upload_owner_key(uid)
+        with r.lock(owner_key + ":lock", timeout=30):
+            state = _report_upload(uid, upload_id)
+            old = r.hget(key + ":parts", index)
+            total = state["bytes"] - len(old or b"") + len(content)
+            if state["count"] >= 20000 and old is None:
+                raise ValueError("Too many upload parts.")
+            active = _active_report_uploads(uid)
+            user_total = (
+                sum(
+                    item["bytes"]
+                    for token, item in active.items()
+                    if token != upload_id
+                )
+                + total
+            )
+            if user_total > REPORT_UPLOAD_LIMIT:
+                raise ValueError(
+                    "Active report uploads exceed the 256 MB account limit."
+                )
+            state.update(bytes=total, count=state["count"] + (old is None))
+            pipe = r.pipeline()
+            pipe.hset(key + ":parts", index, content)
+            pipe.expire(key + ":parts", REPORT_UPLOAD_TTL)
+            pipe.set(key, json.dumps(state), ex=REPORT_UPLOAD_TTL)
+            pipe.set(owner_key, json.dumps(list(active)), ex=REPORT_UPLOAD_TTL)
+            pipe.execute()
+        return jsonify({"success": True, "data": {"received": len(content)}})
+    except ValueError as exc:
+        return jsonify_with_status(
+            {"success": False, "error": {"message": str(exc)}}, 400
+        )
+
+
+@app.route(
+    f"{EDITOR_BASE_PATH}/api/reports/uploads/<upload_id>/release", methods=["POST"]
+)
+def editor_api_report_upload_release(upload_id: str) -> Response:
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    uid = _current_user_id()
+    with r.lock(_report_upload_owner_key(uid) + ":lock", timeout=30):
+        raw = r.get(_report_upload_key(upload_id))
+        if raw and json.loads(raw)["owner_user_id"] != uid:
+            return jsonify_with_status(
+                {"success": False, "error": {"message": "Upload not found."}}, 404
+            )
+        _delete_report_upload(upload_id)
+    return jsonify({"success": True, "data": {}})
+
+
+def _wording_report_result(
+    uid: int, operation: str, body: Dict[str, Any]
+) -> Dict[str, Any]:
     import base64
     from .text_workbook import (
         export_workbook,
@@ -5288,6 +5480,107 @@ def editor_api_wording_report(operation: str) -> Response:
         workbook_screens,
     )
 
+    project = _normalize_project(body.get("project"))
+    filename = _normalize_filename(body.get("filename"))
+    sources, scan = _wording_report_sources(uid, project, filename)
+    revisions = {name: source_revision(text) for name, text in sources.items()}
+    context = workbook_context(scan, sources)
+    if operation == "prepare":
+        screens = workbook_screens(sources, context)
+        result = {
+            "screens": screens,
+            "filename": scan["filename"],
+            "blocks": scan["blocks"],
+            "revisions": revisions,
+            "warnings": scan["warnings"],
+            # Individual upload chunks must fit the server request limit.
+            "max_request_bytes": body.get("max_request_bytes") or 16 * 1024 * 1024,
+        }
+    elif operation == "export":
+        if body.get("revisions") != revisions:
+            raise ValueError(
+                "The interview changed while previews were being made. Export again."
+            )
+        previews: Any
+        if body.get("upload_id"):
+            chunks = _report_upload_parts(
+                uid, body["upload_id"], "previews", body.get("manifest")
+            )
+            # Each image may itself span multiple HTTP requests.
+            grouped: Dict[str, Dict[int, Dict[int, bytes]]] = {}
+            for key, value in chunks.items():
+                segments = key.rsplit("|", 2)
+                if len(segments) == 2:  # Older single-image uploads.
+                    screen_id, index = segments
+                    tile = "0"
+                else:
+                    screen_id, tile, index = segments
+                grouped.setdefault(screen_id, {}).setdefault(int(tile), {})[
+                    int(index)
+                ] = value
+            previews = {}
+            for screen_id, tiles in grouped.items():
+                if sorted(tiles) != list(range(len(tiles))):
+                    raise ValueError("A screen image upload is incomplete.")
+                images = []
+                for tile_index in range(len(tiles)):
+                    parts = tiles[tile_index]
+                    if sorted(parts) != list(range(len(parts))):
+                        raise ValueError("A screen image upload is incomplete.")
+                    images.append(
+                        b"".join(parts[i] for i in range(len(parts))).decode("ascii")
+                    )
+                previews[screen_id] = images
+        else:
+            previews = body.get("previews")
+        if not isinstance(previews, dict):
+            raise ValueError("Screen previews are required.")
+        for screen in workbook_screens(sources, context):
+            if screen["id"] not in previews:
+                raise ValueError("A screen preview is missing. Export again.")
+        content = export_workbook(sources, previews, context)
+        result = {"content": base64.b64encode(content).decode()}
+    else:
+        if body.get("upload_id"):
+            workbook_parts = _report_upload_parts(
+                uid, body["upload_id"], "workbook", body.get("manifest")
+            )
+            if set(workbook_parts) != {str(i) for i in range(len(workbook_parts))}:
+                raise ValueError("The workbook upload is incomplete.")
+            content = b"".join(
+                workbook_parts[str(i)] for i in range(len(workbook_parts))
+            )
+        else:
+            content = base64.b64decode(body["workbook"])
+        proposed = import_workbook(content, sources, context)
+        digest = hashlib.sha256(
+            json.dumps(proposed["changes"], sort_keys=True).encode()
+        ).hexdigest()
+        applied = body.get("apply") == "true"
+        if applied:
+            if body.get("review_digest") != digest:
+                raise ValueError("Review these workbook changes before applying them.")
+            changes = [
+                {
+                    "section": "interview",
+                    "filename": name,
+                    "original": sources[name],
+                    "updated": text,
+                }
+                for name, text in proposed["updated"].items()
+            ]
+            _commit_project_replacements(uid, project, changes)
+        result = {
+            "changes": proposed["changes"],
+            "review_digest": digest,
+            "applied": applied,
+        }
+    return result
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/reports/wording/<operation>", methods=["POST"])
+def editor_api_wording_report(operation: str) -> Response:
+    """Prepare previews, export a workbook, or review/apply validated wording edits."""
     request_id = str(uuid.uuid4())
     if not _editor_auth_check():
         return _auth_fail(request_id)
@@ -5296,7 +5589,7 @@ def editor_api_wording_report(operation: str) -> Response:
             raise ValueError("Unknown wording report operation.")
         # A workbook is uploaded as a file: base64 JSON would add a third to a
         # body that must stay under Docassemble's request size limit.
-        body = (
+        body: Dict[str, Any] = (
             request.form.to_dict()
             if operation == "import"
             else request.get_json(silent=True) or {}
@@ -5306,69 +5599,25 @@ def editor_api_wording_report(operation: str) -> Response:
         project = _normalize_project(body.get("project"))
         filename = _normalize_filename(body.get("filename"))
         uid = _current_user_id()
-        sources, scan = _wording_report_sources(uid, project, filename)
-        revisions = {name: source_revision(text) for name, text in sources.items()}
-        context = workbook_context(scan, sources)
-        if operation == "prepare":
-            screens = workbook_screens(sources, context)
-            if len(screens) > 250:
-                raise ValueError(
-                    "Choose an interview with no more than 250 screens for one workbook."
-                )
-            result = {
-                "screens": screens,
-                "filename": scan["filename"],
-                "blocks": scan["blocks"],
-                "revisions": revisions,
-                "warnings": scan["warnings"],
-                # Previews must fit in one export request, and the workbook in one upload.
-                "max_request_bytes": app.config.get("MAX_CONTENT_LENGTH")
-                or 16 * 1024 * 1024,
-            }
-        elif operation == "export":
-            if body.get("revisions") != revisions:
-                raise ValueError(
-                    "The interview changed while previews were being made. Export again."
-                )
-            previews = body.get("previews")
-            if not isinstance(previews, dict):
-                raise ValueError("Screen previews are required.")
-            for screen in workbook_screens(sources, context):
-                if screen["id"] not in previews:
-                    raise ValueError("A screen preview is missing. Export again.")
-            content = export_workbook(sources, previews, context)
-            result = {"content": base64.b64encode(content).decode()}
-        else:
+        body["project"] = project
+        body["filename"] = filename
+        body["max_request_bytes"] = (
+            app.config.get("MAX_CONTENT_LENGTH") or 16 * 1024 * 1024
+        )
+        if body.get("upload_id"):
+            _report_upload(
+                uid,
+                str(body["upload_id"]),
+                "workbook" if operation == "import" else "previews",
+            )
+        if operation == "import" and not body.get("upload_id"):
+            import base64
+
             upload = request.files.get("workbook")
             if upload is None:
                 raise ValueError("Upload the edited XLSX workbook.")
-            content = upload.read()
-            proposed = import_workbook(content, sources, context)
-            digest = hashlib.sha256(
-                json.dumps(proposed["changes"], sort_keys=True).encode()
-            ).hexdigest()
-            applied = body.get("apply") == "true"
-            if applied:
-                if body.get("review_digest") != digest:
-                    raise ValueError(
-                        "Review these workbook changes before applying them."
-                    )
-                changes = [
-                    {
-                        "section": "interview",
-                        "filename": name,
-                        "original": sources[name],
-                        "updated": text,
-                    }
-                    for name, text in proposed["updated"].items()
-                ]
-                _commit_project_replacements(uid, project, changes)
-            result = {
-                "changes": proposed["changes"],
-                "review_digest": digest,
-                "applied": applied,
-            }
-        return jsonify({"success": True, "request_id": request_id, "data": result})
+            body["workbook"] = base64.b64encode(upload.read()).decode()
+        return _queue_report_job(uid, "wording-" + operation, body, request_id)
     except StaleProjectSearchError:
         return jsonify_with_status(
             {
@@ -5448,73 +5697,105 @@ def editor_api_report_entrypoints() -> Response:
         )
 
 
-@app.route(f"{EDITOR_BASE_PATH}/api/reports/archive", methods=["POST"])
-def editor_api_report_archive() -> Response:
-    """Package browser-rendered reports into a portable ZIP with an index."""
+def _archive_report_result(uid: int, body: Dict[str, Any]) -> Dict[str, Any]:
     import base64
     import html
     import zipfile
     from io import BytesIO
 
+    reports = body.get("reports")
+    if not isinstance(reports, list) or not 1 <= len(reports) <= 100:
+        raise ValueError("Select between 1 and 100 interviews.")
+    if body.get("upload_id") and not isinstance(body.get("manifest"), dict):
+        raise ValueError("Archive upload manifest must be an object.")
+    parts = (
+        _report_upload_parts(uid, body["upload_id"], "reports", body.get("manifest"))
+        if body.get("upload_id")
+        else {}
+    )
+    output = BytesIO()
+    links = []
+    seen: set[str] = set()
+    total = 0
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+        for report in reports:
+            if not isinstance(report, dict) or not isinstance(
+                report.get("filename"), str
+            ):
+                raise ValueError("Each report must name an interview file.")
+            filename = _normalize_filename(report.get("filename")) + ".html"
+            content: Any
+            if body.get("upload_id"):
+                prefix = report["filename"] + "|"
+                spec = body["manifest"].get(prefix)
+                if not isinstance(spec, dict):
+                    raise ValueError(
+                        "The upload manifest is missing a report. Upload again."
+                    )
+                content = b"".join(
+                    parts[prefix + str(i)] for i in range(spec["chunks"])
+                ).decode("utf-8")
+            else:
+                content = report.get("html")
+            if not isinstance(content, str) or filename in seen:
+                raise ValueError("Invalid or duplicate report.")
+            seen.add(filename)
+            total += len(content.encode("utf-8"))
+            if total > 50 * 1024 * 1024:
+                raise ValueError("Reports exceed the 50 MB archive limit.")
+            archive.writestr(filename, content)
+            links.append(
+                f'<li><a href="{html.escape(filename, quote=True)}">{html.escape(filename)}</a></li>'
+            )
+        archive.writestr(
+            "index.html",
+            '<!doctype html><html lang="en"><meta charset="utf-8">'
+            "<title>Interview flow reports</title><h1>Interview flow reports</h1>"
+            "<p>Open a report to read, print, or save it as PDF. Styling and diagrams require network access.</p><ul>"
+            + "".join(links)
+            + "</ul></html>",
+        )
+    return {"content": base64.b64encode(output.getvalue()).decode()}
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/reports/archive", methods=["POST"])
+def editor_api_report_archive() -> Response:
+    """Queue packaging of browser-rendered reports into a portable ZIP."""
     request_id = str(uuid.uuid4())
     if not _editor_auth_check():
         return _auth_fail(request_id)
-    try:
-        body = request.get_json(silent=True) or {}
-        reports = body.get("reports")
-        if not isinstance(reports, list) or not 1 <= len(reports) <= 100:
-            raise ValueError("Select between 1 and 100 interviews.")
-        output = BytesIO()
-        links = []
-        seen: set[str] = set()
-        total = 0
-        with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
-            for report in reports:
-                if not isinstance(report, dict):
-                    raise ValueError("Invalid or duplicate report.")
-                filename = _normalize_filename(report.get("filename")) + ".html"
-                content = report.get("html")
-                if not isinstance(content, str) or filename in seen:
-                    raise ValueError("Invalid or duplicate report.")
-                seen.add(filename)
-                total += len(content.encode("utf-8"))
-                if total > 50 * 1024 * 1024:
-                    raise ValueError("Reports exceed the 50 MB archive limit.")
-                archive.writestr(filename, content)
-                links.append(
-                    f'<li><a href="{html.escape(filename, quote=True)}">{html.escape(filename)}</a></li>'
-                )
-            archive.writestr(
-                "index.html",
-                '<!doctype html><html lang="en"><meta charset="utf-8">'
-                "<title>Interview flow reports</title><h1>Interview flow reports</h1>"
-                "<p>Open a report to read, print, or save it as PDF. Styling and diagrams require network access.</p><ul>"
-                + "".join(links)
-                + "</ul></html>",
-            )
-        return jsonify(
-            {
-                "success": True,
-                "request_id": request_id,
-                "data": {"content": base64.b64encode(output.getvalue()).decode()},
-            }
-        )
-    except (ValueError, OSError) as exc:
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
         return jsonify_with_status(
-            {
-                "success": False,
-                "request_id": request_id,
-                "error": {"type": "validation_error", "message": str(exc)},
-            },
-            400,
+            {"success": False, "error": {"message": "Invalid archive request."}}, 400
         )
+    return _queue_report_job(_current_user_id(), "archive", body, request_id)
+
+
+def _scan_report_result(uid: int, body: Dict[str, Any]) -> Dict[str, Any]:
+    from .interview_scan import scan_interview
+
+    project = _normalize_project(body.get("project"))
+    filename = _normalize_filename(body.get("filename"))
+    if body.get("whole_interview") is True:
+        filename = _report_entrypoint(uid, project, filename)
+    read = _report_reader(uid, project)
+    read(
+        filename
+    )  # Fail an unavailable entrypoint instead of returning an empty report.
+    result = scan_interview(
+        read,
+        filename,
+        package="docassemble.playground"
+        + str(uid)
+        + (project if project != "default" else ""),
+    )
+    return result
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/reports/scan", methods=["POST"])
 def editor_api_report_scan() -> Response:
     """Scan an entrypoint and includes without executing interview code."""
-    from .interview_scan import scan_interview
-
     request_id = str(uuid.uuid4())
     if not _editor_auth_check():
         return _auth_fail(request_id)
@@ -5523,20 +5804,9 @@ def editor_api_report_scan() -> Response:
         project = _normalize_project(body.get("project"))
         filename = _normalize_filename(body.get("filename"))
         uid = _current_user_id()
-        if body.get("whole_interview") is True:
-            filename = _report_entrypoint(uid, project, filename)
-        read = _report_reader(uid, project)
-        read(
-            filename
-        )  # Fail an unavailable entrypoint instead of returning an empty report.
-        result = scan_interview(
-            read,
-            filename,
-            package="docassemble.playground"
-            + str(uid)
-            + (project if project != "default" else ""),
+        return _queue_report_job(
+            uid, "scan", {**body, "project": project, "filename": filename}, request_id
         )
-        return jsonify({"success": True, "data": result, "request_id": request_id})
     except (ValueError, OSError) as exc:
         return jsonify_with_status(
             {
@@ -11704,6 +11974,282 @@ FIELD_LABELING_JOB = _EditorJobKind(
     celery_task="docassemble.ALWeaver.api_weaver_worker.weaver_editor_field_labeling_task",
     expire_seconds=60 * 60,
 )
+
+
+REPORT_JOB = _EditorJobKind(
+    key_prefix="da:alweaver:editor:report:",
+    celery_task="docassemble.ALWeaver.api_weaver_worker.weaver_editor_report_task",
+)
+REPORT_QUEUE_SECONDS = 15 * 60
+REPORT_SOFT_LIMIT = 30 * 60
+REPORT_HARD_LIMIT = REPORT_SOFT_LIMIT + 60
+
+
+REPORT_RESULT_TTL = 15 * 60
+
+
+def _report_result_key(job_id: str) -> str:
+    return _job_state_key(REPORT_JOB, job_id) + ":result"
+
+
+def _store_report_result(uid: int, job_id: str, result: Dict[str, Any]) -> None:
+    # Keep potentially large workbooks out of status records and their 24h TTL.
+    serialized = app.json.dumps(result)
+    size = len(serialized.encode("utf-8"))
+    owner_key = f"da:alweaver:editor:report-results:{uid}"
+    with r.lock(owner_key + ":lock", timeout=30):
+        stored = json.loads(r.get(owner_key) or "{}")
+        active = {
+            key: length
+            for key, length in stored.items()
+            if r.exists(_report_result_key(key))
+        }
+        if sum(active.values()) + size > REPORT_UPLOAD_LIMIT:
+            raise ValueError(
+                "Completed reports exceed the 256 MB account limit. Download existing reports or wait 15 minutes and try again."
+            )
+        active[job_id] = size
+        r.set(_report_result_key(job_id), serialized, ex=REPORT_RESULT_TTL)
+        r.set(owner_key, json.dumps(active), ex=REPORT_RESULT_TTL)
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/reports/jobs/<job_id>/ack", methods=["POST"])
+def editor_api_report_ack(job_id: str) -> Response:
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    state = _load_job_state(REPORT_JOB, job_id)
+    if not state or state.get("owner_user_id") != _current_user_id():
+        return jsonify_with_status(
+            {"success": False, "error": {"message": "Report job not found."}}, 404
+        )
+    r.delete(_report_result_key(job_id))
+    return jsonify({"success": True, "data": {}})
+
+
+def _queue_report_job(
+    uid: int, operation: str, payload: Dict[str, Any], request_id: str
+) -> Response:
+    if not worker_configuration_is_ready():
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "unavailable",
+                    "message": "Reports require Weaver's Celery worker module.",
+                    "details": get_worker_configuration_status(),
+                },
+            },
+            503,
+        )
+    job_id = str(uuid.uuid4())
+    _store_job_state(
+        REPORT_JOB,
+        job_id,
+        {
+            "owner_user_id": uid,
+            "operation": operation,
+            "status": "queued",
+            "queued_at": time.time(),
+            "result": None,
+            "error": None,
+        },
+    )
+    # Keep uploaded workbooks and previews out of the broker and status record.
+    payload_key = _job_state_key(REPORT_JOB, job_id) + ":payload"
+    r.set(payload_key, json.dumps(payload), ex=REPORT_QUEUE_SECONDS + REPORT_HARD_LIMIT)
+    try:
+        workerapp.send_task(
+            REPORT_JOB.celery_task,
+            task_id=job_id,
+            kwargs={"job_id": job_id, "uid": uid},
+            soft_time_limit=REPORT_SOFT_LIMIT,
+            time_limit=REPORT_HARD_LIMIT,
+            expires=REPORT_QUEUE_SECONDS,
+        )
+    except Exception:
+        r.delete(payload_key)
+        _update_job_state(
+            REPORT_JOB,
+            job_id,
+            status="failed",
+            error={"message": "Could not queue the report. Please try again."},
+        )
+        return jsonify_with_status(
+            {
+                "success": False,
+                "request_id": request_id,
+                "error": {
+                    "type": "unavailable",
+                    "message": "Could not queue the report. Please try again.",
+                },
+            },
+            503,
+        )
+    return jsonify_with_status(
+        {
+            "success": True,
+            "request_id": request_id,
+            "data": {
+                "job_id": job_id,
+                "job_url": f"{EDITOR_BASE_PATH}/api/reports/jobs/{job_id}",
+                "status": "queued",
+                "poll_timeout_ms": (REPORT_QUEUE_SECONDS + REPORT_HARD_LIMIT + 60)
+                * 1000,
+            },
+        },
+        202,
+    )
+
+
+def _complete_report_job(job_id: str, uid: int) -> None:
+    # Celery may deliver the same task twice. In particular, an apply must not
+    # race a second apply before either has recorded its terminal status.
+    lock = r.lock(
+        _job_state_key(REPORT_JOB, job_id) + ":run", timeout=REPORT_HARD_LIMIT + 60
+    )
+    if not lock.acquire(blocking=False):
+        return
+    try:
+        _complete_report_job_locked(job_id, uid)
+    finally:
+        lock.release()
+
+
+def _complete_report_job_locked(job_id: str, uid: int) -> None:
+    state = _load_job_state(REPORT_JOB, job_id)
+    if (
+        not state
+        or state.get("owner_user_id") != uid
+        or state.get("status") != "queued"
+    ):
+        return
+    payload_key = _job_state_key(REPORT_JOB, job_id) + ":payload"
+    raw = None
+    try:
+        raw = r.get(payload_key)
+        if raw is None or time.time() - state["queued_at"] > REPORT_QUEUE_SECONDS:
+            raise ValueError("The report expired in the queue. Please try again.")
+        payload = json.loads(raw)
+        _update_job_state(REPORT_JOB, job_id, status="running", started_at=time.time())
+        operation = state["operation"]
+        if operation == "scan":
+            result = _scan_report_result(uid, payload)
+        elif operation == "archive":
+            result = _archive_report_result(uid, payload)
+        elif operation in {"wording-prepare", "wording-export", "wording-import"}:
+            result = _wording_report_result(
+                uid, operation.removeprefix("wording-"), payload
+            )
+        else:
+            raise ValueError("Unknown report operation.")
+        saved_result = None
+        if result.get("applied"):
+            # A completed write must not be reported as failed merely because
+            # the user's download storage quota is full.
+            saved_result = {"applied": True, "change_count": len(result["changes"])}
+        else:
+            _store_report_result(uid, job_id, result)
+        _update_job_state(
+            REPORT_JOB,
+            job_id,
+            status="succeeded",
+            result=saved_result,
+            finished_at=time.time(),
+        )
+        if payload.get("upload_id") and result.get("applied"):
+            try:
+                _delete_report_upload(payload["upload_id"])
+            except Exception:
+                log(
+                    "ALWeaver report upload cleanup failed; the upload will expire.",
+                    "warning",
+                )
+    except Exception as exc:
+        error: Dict[str, Any] = {
+            "type": "report_failed",
+            "message": str(exc) or "The report exceeded its time limit.",
+        }
+        if isinstance(exc, StaleProjectSearchError):
+            error = {
+                "type": "conflict",
+                "message": "Source changed. Review the workbook again before applying.",
+            }
+        elif isinstance(exc, ProjectReplacementWriteError):
+            error = {
+                "type": "write_error",
+                "message": "Could not save workbook changes. Check the affected files before retrying.",
+                "recovery": getattr(exc, "recovery", []),
+            }
+        _update_job_state(
+            REPORT_JOB, job_id, status="failed", error=error, finished_at=time.time()
+        )
+    finally:
+        r.delete(payload_key)
+        if state.get("operation") in {"wording-export", "archive"} and raw:
+            try:
+                upload_id = json.loads(raw).get("upload_id")
+                if upload_id:
+                    _delete_report_upload(upload_id)
+            except Exception:
+                log(
+                    "ALWeaver failed report upload cleanup; the upload will expire.",
+                    "warning",
+                )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/reports/jobs/<job_id>", methods=["GET"])
+def editor_api_report_job(job_id: str) -> Response:
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    state = _load_job_state(REPORT_JOB, job_id)
+    if not state or state.get("owner_user_id") != _current_user_id():
+        return jsonify_with_status(
+            {"success": False, "error": {"message": "Report job not found."}}, 404
+        )
+
+    def expired(record: Dict[str, Any]) -> bool:
+        return (
+            record.get("status") == "queued"
+            and time.time() - record["queued_at"] > REPORT_QUEUE_SECONDS
+        ) or (
+            record.get("status") == "running"
+            and time.time() - record["started_at"] > REPORT_HARD_LIMIT + 60
+        )
+
+    if expired(state):
+        # Serialize expiry with the worker's queued -> running transition.
+        # A poll never announces failure while a worker holds the run lock.
+        lock = r.lock(
+            _job_state_key(REPORT_JOB, job_id) + ":run", timeout=REPORT_HARD_LIMIT + 60
+        )
+        if lock.acquire(blocking=False):
+            try:
+                state = _load_job_state(REPORT_JOB, job_id) or state
+                if expired(state):
+                    state = _update_job_state(
+                        REPORT_JOB,
+                        job_id,
+                        status="expired",
+                        error={"message": "The report timed out. Please try again."},
+                    )
+            finally:
+                lock.release()
+    if state.get("status") == "succeeded" and state.get("result") is None:
+        raw_result = r.get(_report_result_key(job_id))
+        if raw_result is None:
+            state = {
+                **state,
+                "status": "expired",
+                "error": {
+                    "message": "The report result expired or was already received. For an import, check the saved source before retrying."
+                },
+            }
+        else:
+            state = {**state, "result": json.loads(raw_result)}
+    return jsonify({"success": True, "request_id": request_id, "data": state})
 
 
 AI_JOB = _EditorJobKind(

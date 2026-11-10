@@ -34,6 +34,9 @@ NODE_TESTS = (
     "test_editor_agent_chat.js",
     "test_editor_screen_preview.js",
     "test_editor_interview_report.js",
+    "test_editor_reports_worker.js",
+    "test_editor_reports_upload.js",
+    "test_editor_wording_diff.js",
     "test_editor_include_report.js",
     "test_editor_runtime_inspector.js",
     "test_editor_fake_filler.js",
@@ -182,8 +185,25 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertNotIn("allow-scripts", controls)
         self.assertIn("revisions: prepared.revisions", controls)
         # Both requests must fit Docassemble's request size limit.
-        self.assertIn("form.append('workbook', file)", controls)
-        self.assertIn("prepared.max_request_bytes", controls)
+        self.assertIn("form.append('upload_id', transfer.upload_id)", controls)
+        self.assertIn("blob.slice(offset, offset + transfer.chunk_bytes)", controls)
+
+    def test_large_reports_use_background_jobs_and_rendering_worker(self):
+        source = (self.package_dir / "data/static/editor.js").read_text()
+        controls = (self.package_dir / "data/static/editor_reports.js").read_text()
+        worker = (self.package_dir / "data/static/editor_reports_worker.js").read_text()
+        self.assertIn("path.indexOf('/api/reports/')", source)
+        self.assertRegex(source, r"waitForJob\(response,\s*\{\s*get: function")
+        self.assertIn("await ALWeaverReports.buildFlowReport", source)
+        self.assertIn("await buildFlowReport", controls)
+        self.assertIn(
+            "new Worker('/al/editor/static/editor_reports_worker.js')", controls
+        )
+        self.assertNotIn("textOnly", controls)
+        self.assertIn(
+            "importScripts('editor_screen_preview.js', 'editor_interview_report.js')",
+            worker,
+        )
 
     def test_undefined_names_are_reported_as_errors(self):
         controls = (self.package_dir / "data/static/editor_reports.js").read_text()

@@ -305,6 +305,24 @@
     if (!response.success) throw new Error(response.error && response.error.message || 'Report request failed.');
     return response.data;
   }
+  function buildFlowReport(steps, blocks, options) {
+    return new Promise(function (resolve, reject) {
+      var worker = new Worker('/al/editor/static/editor_reports_worker.js');
+      var timeout = setTimeout(function () {
+        worker.terminate();
+        reject(new Error('Flow report rendering timed out.'));
+      }, 30 * 60 * 1000);
+      function finish() { clearTimeout(timeout); worker.terminate(); }
+      worker.onmessage = function (event) {
+        finish();
+        if (event.data.error) reject(new Error(event.data.error));
+        else resolve(event.data.html);
+      };
+      worker.onerror = function () { finish(); reject(new Error('Could not render the flow report. Refresh the editor and try again.')); };
+      try { worker.postMessage({steps: steps, blocks: blocks, options: options}); }
+      catch (error) { finish(); reject(error); }
+    });
+  }
   function download(content, filename, type) {
     var raw = atob(content);
     var bytes = Uint8Array.from(raw, function (c) { return c.charCodeAt(0); });
@@ -374,7 +392,10 @@
           progress.appendChild(message);
           try {
             var reports = [];
+            var transfer = checked(await options.apiPost('/api/reports/uploads', {kind: 'reports'}));
+            var manifest = {};
             for (var filename of selected) {
+              if (!progress.isConnected) return;
               message.textContent = 'Rendering ' + filename + ' (' + (reports.length + 1) + ' of ' + selected.length + ')…';
               var scan = checked(await options.apiPost('/api/reports/scan', {project: project, filename: filename}));
               var steps = root.ALWeaverInterviewReport.expandNamedOrders(scan.order_steps, scan.named_order_steps);
@@ -382,12 +403,16 @@
               var opts = Object.assign({}, reportOptions, {continueLabel: reportOptions.continueButtonLabel, title: filename + ' — Interview flow report',
                 subtitle: filename + (scan.warnings.length ? ' · ' + scan.warnings.join(' ') : ''),
                 interview: root.ALWeaverScreenPreview.buildInterviewContext(scan.blocks)});
-              reports.push({filename: filename, html: root.ALWeaverInterviewReport.buildReport(steps, scan.blocks, opts)});
+              var html = await buildFlowReport(steps, scan.blocks, opts);
+              var prefix = filename + '|';
+              manifest[prefix] = await uploadParts(options, transfer, new Blob([html]), prefix);
+              reports.push({filename: filename});
             }
-            var archive = checked(await options.apiPost('/api/reports/archive', {reports: reports}));
+            var archive = checked(await options.apiPost('/api/reports/archive', {reports: reports, upload_id: transfer.upload_id, manifest: manifest}));
             download(archive.content, 'interview-flow-reports.zip', 'application/zip');
             message.textContent = reports.length + ' reports downloaded. Extract the ZIP and open index.html.';
           } catch (error) { message.textContent = error.message; }
+          finally { await releaseUpload(options, transfer); }
         });
       };
     }).catch(function (error) { status.textContent = error.message; });
@@ -416,11 +441,16 @@
       }
       await doc.fonts.ready;
       var height = Math.max(1, doc.body.scrollHeight);
-      if (height > 12000) throw new Error('A screen is too tall for a workbook PNG preview. Shorten it or split it into screens.');
-      var canvas = await root.html2canvas(doc.body, {backgroundColor: '#ffffff', scale: 1,
-        width: 1100, height: height, windowWidth: 1100, windowHeight: height,
-        useCORS: true, logging: false});
-      return canvas.toDataURL('image/png');
+      var images = [];
+      // Bound each canvas, retaining all pixels of very long screens.
+      for (var top = 0; top < height; top += 10000) {
+        var canvas = await root.html2canvas(doc.body, {backgroundColor: '#ffffff', scale: 1,
+          width: 1100, height: Math.min(10000, height - top), y: top,
+          windowWidth: 1100, windowHeight: height,
+          useCORS: true, logging: false});
+        images.push(canvas.toDataURL('image/png'));
+      }
+      return images.length === 1 ? images[0] : images;
     } finally { frame.remove(); }
   }
   function previewBytes(previews) {
@@ -455,6 +485,30 @@
     }
     throw new Error('These screen previews are too large for one workbook on this server. Open a smaller interview, or ask an administrator to raise "maximum content length".');
   }
+  async function releaseUpload(options, transfer) {
+    if (!transfer) return;
+    try {
+      await (options.apiQuietPost || options.apiPost)('/api/reports/uploads/' + transfer.upload_id + '/release', {});
+    } catch (_) { /* Expiry is the fallback if the server is unreachable. */ }
+  }
+  async function uploadParts(options, transfer, blob, prefix, onProgress) {
+    for (var offset = 0, index = 0; offset < blob.size; offset += transfer.chunk_bytes, index++) {
+      var form = new FormData();
+      form.append('index', prefix + index);
+      form.append('part', blob.slice(offset, offset + transfer.chunk_bytes), 'part');
+      for (var attempt = 0; ; attempt++) {
+        try {
+          checked(await (options.apiQuietPost || options.apiPost)('/api/reports/uploads/' + transfer.upload_id, form, {json: false, timeoutMs: 120000}));
+          break;
+        } catch (error) {
+          if (attempt >= 5 || (error.status && error.status < 500) || error.code === 'request_cancelled') throw error;
+          await new Promise(function (resolve) { setTimeout(resolve, Math.min(10000, 1000 * Math.pow(2, attempt))); });
+        }
+      }
+      if (onProgress) onProgress(Math.min(blob.size, offset + transfer.chunk_bytes), blob.size);
+    }
+    return {chunks: index, bytes: blob.size};
+  }
   async function exportWording(options) {
     if (!await options.prepareSaved('export the wording workbook')) return;
     var state = options.getState();
@@ -472,28 +526,91 @@
         warning.textContent = prepared.warnings.join(' ');
         dialog.appendChild(warning);
       }
-      var previews = {};
+      var transfer = checked(await options.apiPost('/api/reports/uploads', {kind: 'previews'}));
+      var manifest = {};
       var previewOptions = Object.assign({}, options.previewOptions(prepared.blocks.filter(function (block) { return block.sourceFile === (prepared.filename || payload.filename); })), {
         interview: root.ALWeaverScreenPreview.buildInterviewContext(prepared.blocks)});
       for (var i = 0; i < prepared.screens.length; i++) {
         if (!dialog.isConnected) return;
         var screen = prepared.screens[i];
-        status.textContent = 'Capturing screen ' + (i + 1) + ' of ' + prepared.screens.length + '…';
-        previews[screen.id] = await captureScreen(screen.data, previewOptions);
+        status.textContent = 'Capturing screen ' + (i + 1) + ' of ' + prepared.screens.length + '… Keep this tab open.';
+        var png = await captureScreen(screen.data, previewOptions);
+        var images = Array.isArray(png) ? png : [png];
+        for (var tile = 0; tile < images.length; tile++) {
+          var prefix = screen.id + '|' + tile + '|';
+          manifest[prefix] = await uploadParts(options, transfer, new Blob([images[tile]]), prefix);
+        }
       }
       if (!dialog.isConnected) return;
-      // The previews travel in one request, and the workbook holding them is
-      // uploaded again on import, so both must fit the server's size limit.
-      var budget = Math.floor((prepared.max_request_bytes || 16 * 1024 * 1024) * 0.85);
-      previews = await fitPreviews(previews, budget, function () { return dialog.isConnected; });
-      if (!previews) return;
       status.textContent = 'Building the workbook…';
       var exported = checked(await options.apiPost('/api/reports/wording/export', Object.assign({}, payload,
-        {revisions: prepared.revisions, previews: previews})));
+        {revisions: prepared.revisions, upload_id: transfer.upload_id, manifest: manifest})));
       download(exported.content, payload.filename.replace(/\.ya?ml$/i, '') + '-wording.xlsx',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      status.textContent = 'Workbook downloaded. Give it to your reviewer, then use Import wording workbook to review and apply their edits.';
+      status.textContent = 'Workbook downloaded with screen images. Give it to your reviewer, then use Import wording workbook to review and apply their edits.';
     } catch (error) { status.textContent = error.message; }
+    finally { await releaseUpload(options, transfer); }
+  }
+  // Tokenize words, punctuation and whitespace without normalizing source text.
+  // Trim shared edges before a bounded LCS, keeping large imports responsive.
+  function wordingDiff(original, edited) {
+    var tokenize = function (text) { return String(text).match(/\s+|[\p{L}\p{N}_]+|[^\s\p{L}\p{N}_]/gu) || []; };
+    var before = tokenize(original), after = tokenize(edited);
+    var first = 0, lastBefore = before.length, lastAfter = after.length;
+    while (first < lastBefore && first < lastAfter && before[first] === after[first]) first++;
+    while (lastBefore > first && lastAfter > first && before[lastBefore - 1] === after[lastAfter - 1]) { lastBefore--; lastAfter--; }
+    var parts = [];
+    function add(type, text) {
+      if (!text) return;
+      var previous = parts[parts.length - 1];
+      if (previous && previous.type === type) previous.text += text;
+      else parts.push({type: type, text: text});
+    }
+    add('equal', before.slice(0, first).join(''));
+    var left = before.slice(first, lastBefore), right = after.slice(first, lastAfter);
+    if (left.length * right.length > 250000) {
+      // Preserve exact text even when a large replacement exceeds the diff budget.
+      add('remove', left.join(''));
+      add('add', right.join(''));
+    } else {
+      var columns = right.length + 1;
+      var lengths = new Uint32Array((left.length + 1) * columns);
+      for (var i = left.length - 1; i >= 0; i--) {
+        for (var j = right.length - 1; j >= 0; j--) {
+          lengths[i * columns + j] = left[i] === right[j]
+            ? 1 + lengths[(i + 1) * columns + j + 1]
+            : Math.max(lengths[(i + 1) * columns + j], lengths[i * columns + j + 1]);
+        }
+      }
+      var a = 0, b = 0;
+      while (a < left.length || b < right.length) {
+        if (a < left.length && b < right.length && left[a] === right[b]) {
+          add('equal', left[a++]); b++;
+        } else if (a < left.length && (b === right.length || lengths[(a + 1) * columns + b] >= lengths[a * columns + b + 1])) {
+          add('remove', left[a++]);
+        } else { add('add', right[b++]); }
+      }
+    }
+    add('equal', before.slice(lastBefore).join(''));
+    return parts;
+  }
+  function fillWordingDiff(beforeCell, afterCell, original, edited) {
+    [beforeCell, afterCell].forEach(function (cell) { cell.style.whiteSpace = 'pre-wrap'; });
+    wordingDiff(original, edited).forEach(function (part) {
+      if (part.type === 'equal') {
+        beforeCell.appendChild(document.createTextNode(part.text));
+        afterCell.appendChild(document.createTextNode(part.text));
+      } else {
+        var removed = part.type === 'remove';
+        var mark = document.createElement(removed ? 'del' : 'ins');
+        mark.textContent = part.text;
+        mark.title = removed ? 'Removed wording' : 'Added wording';
+        mark.style.cssText = removed
+          ? 'background:#f8d7da;color:#842029;text-decoration:line-through;'
+          : 'background:#d1e7dd;color:#0f5132;text-decoration:underline;';
+        (removed ? beforeCell : afterCell).appendChild(mark);
+      }
+    });
   }
   async function importWording(options) {
     if (!await options.prepareSaved('import a wording workbook')) return;
@@ -517,6 +634,11 @@
     var resultBox = document.createElement('div');
     dialog.append(label, status, review, resultBox);
     input.onchange = function () { resultBox.replaceChildren(); review.hidden = false; };
+    var transfer = null;
+    var applying = false;
+    dialog.addEventListener('close', function () {
+      if (!review.disabled && !applying) { releaseUpload(options, transfer); transfer = null; }
+    });
     review.onclick = async function () {
       var file = input.files[0];
       if (!file) { status.textContent = 'Choose an XLSX workbook.'; return; }
@@ -525,11 +647,19 @@
       input.disabled = true;
       resultBox.replaceChildren();
       try {
+        status.textContent = 'Uploading the workbook…';
+        await releaseUpload(options, transfer);
+        transfer = null;
+        transfer = checked(await options.apiPost('/api/reports/uploads', {kind: 'workbook'}));
+        var uploaded = await uploadParts(options, transfer, file, '', function (sent, total) {
+          status.textContent = 'Uploading the workbook… ' + Math.round(sent / total * 100) + '%';
+        });
         status.textContent = 'Checking workbook changes…';
         var upload = function (fields) {
           var form = new FormData();
           Object.keys(fields).forEach(function (key) { form.append(key, fields[key]); });
-          form.append('workbook', file);
+          form.append('upload_id', transfer.upload_id);
+          form.append('manifest', JSON.stringify({'': uploaded}));
           return options.apiPost('/api/reports/wording/import', form, {json: false});
         };
         var proposal = checked(await upload(payload));
@@ -543,29 +673,47 @@
           var th = document.createElement('th'); th.scope = 'col'; th.textContent = text; head.appendChild(th);
         });
         var tbody = table.createTBody();
-        proposal.changes.forEach(function (change) {
+        var legend = document.createElement('p');
+        legend.textContent = 'Removed wording is struck through in Before; added wording is underlined in After. Spaces and line breaks are preserved. Very long replacements may highlight whole passages.';
+        for (var index = 0; index < proposal.changes.length; index++) {
+          if (index % 20 === 0) {
+            await new Promise(function (resolve) { setTimeout(resolve, 0); });
+            if (!dialog.isConnected) return;
+          }
+          var change = proposal.changes[index];
           var row = tbody.insertRow();
-          [change.filename + ' · ' + change.screen + ' · ' + change.part, change.original, change.edited].forEach(function (text) {
-            var cell = row.insertCell(); cell.style.whiteSpace = 'pre-wrap'; cell.textContent = text;
-          });
-        });
+          row.insertCell().textContent = change.filename + ' · ' + change.screen + ' · ' + change.part;
+          fillWordingDiff(row.insertCell(), row.insertCell(), change.original, change.edited);
+        }
         var apply = document.createElement('button');
         apply.type = 'button'; apply.className = 'btn btn-primary'; apply.textContent = 'Apply reviewed changes';
         apply.onclick = async function () {
           apply.disabled = true;
+          applying = true;
+          input.disabled = true;
+          review.disabled = true;
           try {
             checked(await upload(Object.assign({}, payload,
               {apply: 'true', review_digest: proposal.review_digest})));
             status.textContent = proposal.changes.length + ' wording changes saved.';
             await options.reload(payload.project, payload.filename);
           } catch (error) { status.textContent = error.message; review.hidden = false; }
+          finally {
+            await releaseUpload(options, transfer); transfer = null;
+            applying = false; input.disabled = false; review.disabled = false;
+          }
         };
-        resultBox.append(table, apply);
+        resultBox.append(legend, table, apply);
       } catch (error) { status.textContent = error.message; }
-      finally { review.disabled = false; input.disabled = false; }
+      finally {
+        if (!dialog.isConnected || !proposal || !proposal.changes.length) {
+          await releaseUpload(options, transfer); transfer = null;
+        }
+        review.disabled = false; input.disabled = false;
+      }
     };
   }
   root.ALWeaverReports = {closeSource: closeSource, refreshSourceSymbols: function () { if (sourceHost) render(); }, openVariables: openVariables, openRepository: openRepository,
     exportWording: exportWording, importWording: importWording, captureScreen: captureScreen,
-    fitPreviews: fitPreviews};
+    fitPreviews: fitPreviews, buildFlowReport: buildFlowReport, wordingDiff: wordingDiff, fillWordingDiff: fillWordingDiff};
 })(globalThis);

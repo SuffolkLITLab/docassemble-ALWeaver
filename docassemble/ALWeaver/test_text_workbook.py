@@ -276,3 +276,68 @@ def test_directives_with_arguments_are_protected():
     )
     with pytest.raises(ValueError):
         validate_wording("[TARGET help] text", "[TARGET other] text")
+
+
+def test_empty_wording_roundtrips_as_empty_string_or_blank_cell():
+    sources = {"main.yml": 'question: Hello\nsubquestion: ""\nyesno: ready\n'}
+    content = export_workbook(sources, {})
+    assert import_workbook(content, sources)["changes"] == []
+
+
+def test_tall_screen_image_tiles_stay_in_order_on_one_sheet():
+    import base64
+    from io import BytesIO
+    from PIL import Image
+    import zipfile
+    from xml.etree import ElementTree as ET
+
+    sources = {"main.yml": "question: Tall screen\nyesno: ready\n"}
+    images = []
+    for color in ("red", "blue"):
+        buffer = BytesIO()
+        Image.new("RGB", (1100, 1000), color).save(buffer, format="PNG")
+        images.append(base64.b64encode(buffer.getvalue()).decode())
+    content = export_workbook(sources, {"main.yml#0": images})
+    with zipfile.ZipFile(BytesIO(content)) as archive:
+        assert (
+            len([name for name in archive.namelist() if name.startswith("xl/media/")])
+            == 2
+        )
+        drawing = ET.fromstring(archive.read("xl/drawings/drawing1.xml"))
+        ns = {
+            "x": "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
+        }
+        anchors = drawing.findall("x:twoCellAnchor", ns)
+        assert len(anchors) == 2
+        first = anchors[0].find("x:from", ns)
+        second = anchors[1].find("x:from", ns)
+        assert int(second.find("x:row", ns).text) > int(first.find("x:row", ns).text)
+    assert import_workbook(content, sources)["changes"] == []
+
+
+def test_xml_relationship_cannot_bypass_size_guard_under_media():
+    from io import BytesIO
+    import zipfile
+    import pytest
+
+    sources = {"main.yml": "question: Hello\nyesno: ready\n"}
+    original = export_workbook(sources, {})
+    malicious = BytesIO()
+    with zipfile.ZipFile(BytesIO(original)) as archive, zipfile.ZipFile(
+        malicious, "w", zipfile.ZIP_DEFLATED
+    ) as output:
+        for name in archive.namelist():
+            data = archive.read(name)
+            if name == "[Content_Types].xml":
+                data = data.replace(b"/xl/sharedStrings.xml", b"/xl/media/strings.png")
+            if name == "xl/_rels/workbook.xml.rels":
+                data = data.replace(
+                    b'Target="sharedStrings.xml"', b'Target="media/strings.png"'
+                )
+            if name == "xl/sharedStrings.xml":
+                name = "xl/media/strings.png"
+            output.writestr(name, data)
+    # openpyxl would otherwise parse this excluded part as shared-string XML,
+    # even though its name looks like an image and read_only=True is used.
+    with pytest.raises(KeyError, match="xl/media/strings.png"):
+        import_workbook(malicious.getvalue(), sources)
