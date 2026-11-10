@@ -4883,6 +4883,7 @@ body {
 
 .editor-runtime-frame-bar {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 10px;
   padding: 7px 12px;
@@ -4906,7 +4907,10 @@ body {
 
 .editor-runtime-fill-actions {
   display: flex;
-  flex-shrink: 0;
+  justify-content: flex-end;
+  margin-left: auto;
+  flex-wrap: wrap;
+  flex-shrink: 1;
   gap: 8px;
 }
 
@@ -6552,4 +6556,48 @@ body:has(.editor-source-full-screen) #left-rail { visibility: hidden; }
     height: 2rem;
     font-size: 1.125rem;
   }
+}
+
+/* Keep the live iframe mounted while expanding the interview and its controls. */
+.editor-runtime-interview.editor-runtime-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 1040;
+  background: var(--bs-body-bg, white);
+  display: flex;
+  flex-direction: column;
+  padding: 0.5rem;
+}
+.editor-runtime-fullscreen #runtime-frame-host {
+  flex: 1;
+  min-height: 0;
+}
+.editor-runtime-fullscreen .editor-runtime-frame {
+  height: 100%;
+  min-height: 0;
+}
+.editor-runtime-fullscreen .editor-runtime-frame-bar {
+  flex-wrap: wrap;
+}
+
+body:has(.editor-runtime-fullscreen) { overflow: hidden; }
+
+/* Scale the iframe's layout viewport as well as its rendered content. */
+#runtime-frame-host {
+  position: relative;
+  overflow: hidden;
+}
+#runtime-interview-frame {
+  position: absolute;
+  inset: 0 auto auto 0;
+  transform-origin: top left;
+}
+.editor-runtime-zoom {
+  width: auto;
+}
+
+/* Reserve the regenerate slot so filling answers never moves Continue. */
+#runtime-regenerate-samples[hidden] {
+  display: inline-block;
+  visibility: hidden;
 }

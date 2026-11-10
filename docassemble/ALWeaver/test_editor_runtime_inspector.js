@@ -190,8 +190,9 @@ assert.strictEqual(
   'user_name',
 );
 assert.strictEqual(
-  runtime.findQuestionSource({ questionName: 'review_answers' }, [
-    { id: 'generated', data: { event: 'review_answers' } },
+  runtime.findQuestionSource({ questionName: 'ID review_answers' }, [
+    { id: 'event', data: { event: 'review_answers' } },
+    { id: 'generated', data: { id: 'review_answers' } },
   ]).id,
   'generated',
 );
@@ -456,3 +457,23 @@ testHideStopsPollingAndBlocksPendingRepaint()
     console.error(error);
     process.exitCode = 1;
   });
+
+assert.strictEqual(
+  runtime.findQuestionSource({ questionName: 'ID active' }, [
+    { id: 'block-1', data: { id: 'active' } },
+  ]).id,
+  'block-1',
+);
+assert.strictEqual(
+  runtime.findQuestionSource({ questionName: 'Question_12' }, [
+    { id: 'other', data: { id: 'Question_12' } },
+  ]),
+  null,
+);
+assert.strictEqual(
+  runtime.findQuestionSource({ questionName: 'ID duplicate' }, [
+    { id: 'one', data: { id: 'duplicate' } },
+    { id: 'two', data: { id: 'duplicate' } },
+  ]),
+  null,
+);

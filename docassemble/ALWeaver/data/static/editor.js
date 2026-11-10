@@ -6915,6 +6915,21 @@
       onSessionChange: function (session) {
         state.runtimeTargetSession = session;
       },
+      canExplain: function () {
+        return agentEditorEnabled();
+      },
+      onExplain: function (message) {
+        if (
+          !agentEditorEnabled() ||
+          !agentChat ||
+          !agentChat.prepareDraft(message, null, true)
+        )
+          return false;
+        setAssistantOpen(true);
+        var input = document.getElementById('editor-agent-input');
+        if (input) input.focus();
+        return true;
+      },
       onOpenSource: function (blockId) {
         var block = getBlockById(blockId);
         if (!block) return;
@@ -24405,7 +24420,7 @@
     dismissal.assistant =
       state.assistantOpen &&
       uiAction !== 'toggle-assistant' &&
-      !target.closest('#editor-assistant');
+      !target.closest('#editor-assistant, .runtime-explain');
     dismissal.inspector =
       state.currentView === 'interview' &&
       state.canvasMode === 'runtime-inspector' &&
