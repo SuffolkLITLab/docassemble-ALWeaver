@@ -714,13 +714,24 @@ class TestEditorFrontend(unittest.TestCase):
         ).read_text()
 
         self.assertIn("hide: hide", runtime)
+        self.assertIn("Exit full screen", runtime)
+        self.assertIn("Why this screen?", runtime)
+        self.assertIn("Interview zoom", runtime)
+        self.assertIn("Fit viewport", runtime)
+        self.assertIn("runtime-explain-menu", runtime)
+        self.assertIn("More debug actions", runtime)
+        self.assertIn("editor-runtime-primary-actions", runtime)
+        self.assertIn("var fullscreenSidebarCollapsed = true", runtime)
+        self.assertIn("Restart interview", runtime)
+        self.assertIn("End debug session", runtime)
+        self.assertIn("#dasource", runtime)
         # Hiding has to drop the canvas the panel was drawing into, or a late
         # observation paints the debugger back over whatever replaced it.
         self.assertIn("function hide() {", runtime)
         hide_body = runtime.split("function hide() {", 1)[1].split("}", 1)[0]
         self.assertIn("container = null;", hide_body)
         self.assertIn("runtimeInspector.hide();", editor)
-        self.assertIn("!target.closest('#editor-assistant')", editor)
+        self.assertIn("!target.closest('#editor-assistant, .runtime-explain')", editor)
         self.assertIn("!target.closest('.editor-runtime-inspector')", editor)
         self.assertIn(
             "if (dismissal.assistant && state.assistantOpen) setAssistantOpen(false);",

@@ -1005,11 +1005,11 @@
 
     return {
       render: render,
-      prepareDraft: function (message, expectedSource) {
+      prepareDraft: function (message, expectedSource, readOnly) {
         if (session || busy || !isAvailable() || isExhausted()) return false;
         draft = String(message || '');
         externalDraftSource = expectedSource;
-        askOnly = false;
+        askOnly = Boolean(readOnly);
         render();
         return true;
       },

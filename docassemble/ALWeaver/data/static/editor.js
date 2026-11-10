@@ -6915,6 +6915,21 @@
       onSessionChange: function (session) {
         state.runtimeTargetSession = session;
       },
+      canExplain: function () {
+        return agentEditorEnabled();
+      },
+      onExplain: function (message) {
+        if (
+          !agentEditorEnabled() ||
+          !agentChat ||
+          !agentChat.prepareDraft(message, null, true)
+        )
+          return false;
+        setAssistantOpen(true);
+        var input = document.getElementById('editor-agent-input');
+        if (input) input.focus();
+        return true;
+      },
       onOpenSource: function (blockId) {
         var block = getBlockById(blockId);
         if (!block) return;
@@ -15609,12 +15624,14 @@
     updateTopbarProject();
     updateTopbarSaveState();
     if (routeApplying) {
+      runtimeInspector.hide();
       canvasContent.innerHTML =
         '<p class="text-muted p-4" role="status">Loading editor location…</p>';
       return;
     }
     if (routeError) {
       if (routeError.path === router.routeForState(editorRoute())) {
+        runtimeInspector.hide();
         canvasContent.innerHTML =
           '<div class="alert alert-warning" role="alert">' +
           esc(routeError.message) +
@@ -24405,7 +24422,7 @@
     dismissal.assistant =
       state.assistantOpen &&
       uiAction !== 'toggle-assistant' &&
-      !target.closest('#editor-assistant');
+      !target.closest('#editor-assistant, .runtime-explain');
     dismissal.inspector =
       state.currentView === 'interview' &&
       state.canvasMode === 'runtime-inspector' &&
