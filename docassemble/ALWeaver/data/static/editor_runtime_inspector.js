@@ -1153,7 +1153,7 @@
         '<span class="badge text-bg-success ' +
         (session ? '' : 'd-none') +
         '">Live test session</span></div>' +
-        '<p class="text-muted small mb-0">Run the real interview while Weaver follows its screens, answers, and variables.</p></div>' +
+        '</div>' +
         '<div class="d-flex flex-wrap gap-2" id="runtime-session-actions"></div>' +
         '</header>' +
         '<div class="alert py-2 mb-0 ' +
