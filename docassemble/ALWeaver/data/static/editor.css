@@ -6559,13 +6559,13 @@ body:has(.editor-source-full-screen) #left-rail { visibility: hidden; }
 }
 
 /* Keep the live iframe mounted while expanding the interview and its controls. */
-.editor-runtime-interview.editor-runtime-fullscreen {
+.editor-runtime-workbench.editor-runtime-fullscreen {
   position: fixed;
   inset: 0;
   z-index: 1040;
   background: var(--bs-body-bg, white);
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  height: 100dvh;
   padding: 0.5rem;
 }
 .editor-runtime-fullscreen #runtime-frame-host {
@@ -6607,4 +6607,30 @@ body:has(.editor-runtime-fullscreen) { overflow: hidden; }
   flex-wrap: nowrap;
   gap: 8px;
   flex-shrink: 0;
+}
+
+@media (max-width: 760px) {
+  .editor-runtime-workbench.editor-runtime-fullscreen {
+    display: flex;
+    flex-direction: column;
+  }
+  .editor-runtime-fullscreen .editor-runtime-sidebar {
+    max-height: 35dvh;
+  }
+  .editor-runtime-fullscreen .editor-runtime-interview {
+    flex: 1;
+    min-height: 0;
+  }
+  .editor-runtime-primary-actions {
+    max-width: 100%;
+  }
+  #runtime-regenerate-samples {
+    min-width: 0;
+    padding-inline: 0.4rem;
+  }
+}
+
+@media (max-width: 400px) {
+  .runtime-regenerate-label { display: none; }
+  #runtime-regenerate-samples svg { margin-right: 0 !important; }
 }

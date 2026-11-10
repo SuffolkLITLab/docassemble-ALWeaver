@@ -442,6 +442,7 @@
     var steps = [];
     var includeInternal = false;
     var sidebarCollapsed = false;
+    var fullscreenSidebarCollapsed = true;
     var variableQuery = '';
     // Polling refreshes the variable list (see startPolling), so
     // <details> elements are recreated from scratch on every refresh. Without
@@ -1308,10 +1309,10 @@
         '<button type="button" class="btn btn-sm btn-outline-primary mt-2" id="runtime-apply-scenario">Apply and reload</button>' +
         '</div></details>' +
         '</div></aside>' +
-        '<div class="editor-runtime-interview"><div class="editor-runtime-frame-bar"><span class="editor-runtime-frame-title"><i class="fa-solid fa-display me-1" aria-hidden="true"></i>Live interview <code id="runtime-frame-file"></code></span><div class="editor-runtime-fill-actions"><button type="button" class="btn btn-sm btn-outline-secondary" id="runtime-regenerate-samples" title="Replace the sample answers on this screen with new ones" hidden><i class="fa-solid fa-shuffle me-1" aria-hidden="true"></i>Regenerate</button><button type="button" class="btn btn-sm btn-outline-primary" id="runtime-fill-samples" disabled>Fill sample answers</button></div></div><div id="runtime-frame-host"></div></div>' +
+        '<div class="editor-runtime-interview"><div class="editor-runtime-frame-bar"><span class="editor-runtime-frame-title"><i class="fa-solid fa-display me-1" aria-hidden="true"></i>Live interview <code id="runtime-frame-file"></code></span><div class="editor-runtime-fill-actions"><button type="button" class="btn btn-sm btn-outline-secondary" id="runtime-regenerate-samples" aria-label="Regenerate sample answers" title="Replace the sample answers on this screen with new ones" hidden><i class="fa-solid fa-shuffle me-1" aria-hidden="true"></i><span class="runtime-regenerate-label">Regenerate</span></button><button type="button" class="btn btn-sm btn-outline-primary" id="runtime-fill-samples" disabled>Fill sample answers</button></div></div><div id="runtime-frame-host"></div></div>' +
         '</div>';
 
-      var interviewPanel = content.querySelector('.editor-runtime-interview');
+      var workbench = content.querySelector('.editor-runtime-workbench');
       var fillActions = content.querySelector('.editor-runtime-fill-actions');
       var zoom = document.createElement('select');
       zoom.id = 'runtime-zoom';
@@ -1333,7 +1334,7 @@
         // header. Its layout viewport matches a standalone tab.
         var fitViewport =
           zoomChoice === 'auto' &&
-          interviewPanel.classList.contains('editor-runtime-fullscreen');
+          workbench.classList.contains('editor-runtime-fullscreen');
         var scale = zoomChoice === 'auto' ? 1 : Number(zoomChoice) / 100;
         if (fitViewport) {
           scale = Math.min(
@@ -1366,11 +1367,12 @@
           node.removeAttribute('inert');
         });
         inertNodes = [];
-        interviewPanel.classList.toggle('editor-runtime-fullscreen', expanded);
+        workbench.classList.toggle('editor-runtime-fullscreen', expanded);
+        updateSidebar();
         fullscreen.textContent = expanded ? 'Exit full screen' : 'Full screen';
         updateZoom();
         if (expanded) {
-          var node = interviewPanel;
+          var node = workbench;
           while (node.parentElement) {
             Array.from(node.parentElement.children).forEach(function (sibling) {
               if (sibling !== node && !sibling.hasAttribute('inert')) {
@@ -1387,7 +1389,7 @@
         'btn btn-sm btn-outline-secondary',
         function () {
           setFullscreen(
-            !interviewPanel.classList.contains('editor-runtime-fullscreen'),
+            !workbench.classList.contains('editor-runtime-fullscreen'),
           );
         },
       );
@@ -1395,7 +1397,7 @@
       exitFullscreen = function () {
         setFullscreen(false);
       };
-      interviewPanel.addEventListener('keydown', function (event) {
+      workbench.addEventListener('keydown', function (event) {
         if (/** @type {KeyboardEvent} */ (event).key === 'Escape') {
           setFullscreen(false);
           fullscreen.focus();
@@ -1483,25 +1485,29 @@
       frameFile.setAttribute('title', session.yaml_filename);
       var sidebarToggle = content.querySelector('#runtime-toggle-sidebar');
       function updateSidebar() {
+        var collapsed = workbench.classList.contains(
+          'editor-runtime-fullscreen',
+        )
+          ? fullscreenSidebarCollapsed
+          : sidebarCollapsed;
         content
           .querySelector('.editor-runtime-workbench')
-          .classList.toggle(
-            'editor-runtime-sidebar-collapsed',
-            sidebarCollapsed,
-          );
+          .classList.toggle('editor-runtime-sidebar-collapsed', collapsed);
         var panels = /** @type {HTMLElement} */ (
           content.querySelector('#runtime-sidebar-panels')
         );
-        panels.hidden = sidebarCollapsed;
-        var label = sidebarCollapsed
+        panels.hidden = collapsed;
+        var label = collapsed
           ? 'Expand debugging details'
           : 'Collapse debugging details';
-        sidebarToggle.setAttribute('aria-expanded', String(!sidebarCollapsed));
+        sidebarToggle.setAttribute('aria-expanded', String(!collapsed));
         sidebarToggle.setAttribute('aria-label', label);
         sidebarToggle.setAttribute('title', label);
       }
       sidebarToggle.addEventListener('click', function () {
-        sidebarCollapsed = !sidebarCollapsed;
+        if (workbench.classList.contains('editor-runtime-fullscreen'))
+          fullscreenSidebarCollapsed = !fullscreenSidebarCollapsed;
+        else sidebarCollapsed = !sidebarCollapsed;
         updateSidebar();
       });
       updateSidebar();
@@ -1566,7 +1572,7 @@
           frame.contentDocument.addEventListener('keydown', function (event) {
             if (
               event.key === 'Escape' &&
-              interviewPanel.classList.contains('editor-runtime-fullscreen')
+              workbench.classList.contains('editor-runtime-fullscreen')
             ) {
               setFullscreen(false);
               fullscreen.focus();

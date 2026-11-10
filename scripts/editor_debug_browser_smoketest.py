@@ -118,6 +118,18 @@ fields:
         box = page.locator(".editor-runtime-fullscreen").bounding_box()
         assert box["x"] == 0 and box["y"] == 0, box
         expect(page.locator("#runtime-fill-samples")).to_be_visible()
+        sidebar_toggle = page.locator("#runtime-toggle-sidebar")
+        expect(sidebar_toggle).to_be_visible()
+        expect(sidebar_toggle).to_have_attribute("aria-expanded", "false")
+        sidebar_toggle.click()
+        expect(sidebar_toggle).to_have_attribute("aria-expanded", "true")
+        expect(page.locator("#runtime-sidebar-panels")).to_be_visible()
+        expect(
+            frame.get_by_role("heading", name="What is your name?", exact=True)
+        ).to_be_visible()
+        sidebar_toggle.click()
+        expect(sidebar_toggle).to_have_attribute("aria-expanded", "false")
+        print("PASS fullscreen debugging rail expands and collapses", flush=True)
         dimensions = page.locator("#runtime-interview-frame").evaluate(
             "(el) => ({height: el.contentWindow.innerHeight, width: el.contentWindow.innerWidth})"
         )
@@ -136,10 +148,17 @@ fields:
         page.get_by_label("Interview zoom").select_option("auto")
         print("PASS fit viewport and pane-only zoom without reload", flush=True)
         page.screenshot(path="/tmp/debug-fullscreen.png")
-        page.set_viewport_size({"width": 390, "height": 700})
-        button = page.get_by_role("button", name="Exit full screen")
-        box = button.bounding_box()
-        assert box["x"] >= 0 and box["x"] + box["width"] <= 390, box
+        for mobile_width in (320, 390):
+            page.set_viewport_size({"width": mobile_width, "height": 700})
+            sidebar_toggle.click()
+            expect(page.locator("#runtime-sidebar-panels")).to_be_visible()
+            sidebar_toggle.click()
+            assert page.evaluate(
+                "document.documentElement.scrollWidth <= window.innerWidth"
+            )
+            button = page.get_by_role("button", name="Exit full screen")
+            box = button.bounding_box()
+            assert box["x"] >= 0 and box["x"] + box["width"] <= mobile_width, box
         frame.get_by_role("heading", name="What is your name?", exact=True).click()
         page.keyboard.press("Escape")
         expect(page.locator(".editor-runtime-fullscreen")).to_have_count(0)

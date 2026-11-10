@@ -721,6 +721,7 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("runtime-explain-menu", runtime)
         self.assertIn("More debug actions", runtime)
         self.assertIn("editor-runtime-primary-actions", runtime)
+        self.assertIn("var fullscreenSidebarCollapsed = true", runtime)
         self.assertIn("Restart interview", runtime)
         self.assertIn("End debug session", runtime)
         self.assertIn("#dasource", runtime)
