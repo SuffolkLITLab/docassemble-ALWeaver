@@ -1464,8 +1464,16 @@
         });
       }
 
-      // Keep the primary action last in both visual and keyboard order.
-      fillActions.appendChild(content.querySelector('#runtime-fill-samples'));
+      // Keep these actions together, including when the toolbar wraps.
+      var primaryActions = document.createElement('div');
+      primaryActions.className = 'editor-runtime-primary-actions';
+      primaryActions.appendChild(
+        content.querySelector('#runtime-regenerate-samples'),
+      );
+      primaryActions.appendChild(
+        content.querySelector('#runtime-fill-samples'),
+      );
+      fillActions.appendChild(primaryActions);
 
       var frameFile = content.querySelector('#runtime-frame-file');
       frameFile.textContent = session.filename;

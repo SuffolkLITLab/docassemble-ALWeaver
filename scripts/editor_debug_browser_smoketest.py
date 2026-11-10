@@ -172,6 +172,14 @@ fields:
         after_fill = fill.bounding_box()
         assert before_fill == after_fill, (before_fill, after_fill)
         assert fill.evaluate("(el) => el === el.parentElement.lastElementChild")
+        assert fill.evaluate(
+            "(el) => el.previousElementSibling.id === 'runtime-regenerate-samples'"
+        )
+        regenerate_box = page.locator("#runtime-regenerate-samples").bounding_box()
+        assert regenerate_box["y"] == after_fill["y"]
+        assert (
+            abs(regenerate_box["x"] + regenerate_box["width"] + 8 - after_fill["x"]) < 1
+        )
         print("PASS Fill/Continue position stays fixed", flush=True)
         fill.click()
         page.wait_for_timeout(3000)

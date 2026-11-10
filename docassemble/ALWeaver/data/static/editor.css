@@ -6601,3 +6601,10 @@ body:has(.editor-runtime-fullscreen) { overflow: hidden; }
   display: inline-block;
   visibility: hidden;
 }
+
+.editor-runtime-primary-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  flex-shrink: 0;
+}
