@@ -115,6 +115,16 @@ class AgentToolTestCase(unittest.TestCase):
 
 
 class TestAgentSourcePreservation(AgentToolTestCase):
+    def test_block_read_includes_verified_source_location(self):
+        result = self.call("get_block", {"block_id": "intro"})
+        self.assertTrue(result.succeeded, result.message)
+        self.assertEqual(result.data["filename"], "main.yml")
+        start = result.data["line_start"]
+        end = result.data["line_end"]
+        self.assertIsInstance(start, int)
+        self.assertGreaterEqual(end, start)
+        self.assertIn("id: intro", "\n".join(INTERVIEW.splitlines()[start - 1 : end]))
+
     def test_question_tools_accept_yaml_boolean_mapping_keys(self):
         source = """id: intro
 question: Original title

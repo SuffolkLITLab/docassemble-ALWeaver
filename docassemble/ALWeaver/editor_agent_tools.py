@@ -566,6 +566,9 @@ def _tool_get_interview_outline(
 def _block_payload(located: LocatedBlock) -> Dict[str, Any]:
     return {
         "block_id": located.block_id,
+        "filename": located.document.filename,
+        "line_start": located.editor_block.get("line_start"),
+        "line_end": located.editor_block.get("line_end"),
         "type": located.block_type,
         "title": located.editor_block.get("title"),
         "variable": located.editor_block.get("variable"),
@@ -751,6 +754,9 @@ def _tool_get_order(context: ToolContext, arguments: Dict[str, Any]) -> AgentToo
         {
             "exists": True,
             "block_id": located.block_id,
+            "filename": located.document.filename,
+            "line_start": located.editor_block.get("line_start"),
+            "line_end": located.editor_block.get("line_end"),
             "editable": bool(located.source_block.supported),
             "code": code,
             "steps": parse_order_code(code),
