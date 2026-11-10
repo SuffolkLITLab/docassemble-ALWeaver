@@ -165,6 +165,68 @@ class test_playground_publish(unittest.TestCase):
             self.assertEqual((project_dir / "main.yml").read_bytes(), original)
             prepare.assert_not_called()
 
+    def test_overwrite_pull_replaces_conflicts_and_removes_local_only_files(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            class FakeArea:
+                def __init__(self, section):
+                    self.directory = str(root / section)
+                    Path(self.directory).mkdir(parents=True, exist_ok=True)
+
+                def finalize(self):
+                    pass
+
+            areas = {
+                section: FakeArea(section)
+                for section in playground_publish.PLAYGROUND_SECTIONS
+            }
+            project_dir = Path(areas["playground"].directory) / "Housing"
+            project_dir.mkdir()
+            (project_dir / "main.yml").write_bytes(b"question: Local title\n")
+            (project_dir / "local_only.yml").write_bytes(b"question: Local only\n")
+            repo_path = "docassemble/HousingForms/data/questions/main.yml"
+            remote_content = b"question: Remote title\n"
+            with (
+                patch.object(
+                    playground_publish,
+                    "create_saved_file",
+                    side_effect=lambda _uid, fix, section: areas[section],
+                ),
+                patch.object(playground_publish, "prepare_project_github_package"),
+                patch.object(
+                    playground_publish, "record_project_github_sync"
+                ) as record,
+            ):
+                result = merge_github_snapshot(
+                    user_id=7,
+                    project_name="Housing",
+                    base_snapshot={"files": {repo_path: b"question: Base title\n"}},
+                    remote_snapshot={
+                        "files": {
+                            repo_path: remote_content,
+                            "docassemble/HousingForms/data/static/image.png": b"\x89PNG\x00remote",
+                        },
+                        "branch": "draft",
+                        "sha": "remote-sha",
+                    },
+                    sync={
+                        "package": "HousingForms",
+                        "repository_url": "https://github.com/LegalAid/docassemble-HousingForms",
+                    },
+                    overwrite=True,
+                )
+            self.assertTrue(result["merged"])
+            self.assertEqual((project_dir / "main.yml").read_bytes(), remote_content)
+            self.assertFalse((project_dir / "local_only.yml").exists())
+            self.assertEqual(
+                (
+                    Path(areas["playgroundstatic"].directory) / "Housing/image.png"
+                ).read_bytes(),
+                b"\x89PNG\x00remote",
+            )
+            self.assertEqual(record.call_args.kwargs["branch"], "draft")
+
     def test_normalize_project_name(self):
         self.assertEqual(normalize_project_name("My New Project"), "MyNewProject")
         self.assertEqual(

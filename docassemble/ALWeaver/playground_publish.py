@@ -494,8 +494,9 @@ def merge_github_snapshot(
     base_snapshot: Dict[str, Any],
     remote_snapshot: Dict[str, Any],
     sync: Dict[str, Any],
+    overwrite: bool = False,
 ) -> Dict[str, Any]:
-    """Three-way merge a remote repository into a Playground project."""
+    """Merge remote files, or explicitly replace local files with the snapshot."""
     base_package, base = _snapshot_project_files(base_snapshot["files"])
     remote_package, remote = _snapshot_project_files(remote_snapshot["files"])
     if base_package != remote_package or base_package != sync["package"]:
@@ -503,25 +504,28 @@ def merge_github_snapshot(
     local = _project_section_files(user_id, project_name)
     merged: Dict[Tuple[str, str], bytes] = {}
     conflicts: List[str] = []
-    for key in sorted(set(base) | set(local) | set(remote)):
-        base_value = base.get(key)
-        local_value = local.get(key)
-        remote_value = remote.get(key)
-        if local_value == remote_value:
-            value = local_value
-        elif local_value == base_value:
-            value = remote_value
-        elif remote_value == base_value:
-            value = local_value
-        elif base_value is None or local_value is None or remote_value is None:
-            value = None
-            conflicts.append(f"{key[0]}/{key[1]}")
-        else:
-            value = _merge_file_content(local_value, base_value, remote_value)
-            if value is None:
+    if overwrite:
+        merged = dict(remote)
+    else:
+        for key in sorted(set(base) | set(local) | set(remote)):
+            base_value = base.get(key)
+            local_value = local.get(key)
+            remote_value = remote.get(key)
+            if local_value == remote_value:
+                value = local_value
+            elif local_value == base_value:
+                value = remote_value
+            elif remote_value == base_value:
+                value = local_value
+            elif base_value is None or local_value is None or remote_value is None:
+                value = None
                 conflicts.append(f"{key[0]}/{key[1]}")
-        if value is not None:
-            merged[key] = value
+            else:
+                value = _merge_file_content(local_value, base_value, remote_value)
+                if value is None:
+                    conflicts.append(f"{key[0]}/{key[1]}")
+            if value is not None:
+                merged[key] = value
     if conflicts:
         return {"merged": False, "conflicts": conflicts}
     _apply_project_files(

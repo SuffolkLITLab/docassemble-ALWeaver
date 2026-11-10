@@ -2952,8 +2952,11 @@ def editor_api_github_branches() -> Response:
                 },
                 409,
             )
+        target = _validate_linked_github_target(uid, project, owner, package)
         branches = get_github_repository_branches(
-            owner=owner, repository=f"docassemble-{package}", user_id=_actor_user_id()
+            owner=target["owner"],
+            repository=target["repository"],
+            user_id=_actor_user_id(),
         )
         return jsonify(
             {
@@ -3238,6 +3241,33 @@ def editor_api_github_repository_config() -> Response:
         )
 
 
+def _validate_linked_github_target(
+    uid: int, project: str, owner: str, package: str
+) -> Dict[str, str]:
+    """Resolve the actual linked repository without allowing form retargeting."""
+    sync = find_project_github_sync(user_id=uid, project_name=project)
+    if not sync:
+        return normalize_github_repository_url(
+            f"https://github.com/{owner}/docassemble-{package}"
+        )
+    try:
+        linked = normalize_github_repository_url(sync["repository_url"])
+    except ValueError as exc:
+        raise ValueError(
+            "This project's saved GitHub repository URL is invalid. "
+            "Repair the repository URL in its Playground package settings before publishing."
+        ) from exc
+    linked_package = sync.get("package") or linked["repository"].removeprefix(
+        "docassemble-"
+    )
+    if owner.casefold() != linked["owner"].casefold() or package != linked_package:
+        raise ValueError(
+            "This project is linked to a different GitHub repository. "
+            "Publish to its linked repository; choose a branch within that repository instead."
+        )
+    return linked
+
+
 @app.route(f"{EDITOR_BASE_PATH}/api/github/publish", methods=["POST"])
 def editor_api_github_publish() -> Response:
     """Prepare a Playground package and queue the commit to GitHub.
@@ -3259,6 +3289,7 @@ def editor_api_github_publish() -> Response:
         owner = str(post_data.get("owner") or "").strip()
         if not owner:
             raise ValueError("GitHub owner is required")
+        target = _validate_linked_github_target(uid, project, owner, package)
         branch = _normalize_git_branch(post_data.get("branch"))
         commit_message = _normalize_commit_message(post_data.get("commit_message"))
         # Checked after the input is validated so a malformed request still gets
@@ -3320,11 +3351,12 @@ def editor_api_github_publish() -> Response:
             raise ValueError(
                 "Enable organization repository access in Docassemble's GitHub settings first"
             )
-        repository = f"docassemble-{package}"
-        repository_url = f"https://github.com/{selected_owner['login']}/{repository}"
+        repository = target["repository"]
+        repository_url = target["url"]
         # A preview is optional. When the browser sends one, hold the publish
-        # to what the user reviewed. Either way the worker refuses a branch
-        # with commits this project has not pulled.
+        # to what the user reviewed. Overwriting unpulled changes requires
+        # an explicit choice and a preview bound to this target and snapshot.
+        overwrite_remote = parse_bool(post_data.get("overwrite_remote"), default=False)
         preview_token = post_data.get("preview_token")
         preview = (
             _verify_github_publish_preview(preview_token) if preview_token else None
@@ -3341,6 +3373,10 @@ def editor_api_github_publish() -> Response:
         ):
             raise ValueError(
                 "The publish target changed after preview. Review the current target before publishing."
+            )
+        if overwrite_remote and (not preview or not preview.get("remote_sha")):
+            raise ValueError(
+                "Preview the existing GitHub branch before choosing overwrite."
             )
         # Docassemble's github_url, github_branch, and commit marker describe
         # the last successful publish. Keep them until the worker commits and
@@ -3384,7 +3420,7 @@ def editor_api_github_publish() -> Response:
             request_id=request_id,
             project=project,
             package=prepared["package"],
-            repository=prepared["repository"],
+            repository=repository,
             owner=selected_owner["login"],
             owner_type=str(selected_owner.get("type") or ""),
             author_name=author_name,
@@ -3393,6 +3429,7 @@ def editor_api_github_publish() -> Response:
             commit_message=commit_message,
             repository_url=repository_url,
             expected_remote_sha=reviewed.get("remote_sha") or None,
+            overwrite_remote=overwrite_remote,
             expected_source_revision=reviewed.get("source_revision"),
             credential_user_id=_actor_user_id(),
         )
@@ -3405,7 +3442,7 @@ def editor_api_github_publish() -> Response:
                 "data": {
                     "project": project,
                     "package": prepared["package"],
-                    "repository": prepared["repository"],
+                    "repository": repository,
                     "owner": selected_owner["login"],
                     "repository_url": repository_url,
                     "branch": branch,
@@ -3495,7 +3532,7 @@ def editor_api_github_publish_job(job_id: str) -> Response:
 
 @app.route(f"{EDITOR_BASE_PATH}/api/github/pull", methods=["POST"])
 def editor_api_github_pull() -> Response:
-    """Merge a branch of the project's GitHub repository into the project.
+    """Merge a GitHub branch into the project, or explicitly overwrite local files.
 
     ``branch`` defaults to the synced branch. Pulling another branch merges
     from the commit it shares with the last sync, and a clean merge moves the
@@ -3508,6 +3545,10 @@ def editor_api_github_pull() -> Response:
         uid = _current_user_id()
         post_data = request.get_json(silent=True) or {}
         project = _normalize_project(post_data.get("project"))
+        mode = post_data.get("mode", "merge")
+        if mode not in ("merge", "overwrite"):
+            raise ValueError("Choose Merge or Overwrite for pulling from GitHub.")
+        overwrite = mode == "overwrite"
         sync = find_project_github_sync(user_id=uid, project_name=project)
         if not sync:
             return jsonify_with_status(
@@ -3531,8 +3572,10 @@ def editor_api_github_pull() -> Response:
         )
         # Older manifests did not record the published commit. Establishing the
         # current head as the base is safe and makes all later pulls mergeable.
-        base_ref: Optional[str] = sync.get("commit") or remote["sha"]
-        if sync.get("commit") and branch != sync["branch"]:
+        base_ref: Optional[str] = (
+            remote["sha"] if overwrite else (sync.get("commit") or remote["sha"])
+        )
+        if not overwrite and sync.get("commit") and branch != sync["branch"]:
             base_ref = get_github_merge_base(
                 repository_url=sync["repository_url"],
                 base=sync["commit"],
@@ -3559,6 +3602,7 @@ def editor_api_github_pull() -> Response:
             base_snapshot=base,
             remote_snapshot=remote,
             sync=sync,
+            **({"overwrite": True} if overwrite else {}),
         )
         if not result.get("merged"):
             conflicts = result.get("conflicts") or []
@@ -3583,7 +3627,7 @@ def editor_api_github_pull() -> Response:
             # then are taken; when nothing moved, nothing is. A manifest from
             # before sync points were recorded has nothing to compare
             # against, so the repository is taken as on an import.
-            base["files"] if sync.get("commit") else None,
+            base["files"] if sync.get("commit") and not overwrite else None,
         )
         _reconcile_project_modules(uid, project)
         return jsonify(
@@ -3593,6 +3637,7 @@ def editor_api_github_pull() -> Response:
                 "data": {
                     "project": project,
                     **result,
+                    "mode": mode,
                     "restart_state": _restart_state_payload(uid, project),
                 },
             }
@@ -12471,6 +12516,7 @@ def editor_api_github_publish_preview() -> Response:
         owner = str(post_data.get("owner") or "").strip()
         if not owner:
             raise ValueError("GitHub owner is required")
+        target = _validate_linked_github_target(uid, project, owner, package)
         branch = _normalize_git_branch(post_data.get("branch"))
         integration = get_native_github_integration(_actor_user_id())
         if not integration.get("enabled") or not integration.get("connected"):
@@ -12503,7 +12549,7 @@ def editor_api_github_publish_preview() -> Response:
             )
         author = _repository_config_author()
         owner = str(selected_owner["login"])
-        repository_url = f"https://github.com/{owner}/docassemble-{package}"
+        repository_url = target["url"]
         prepared = prepare_project_github_package(
             user_id=uid,
             project_name=project,
@@ -12658,7 +12704,7 @@ def _github_branch_unpulled_message(
         return (
             f"GitHub branch {branch!r} has advanced since this project was last "
             "synchronized. Pull the remote changes and resolve them in the "
-            "project before publishing again."
+            "project before publishing again, or preview the changes and choose overwrite."
         )
     advice = (
         "Use Pull from GitHub to merge that branch into this project"
@@ -12667,7 +12713,14 @@ def _github_branch_unpulled_message(
     )
     return (
         f"GitHub branch {branch!r} has commits this project has not pulled. "
-        f"{advice}, or publish to a new branch."
+        f"{advice}, or publish to a new branch. "
+        + (
+            f"This project was last synchronized with branch {synced['branch']!r}; "
+            "check whether you selected the intended branch. "
+            if synced and synced.get("branch") and synced.get("branch") != branch
+            else ""
+        )
+        + "To replace the remote files deliberately, preview the changes and choose overwrite."
     )
 
 
@@ -12677,11 +12730,13 @@ def _assert_github_publish_branch_is_current(
     project: str,
     repository_url: str,
     branch: str,
+    overwrite_remote: bool = False,
     expected_remote_sha: Optional[str] = None,
     credential_user_id: Optional[int] = None,
 ) -> None:
-    """Refuse a publish that would revert commits the project does not have,
-    or, after a preview, one whose branch moved since it was reviewed."""
+    """Require review for overwrites and reject branches that moved afterward."""
+    if overwrite_remote and not expected_remote_sha:
+        raise ValueError("Overwrite requires a reviewed GitHub branch.")
     remote = get_github_branch_head(
         repository_url=repository_url,
         ref=branch,
@@ -12693,7 +12748,7 @@ def _assert_github_publish_branch_is_current(
         branch=branch,
         remote=remote,
     )
-    if message:
+    if message and not overwrite_remote:
         raise ValueError(f"{message} No files were published.")
     if expected_remote_sha is None:
         return
@@ -12726,6 +12781,7 @@ def _complete_github_publish_job(
     branch: str,
     commit_message: str,
     repository_url: str,
+    overwrite_remote: bool = False,
     expected_remote_sha: Optional[str] = None,
     expected_source_revision: Optional[str] = None,
     credential_user_id: Optional[int] = None,
@@ -12761,6 +12817,7 @@ def _complete_github_publish_job(
             project=project,
             repository_url=repository_url,
             branch=branch,
+            overwrite_remote=overwrite_remote,
             expected_remote_sha=expected_remote_sha,
             credential_user_id=credential_user_id,
         )
@@ -12896,6 +12953,7 @@ def _start_github_publish_job(
     branch: str,
     commit_message: str,
     repository_url: str,
+    overwrite_remote: bool = False,
     expected_remote_sha: Optional[str] = None,
     expected_source_revision: Optional[str] = None,
     credential_user_id: Optional[int] = None,
@@ -12914,6 +12972,7 @@ def _start_github_publish_job(
         "branch": branch,
         "repository_url": repository_url,
         "expected_remote_sha": expected_remote_sha,
+        "overwrite_remote": overwrite_remote,
         "expected_source_revision": expected_source_revision,
         "request_id": request_id,
         "celery_task_id": job_id,
@@ -12943,6 +13002,7 @@ def _start_github_publish_job(
                 "commit_message": commit_message,
                 "repository_url": repository_url,
                 "expected_remote_sha": expected_remote_sha,
+                **({"overwrite_remote": True} if overwrite_remote else {}),
                 "expected_source_revision": expected_source_revision,
                 # Omitted in one's own Playground, so a worker still running a
                 # release without this argument keeps publishing during deploys.

@@ -4487,9 +4487,7 @@
       existing.classList.toggle('d-none', !published);
       existing.textContent = published
         ? 'Last published to ' +
-          sync.owner +
-          '/docassemble-' +
-          sync.package +
+          sync.repository_url.replace(/^https:\/\/github\.com\//, '') +
           ' on ' +
           sync.branch +
           '.'
@@ -4512,24 +4510,57 @@
   var githubPreviewInFlight = false;
   var githubPublishInFlight = false;
 
-  // Previewing is optional: Preview and Publish both need only a loaded
-  // target branch. Publish is also held while a preview or publish is
-  // running, and after a preview found unpulled commits on the branch.
+  // Merge publishing may skip preview; Overwrite always requires review.
+  // Unpulled commits must be merged first or explicitly overwritten.
   function updateGithubPublishButtons() {
     var select = document.getElementById('github-branch-name');
     var preview = document.getElementById('github-publish-preview-button');
     var submit = document.getElementById('github-publish-submit');
     var noTarget = !select || select.disabled;
     if (preview) preview.disabled = noTarget || githubPreviewInFlight;
+    var overwrite = document.getElementById('github-publish-overwrite');
+    var overwriteMode = Boolean(overwrite && overwrite.checked);
+    var help = document.getElementById('github-publish-mode-help');
+    if (help)
+      help.textContent = overwriteMode
+        ? 'Replace GitHub files with this project’s files, including deletions. Preview is required. Existing commit history is kept.'
+        : 'Merge remote changes into this project before publishing. Conflicts must be resolved first.';
+    var merge = document.getElementById('github-publish-merge-remote');
+    if (merge) {
+      merge.hidden =
+        overwriteMode ||
+        !githubPublishBlocked ||
+        !state.projectSyncs[state.project];
+      merge.disabled = githubPreviewInFlight || githubPublishInFlight;
+    }
     if (submit)
       submit.disabled =
         noTarget ||
-        githubPublishBlocked ||
+        (overwriteMode && !githubPublishPreviewToken) ||
+        (githubPublishBlocked && !githubOverwriteConfirmed()) ||
         githubPreviewInFlight ||
         githubPublishInFlight;
   }
 
-  function clearGithubPublishPreview() {
+  function githubOverwriteConfirmed() {
+    var checkbox = document.getElementById('github-publish-overwrite');
+    return Boolean(
+      githubPublishPreviewToken &&
+      githubPublishBlocked &&
+      checkbox &&
+      checkbox.checked,
+    );
+  }
+
+  function clearGithubPublishPreview(resetMode) {
+    var checkbox = document.getElementById('github-publish-overwrite');
+    if (resetMode !== false) {
+      if (checkbox) checkbox.checked = false;
+      var merge = document.getElementById('github-publish-merge');
+      if (merge) merge.checked = true;
+    }
+    var resolution = document.getElementById('github-publish-resolution');
+    if (resolution) resolution.hidden = true;
     githubPublishPreviewToken = null;
     githubPublishBlocked = false;
     var preview = document.getElementById('github-publish-preview');
@@ -4567,10 +4598,7 @@
     } else {
       summary.textContent =
         'Target: ' +
-        data.owner +
-        '/' +
-        'docassemble-' +
-        data.package +
+        (data.repository_url || data.owner + '/docassemble-' + data.package) +
         ' — ' +
         data.branch +
         '. Review the file changes below before publishing.';
@@ -4606,6 +4634,8 @@
     preview.hidden = false;
     githubPublishPreviewToken = data.preview_token || null;
     githubPublishBlocked = Boolean(data.unpulled);
+    var resolution = document.getElementById('github-publish-resolution');
+    if (resolution) resolution.hidden = !githubPublishBlocked;
     updateGithubPublishButtons();
   }
 
@@ -4841,6 +4871,31 @@
     var packageInput = document.getElementById('github-package-name');
     var ownerSelect = document.getElementById('github-owner');
     var sync = data && data.sync;
+    if (packageInput) packageInput.readOnly = Boolean(sync);
+    var repositoryInput = document.getElementById('github-repository-input');
+    if (repositoryInput)
+      repositoryInput.classList.toggle('d-none', Boolean(sync));
+    var linkedRepository = document.getElementById('github-linked-repository');
+    if (linkedRepository) {
+      linkedRepository.classList.toggle('d-none', !sync);
+      if (sync) {
+        linkedRepository.href = sync.repository_url;
+        linkedRepository.textContent = sync.repository_url.replace(
+          /^https:\/\/github\.com\//,
+          '',
+        );
+      } else linkedRepository.removeAttribute('href');
+    }
+    var repositoryHelp = document.getElementById('github-repository-help');
+    if (repositoryHelp)
+      repositoryHelp.textContent = sync
+        ? 'This project is linked to this repository. Choose a branch below to change where you publish within it.'
+        : 'An existing accessible repository with this name is reused; otherwise it is created under the selected owner.';
+    var ownerHelp = document.getElementById('github-owner-help');
+    if (ownerHelp)
+      ownerHelp.textContent = sync
+        ? 'The owner is fixed for this linked repository.'
+        : 'Choose your personal account or an organization where you are allowed to create repositories.';
     resetGithubBranchChoices('Choose a repository to load branches');
     showGithubPublishedTarget(sync);
     githubWorkflowAccessByOwner = {};
@@ -4907,7 +4962,8 @@
           ownerSelect.value = '';
         }
       }
-      ownerSelect.disabled = !(data.owners && data.owners.length);
+      ownerSelect.disabled =
+        Boolean(sync) || !(data.owners && data.owners.length);
     }
     showGithubWorkflowAccess();
     if (!data.owners || !data.owners.length) {
@@ -4928,13 +4984,15 @@
       );
     } else {
       setGithubPublishStatus(
-        'Connected. Choose where this repository should live.',
+        sync
+          ? 'Connected to this project’s repository. Choose a branch to publish.'
+          : 'Connected. Choose where this repository should live.',
         'success',
       );
     }
     if (sync && sync.owner && (!ownerSelect || !ownerSelect.value)) {
       setGithubPublishStatus(
-        'The saved GitHub owner is unavailable. Choose an account before publishing.',
+        'The linked GitHub owner is unavailable. Restore access to this repository in Configure GitHub before publishing.',
         'warning',
       );
     } else {
@@ -4942,13 +5000,31 @@
     }
   }
 
+  function setGithubPullAvailability(sync, message) {
+    document
+      .querySelectorAll('.js-github-pull-menu-item')
+      .forEach(function (item) {
+        var button = item.querySelector('[data-action="pull-github"]');
+        if (!button) return;
+        button.disabled = !sync;
+        button.title = sync
+          ? 'Merge ' + sync.branch + ' from ' + sync.repository_url
+          : message;
+      });
+  }
+
   function refreshGithubSyncAction() {
-    var items = document.querySelectorAll('.js-github-pull-menu-item');
-    if (!items.length) return;
-    items.forEach(function (item) {
-      item.classList.add('d-none');
-    });
-    if (!state.project || state.canvasMode === 'project-selector') return;
+    setGithubPullAvailability(
+      null,
+      'Checking the project’s GitHub connection…',
+    );
+    if (!state.project || state.canvasMode === 'project-selector') {
+      setGithubPullAvailability(
+        null,
+        'Open a project connected to GitHub to pull changes.',
+      );
+      return;
+    }
     var checkedProject = state.project;
     apiGet(
       '/api/github/status?sync_only=1&project=' +
@@ -4958,35 +5034,36 @@
         if (
           state.project !== checkedProject ||
           state.canvasMode === 'project-selector'
-        ) {
-          items.forEach(function (item) {
-            item.classList.add('d-none');
-          });
+        )
+          return;
+        if (!res.success || !res.data) {
+          setGithubPullAvailability(
+            null,
+            'Unable to check the GitHub connection. Reopen the project to retry.',
+          );
           return;
         }
-        if (res.success && res.data && res.data.sync) {
+        if (res.data.sync) {
           state.projectSyncs[checkedProject] = res.data.sync;
-          items.forEach(function (item) {
-            item.classList.remove('d-none');
-            var button = item.querySelector('[data-action="pull-github"]');
-            if (button)
-              button.title =
-                'Merge ' +
-                res.data.sync.branch +
-                ' from ' +
-                res.data.sync.repository_url;
-          });
+          setGithubPullAvailability(res.data.sync);
         } else {
           delete state.projectSyncs[checkedProject];
-          items.forEach(function (item) {
-            item.classList.add('d-none');
-          });
+          setGithubPullAvailability(
+            null,
+            'Commit this project to GitHub first to connect a repository.',
+          );
         }
       })
       .catch(function () {
-        items.forEach(function (item) {
-          item.classList.add('d-none');
-        });
+        if (
+          state.project !== checkedProject ||
+          state.canvasMode === 'project-selector'
+        )
+          return;
+        setGithubPullAvailability(
+          null,
+          'Unable to check the GitHub connection. Reopen the project to retry.',
+        );
       });
   }
 
@@ -5058,10 +5135,15 @@
   // Pull merges a branch of the project's repository into the project.
   // "Create project from branch" imports it separately instead, for changes
   // that need to be integrated by hand.
-  function pullGithubProject(projectName) {
+  function pullGithubProject(projectName, preferredBranch) {
     var sync = state.projectSyncs[projectName];
     if (!projectName || !sync) return;
     githubPullProject = projectName;
+    var mergeMode = document.getElementById('github-pull-merge');
+    var overwriteMode = document.getElementById('github-pull-overwrite');
+    if (mergeMode) mergeMode.checked = true;
+    if (overwriteMode) overwriteMode.checked = false;
+    updateGithubPullMode();
     var project = document.getElementById('github-pull-project');
     var repository = document.getElementById('github-pull-repository');
     var branch = document.getElementById('github-pull-branch');
@@ -5078,7 +5160,11 @@
     var modal = getOrCreateBootstrapModal('github-pull-modal');
     if (modal) modal.show();
     if (!branch) return;
-    loadGithubBranchOptions(branch, sync.repository_url, sync.branch)
+    loadGithubBranchOptions(
+      branch,
+      sync.repository_url,
+      preferredBranch || sync.branch,
+    )
       .then(function (data) {
         if (data && githubPullProject === projectName) setGithubPullBusy(false);
       })
@@ -5104,11 +5190,34 @@
     });
   }
 
+  function updateGithubPullMode() {
+    var overwrite = document.getElementById('github-pull-overwrite');
+    var help = document.getElementById('github-pull-mode-help');
+    var submit = document.getElementById('github-pull-submit');
+    var selected = Boolean(overwrite && overwrite.checked);
+    if (help)
+      help.textContent = selected
+        ? 'Replace local project files with this GitHub branch. Local edits and files absent from GitHub will be deleted. Download a project ZIP first if you want a backup.'
+        : 'Merge GitHub changes with local edits. If changes conflict, no files are changed.';
+    if (submit)
+      submit.textContent = selected
+        ? 'Overwrite local files'
+        : 'Merge from GitHub';
+  }
+
   function initGithubPull() {
     var form = document.getElementById('github-pull-form');
     var create = document.getElementById('github-pull-create');
     var branchInput = document.getElementById('github-pull-branch');
     if (!form || !branchInput) return;
+    ['github-pull-merge', 'github-pull-overwrite'].forEach(function (id) {
+      var input = document.getElementById(id);
+      if (input) input.addEventListener('change', updateGithubPullMode);
+    });
+    branchInput.addEventListener('change', function () {
+      document.getElementById('github-pull-merge').checked = true;
+      updateGithubPullMode();
+    });
     function hide() {
       var modal = getOrCreateBootstrapModal('github-pull-modal');
       if (modal) modal.hide();
@@ -5118,13 +5227,20 @@
       var projectName = githubPullProject;
       var branch = branchInput.value.trim();
       if (!projectName || !form.reportValidity()) return;
+      var overwrite = document.getElementById('github-pull-overwrite').checked;
       setGithubPullBusy(true);
       setGithubRepoStatus(
         'github-pull-status',
-        'Merging ' + branch + ' into this project…',
+        (overwrite ? 'Replacing local files from ' : 'Merging ') +
+          branch +
+          ' into this project…',
         'info',
       );
-      apiPost('/api/github/pull', { project: projectName, branch: branch })
+      apiPost('/api/github/pull', {
+        project: projectName,
+        branch: branch,
+        mode: overwrite ? 'overwrite' : 'merge',
+      })
         .then(function (res) {
           if (!res.success) {
             var conflicts =
@@ -5145,7 +5261,13 @@
           }
           hide();
           _showSuccessBanner(
-            'Merged ' + esc(branch) + ' into "' + esc(projectName) + '".',
+            overwrite
+              ? 'Replaced local files in "' +
+                  esc(projectName) +
+                  '" with ' +
+                  esc(branch) +
+                  '.'
+              : 'Merged ' + esc(branch) + ' into "' + esc(projectName) + '".',
           );
           if (
             state.project === projectName &&
@@ -5287,6 +5409,18 @@
     var form = document.getElementById('github-publish-form');
     if (!form) return;
     initGithubRepositorySettings();
+    ['github-publish-merge', 'github-publish-overwrite'].forEach(function (id) {
+      var input = document.getElementById(id);
+      if (input) input.addEventListener('change', updateGithubPublishButtons);
+    });
+    var mergeRemote = document.getElementById('github-publish-merge-remote');
+    if (mergeRemote)
+      mergeRemote.addEventListener('click', function () {
+        var branch = githubBranchValue();
+        var modal = getOrCreateBootstrapModal('github-publish-modal');
+        if (modal) modal.hide();
+        pullGithubProject(state.project, branch);
+      });
     var ownerSelect = document.getElementById('github-owner');
     var packageInput = document.getElementById('github-package-name');
     var branchInput = document.getElementById('github-branch-name');
@@ -5320,7 +5454,12 @@
       newBranchInput.addEventListener('input', clearGithubPublishPreview);
     if (previewButton)
       previewButton.addEventListener('click', function () {
-        if (!state.project || !form.reportValidity()) return;
+        if (!state.project) return;
+        var message = document.getElementById('github-commit-message');
+        if (message) message.disabled = true;
+        var validTarget = form.reportValidity();
+        if (message) message.disabled = false;
+        if (!validTarget) return;
         var owner = document.getElementById('github-owner');
         var packageName = document.getElementById('github-package-name');
         var selectedOwner = owner ? owner.value : '';
@@ -5336,7 +5475,7 @@
           );
         }
         githubPreviewInFlight = true;
-        clearGithubPublishPreview();
+        clearGithubPublishPreview(false);
         setGithubPublishStatus('Building the package preview…', 'info');
         saveDirtyGithubEditors()
           .then(function () {
@@ -5359,7 +5498,7 @@
             renderGithubPublishPreview(res.data);
             setGithubPublishStatus(
               res.data.unpulled
-                ? 'This branch cannot be published to yet.'
+                ? 'Review the remote changes and choose how to resolve them below.'
                 : 'Review the file changes, then choose Publish to GitHub.',
               res.data.unpulled ? 'danger' : 'success',
             );
@@ -5384,6 +5523,7 @@
       var packageInput = document.getElementById('github-package-name');
       var ownerSelect = document.getElementById('github-owner');
       var messageInput = document.getElementById('github-commit-message');
+      if (messageInput) messageInput.value = messageInput.value.trim();
       if (!form.reportValidity()) return;
       githubPublishInFlight = true;
       updateGithubPublishButtons();
@@ -5397,6 +5537,7 @@
             branch: githubBranchValue(),
             commit_message: messageInput ? messageInput.value : '',
             preview_token: githubPublishPreviewToken,
+            overwrite_remote: githubOverwriteConfirmed(),
           });
         })
         .then(function (res) {
@@ -5412,6 +5553,8 @@
           return _pollGithubPublishJob(res.data.job_url).then(
             function (result) {
               showGithubPublishedTarget({ published: true, ...result });
+              if (messageInput) messageInput.value = '';
+              refreshGithubSyncAction();
               var fileCount = result.files_committed;
               var published =
                 typeof fileCount === 'number'
@@ -15683,11 +15826,10 @@
   }
 
   function renderProjectSelector() {
-    document
-      .querySelectorAll('.js-github-pull-menu-item')
-      .forEach(function (item) {
-        item.classList.add('d-none');
-      });
+    setGithubPullAvailability(
+      null,
+      'Open a project connected to GitHub to pull changes.',
+    );
     var query = state.projectSearchQuery.toLowerCase().trim();
     // A small workspace needs one list. In larger workspaces, each project
     // still appears only once, and search always covers the whole workspace.

@@ -22,6 +22,7 @@ for (const name of [
   '_accordionSection',
   'getProjectCardMenuHtml',
   'renderProjectSelector',
+  'setGithubPullAvailability',
 ]) {
   const start = source.indexOf(`  function ${name}(`);
   assert.ok(start >= 0);

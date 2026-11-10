@@ -678,6 +678,40 @@ class TestEditorGithubApi(unittest.TestCase):
                         check()
                 self.assertEqual(head.call_count, len(heads))
 
+    def test_overwrite_requires_review_and_rejects_a_branch_that_moved(self):
+        url = "https://github.com/ada/docassemble-forms"
+        remote = {
+            "sha": "reviewed",
+            "files": {"docassemble/forms/data/questions/main.yml": b"---"},
+        }
+        for expected, overwrite, error in (
+            ("reviewed", False, "has commits"),
+            (None, True, "requires a reviewed"),
+            ("reviewed", True, None),
+            ("older", True, "changed after the publish preview"),
+        ):
+            with (
+                self.subTest(expected=expected, overwrite=overwrite),
+                patch.object(api_editor, "find_project_github_sync", return_value=None),
+                patch.object(api_editor, "get_github_branch_head", return_value=remote),
+            ):
+
+                def check():
+                    api_editor._assert_github_publish_branch_is_current(
+                        uid=7,
+                        project="Housing",
+                        repository_url=url,
+                        branch="main",
+                        expected_remote_sha=expected,
+                        overwrite_remote=overwrite,
+                    )
+
+                if error:
+                    with self.assertRaisesRegex(ValueError, error):
+                        check()
+                else:
+                    check()
+
     def test_publishing_to_an_existing_branch_requires_its_head_to_be_pulled(self):
         url = "https://github.com/ada/docassemble-forms"
         sync = {"repository_url": url, "branch": "main", "commit": "synced-sha"}
@@ -796,6 +830,133 @@ class TestEditorGithubApi(unittest.TestCase):
             data["github_syncs"]["SyncedProject"]["repository_url"],
             "https://github.com/LegalAid/docassemble-SyncedProject",
         )
+
+    def test_invalid_saved_repository_url_explains_how_to_repair_it(self):
+        with patch.object(
+            api_editor,
+            "find_project_github_sync",
+            return_value={
+                "package": "HousingForms",
+                "repository_url": "git@github.com:LegalAid/housing-forms.git",
+            },
+        ):
+            with self.assertRaisesRegex(
+                ValueError, "saved GitHub repository URL is invalid"
+            ):
+                api_editor._validate_linked_github_target(
+                    7, "Housing", "LegalAid", "HousingForms"
+                )
+
+    def test_linked_target_and_branch_listing_use_actual_repository_name(self):
+        sync = {
+            "package": "HousingForms",
+            "repository_url": "https://github.com/LegalAid/housing-forms",
+        }
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "find_project_github_sync", return_value=sync),
+            patch.object(
+                api_editor,
+                "get_native_github_integration",
+                return_value={"enabled": True, "connected": True},
+            ),
+            patch.object(
+                api_editor,
+                "get_github_repository_branches",
+                return_value={"branches": ["main"]},
+            ) as branches,
+        ):
+            target = api_editor._validate_linked_github_target(
+                7, "Housing", "LegalAid", "HousingForms"
+            )
+            self.assertEqual(target["repository"], "housing-forms")
+            with api_editor.app.test_request_context(
+                "/al/editor/api/github/branches?project=Housing&owner=LegalAid&package=HousingForms"
+            ):
+                response = api_editor.editor_api_github_branches()
+            self.assertEqual(response.status_code, 200)
+            branches.assert_called_once_with(
+                owner="LegalAid", repository="housing-forms", user_id=7
+            )
+
+    def test_linked_repository_cannot_be_changed_by_publish_or_preview(self):
+        sync = {
+            "repository_url": "https://github.com/LegalAid/docassemble-HousingForms"
+        }
+        for endpoint in (
+            api_editor.editor_api_github_publish,
+            api_editor.editor_api_github_publish_preview,
+        ):
+            for owner, package in (
+                ("OtherOwner", "HousingForms"),
+                ("LegalAid", "Different"),
+            ):
+                with (
+                    self.subTest(
+                        endpoint=endpoint.__name__, owner=owner, package=package
+                    ),
+                    patch.object(api_editor, "_editor_auth_check", return_value=True),
+                    patch.object(api_editor, "_current_user_id", return_value=7),
+                    patch.object(
+                        api_editor, "find_project_github_sync", return_value=sync
+                    ),
+                    patch.object(
+                        api_editor, "prepare_project_github_package"
+                    ) as prepare,
+                ):
+                    with api_editor.app.test_request_context(
+                        "/al/editor/api/github/publish",
+                        method="POST",
+                        json={
+                            "project": "Housing",
+                            "owner": owner,
+                            "package": package,
+                            "branch": "main",
+                        },
+                    ):
+                        response = endpoint()
+                    self.assertEqual(response.status_code, 400)
+                    self.assertIn(
+                        "linked to a different", response.get_json()["error"]["message"]
+                    )
+                    prepare.assert_not_called()
+
+    def test_overwrite_pull_uses_remote_without_requiring_shared_history(self):
+        sync = {
+            "package": "HousingForms",
+            "repository_url": "https://github.com/LegalAid/docassemble-HousingForms",
+            "branch": "main",
+            "commit": "old-sha",
+        }
+        remote = {"sha": "remote-sha", "branch": "orphan", "files": {}}
+        with (
+            patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "find_project_github_sync", return_value=sync),
+            patch.object(
+                api_editor, "get_github_repository_snapshot", return_value=remote
+            ) as snapshot,
+            patch.object(api_editor, "get_github_merge_base") as merge_base,
+            patch.object(
+                api_editor, "merge_github_snapshot", return_value={"merged": True}
+            ) as merge,
+            patch.object(api_editor, "adopt_repository_snapshot") as adopt,
+            patch.object(api_editor, "_reconcile_project_modules"),
+            patch.object(api_editor, "_restart_state_payload", return_value={}),
+        ):
+            with api_editor.app.test_request_context(
+                "/al/editor/api/github/pull",
+                method="POST",
+                json={"project": "Housing", "branch": "orphan", "mode": "overwrite"},
+            ):
+                response = api_editor.editor_api_github_pull()
+        self.assertEqual(response.status_code, 200)
+        snapshot.assert_called_once()
+        merge_base.assert_not_called()
+        self.assertTrue(merge.call_args.kwargs["overwrite"])
+        self.assertIs(merge.call_args.kwargs["base_snapshot"], remote)
+        adopt.assert_called_once_with(7, "Housing", "HousingForms", {}, None)
 
     def test_pull_uses_recorded_commit_as_a_three_way_merge_base(self):
         sync = {
@@ -1164,8 +1325,64 @@ class TestEditorGithubApi(unittest.TestCase):
                 # point falls back to taking the repository whole.
                 self.assertEqual(adopt.call_args.args[4], expected_base)
 
-    def test_publish_prepares_manifest_and_queues_a_background_commit(self):
+    def test_publish_requires_an_author_supplied_commit_message(self):
+        for message in (None, "", "   \n\t"):
+            with (
+                self.subTest(message=message),
+                patch.object(api_editor, "_editor_auth_check", return_value=True),
+                patch.object(api_editor, "_current_user_id", return_value=7),
+                patch.object(api_editor, "find_project_github_sync", return_value=None),
+                patch.object(api_editor, "_start_github_publish_job") as queue,
+            ):
+                with api_editor.app.test_request_context(
+                    "/al/editor/api/github/publish",
+                    method="POST",
+                    json={
+                        "project": "Housing",
+                        "owner": "LegalAid",
+                        "package": "HousingForms",
+                        "branch": "main",
+                        "commit_message": message,
+                    },
+                ):
+                    response = api_editor.editor_api_github_publish()
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(
+                    response.get_json()["error"]["message"],
+                    "Commit message is required",
+                )
+                queue.assert_not_called()
+
+    def test_publish_overwrite_queues_only_with_a_reviewed_snapshot(self):
+        self.test_publish_prepares_manifest_and_queues_a_background_commit(
+            overwrite=True
+        )
+
+    def test_publish_overwrite_without_preview_does_not_prepare_or_queue(self):
+        self.test_publish_prepares_manifest_and_queues_a_background_commit(
+            overwrite=True, preview=False
+        )
+
+    def test_publish_preserves_an_imported_repository_name(self):
+        self.test_publish_prepares_manifest_and_queues_a_background_commit(
+            linked_repository="housing-forms"
+        )
+
+    def test_publish_prepares_manifest_and_queues_a_background_commit(
+        self, overwrite=False, preview=True, linked_repository=None
+    ):
         """The request must not hold open the per-file GitHub round trips."""
+        repository = linked_repository or "docassemble-HousingForms"
+        repository_url = f"https://github.com/LegalAid/{repository}"
+        sync = (
+            {
+                "package": "HousingForms",
+                "repository_url": repository_url,
+                "branch": "main",
+            }
+            if linked_repository
+            else None
+        )
         prepared = {
             "package": "HousingForms",
             "repository": "docassemble-HousingForms",
@@ -1182,6 +1399,7 @@ class TestEditorGithubApi(unittest.TestCase):
         with (
             patch.object(api_editor, "_editor_auth_check", return_value=True),
             patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(api_editor, "find_project_github_sync", return_value=sync),
             patch.object(api_editor, "_editor_async_is_configured", return_value=True),
             patch.object(api_editor, "r", _FakeRedis()),
             patch.object(
@@ -1219,7 +1437,7 @@ class TestEditorGithubApi(unittest.TestCase):
                     "project": "Housing",
                     "package": "HousingForms",
                     "owner": "LegalAid",
-                    "repository_url": "https://github.com/LegalAid/docassemble-HousingForms",
+                    "repository_url": repository_url,
                     "branch": "feature/github",
                     "source_revision": "source-digest",
                     "remote_sha": "remote-base-sha",
@@ -1267,16 +1485,25 @@ class TestEditorGithubApi(unittest.TestCase):
                     "package": "HousingForms",
                     "branch": "feature/github",
                     "commit_message": "Update interview",
-                    "preview_token": "signed-preview",
+                    "preview_token": "signed-preview" if preview else None,
+                    "overwrite_remote": overwrite,
                 },
             ):
                 response = api_editor.editor_api_github_publish()
 
+        if not preview:
+            self.assertEqual(response.status_code, 400)
+            self.assertIn(
+                "Preview the existing", response.get_json()["error"]["message"]
+            )
+            prepare.assert_not_called()
+            self.assertEqual(sent, {})
+            return
         self.assertEqual(response.status_code, 202, response.get_json())
         payload = response.get_json()
         self.assertEqual(payload["status"], "queued")
         data = payload["data"]
-        self.assertEqual(data["repository"], "docassemble-HousingForms")
+        self.assertEqual(data["repository"], repository)
         self.assertEqual(data["owner"], "LegalAid")
         self.assertEqual(data["branch"], "feature/github")
         self.assertEqual(
@@ -1307,16 +1534,17 @@ class TestEditorGithubApi(unittest.TestCase):
                 "uid": 7,
                 "project": "Housing",
                 "package": "HousingForms",
-                "repository": "docassemble-HousingForms",
+                "repository": repository,
                 "owner": "LegalAid",
                 "owner_type": "organization",
                 "author_name": "Ada",
                 "author_email": "ada@example.com",
                 "branch": "feature/github",
                 "commit_message": "Update interview",
-                "repository_url": "https://github.com/LegalAid/docassemble-HousingForms",
+                "repository_url": repository_url,
                 "expected_remote_sha": "remote-base-sha",
                 "expected_source_revision": "source-digest",
+                **({"overwrite_remote": True} if overwrite else {}),
             },
         )
         self.assertEqual(sent["options"]["task_id"], payload["job_id"])

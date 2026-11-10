@@ -61,11 +61,12 @@
               <li><button type="button" class="dropdown-item" data-action="open-readiness-check"><i class="fa-solid fa-wand-magic-sparkles fa-fw me-2" aria-hidden="true"></i>Readiness check + AI research</button></li>
               <li><hr class="dropdown-divider"></li>
               <li><button type="button" class="dropdown-item" data-action="open-assemblyline-settings"><i class="fa-solid fa-sliders fa-fw me-2" aria-hidden="true"></i>AssemblyLine settings</button></li>
+              <li><hr class="dropdown-divider"></li>
               <li><button type="button" class="dropdown-item" data-action="open-standard-playground"><i class="fa-solid fa-flask fa-fw me-2" aria-hidden="true"></i>Open in Playground</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-tests-overview"><i class="fa-solid fa-vial-circle-check fa-fw me-2" aria-hidden="true"></i>Tests</button></li>
-              <li><button type="button" class="dropdown-item" data-action="open-github-publish"><i class="fa-brands fa-github fa-fw me-2" aria-hidden="true"></i>Commit to GitHub</button></li>
-              <li class="d-none js-github-pull-menu-item"><button type="button" class="dropdown-item" data-action="pull-github"><i class="fa-solid fa-code-pull-request fa-fw me-2" aria-hidden="true"></i>Pull from GitHub&hellip;</button></li>
               <li><hr class="dropdown-divider"></li>
+              <li><button type="button" class="dropdown-item" data-action="open-github-publish"><i class="fa-brands fa-github fa-fw me-2" aria-hidden="true"></i>Commit to GitHub</button></li>
+              <li class="js-github-pull-menu-item"><button type="button" class="dropdown-item" data-action="pull-github" disabled title="Open a project connected to GitHub to pull changes."><i class="fa-solid fa-code-pull-request fa-fw me-2" aria-hidden="true"></i>Pull from GitHub&hellip;</button></li>
               <li><button type="button" class="dropdown-item" data-action="download-project"><i class="fa-solid fa-file-zipper fa-fw me-2" aria-hidden="true"></i>Download project (.zip)</button></li>
               <li><hr class="dropdown-divider"></li>
               <li><button type="button" class="dropdown-item" data-action="open-project-selector"><i class="fa-solid fa-folder-open fa-fw me-2" aria-hidden="true"></i>Switch project</button></li>
@@ -117,11 +118,12 @@
               <li><button type="button" class="dropdown-item" data-action="open-readiness-check"><i class="fa-solid fa-wand-magic-sparkles fa-fw me-2" aria-hidden="true"></i>Readiness check + AI research</button></li>
               <li><hr class="dropdown-divider"></li>
               <li><button type="button" class="dropdown-item" data-action="open-assemblyline-settings"><i class="fa-solid fa-sliders fa-fw me-2" aria-hidden="true"></i>AssemblyLine settings</button></li>
+              <li><hr class="dropdown-divider"></li>
               <li><button type="button" class="dropdown-item" data-action="open-standard-playground"><i class="fa-solid fa-flask fa-fw me-2" aria-hidden="true"></i>Open in Playground</button></li>
               <li><button type="button" class="dropdown-item" data-action="open-tests-overview"><i class="fa-solid fa-vial-circle-check fa-fw me-2" aria-hidden="true"></i>Tests</button></li>
-              <li><button type="button" class="dropdown-item" data-action="open-github-publish"><i class="fa-brands fa-github fa-fw me-2" aria-hidden="true"></i>Commit to GitHub</button></li>
-              <li class="d-none js-github-pull-menu-item" id="github-pull-menu-item"><button type="button" class="dropdown-item" data-action="pull-github"><i class="fa-solid fa-code-pull-request fa-fw me-2" aria-hidden="true"></i>Pull from GitHub&hellip;</button></li>
               <li><hr class="dropdown-divider"></li>
+              <li><button type="button" class="dropdown-item" data-action="open-github-publish"><i class="fa-brands fa-github fa-fw me-2" aria-hidden="true"></i>Commit to GitHub</button></li>
+              <li class="js-github-pull-menu-item" id="github-pull-menu-item"><button type="button" class="dropdown-item" data-action="pull-github" disabled title="Open a project connected to GitHub to pull changes."><i class="fa-solid fa-code-pull-request fa-fw me-2" aria-hidden="true"></i>Pull from GitHub&hellip;</button></li>
               <li><button type="button" class="dropdown-item" data-action="download-project"><i class="fa-solid fa-file-zipper fa-fw me-2" aria-hidden="true"></i>Download project (.zip)</button></li>
               <li><hr class="dropdown-divider"></li>
               <li><button type="button" class="dropdown-item" data-action="open-project-selector"><i class="fa-solid fa-folder-open fa-fw me-2" aria-hidden="true"></i>Switch project</button></li>
@@ -372,18 +374,19 @@
             <select class="form-select" id="github-owner" name="owner" required disabled>
               <option value="">Loading GitHub accounts&hellip;</option>
             </select>
-            <div class="form-text">Choose your personal account or an organization where you are allowed to create repositories.</div>
+            <div class="form-text" id="github-owner-help">Choose your personal account or an organization where you are allowed to create repositories.</div>
             <div class="alert alert-warning py-2 mt-2 mb-0 d-none" id="github-workflow-access"
                  role="status" aria-live="polite"></div>
           </div>
           <div class="mb-3">
             <label class="form-label" for="github-package-name">Repository name</label>
-            <div class="input-group">
+            <a id="github-linked-repository" class="d-none" target="_blank" rel="noopener"></a>
+            <div class="input-group" id="github-repository-input">
               <span class="input-group-text">docassemble-</span>
               <input class="form-control" id="github-package-name" name="package"
                      autocomplete="off" maxlength="100" required>
             </div>
-            <div class="form-text">An existing accessible repository with this name is reused; otherwise it is created under the selected owner.</div>
+            <div class="form-text" id="github-repository-help">An existing accessible repository with this name is reused; otherwise it is created under the selected owner.</div>
           </div>
           <div class="mb-3">
             <label class="form-label" for="github-branch-name">Branch</label>
@@ -396,11 +399,21 @@
             <button class="btn btn-link btn-sm px-0 d-none" id="github-branch-retry"
                     type="button">Retry loading branches</button>
           </div>
+          <fieldset class="mt-3 mb-3">
+            <legend class="form-label fs-6">Sync mode</legend>
+            <div class="btn-group" role="group" aria-label="Sync mode">
+              <input class="btn-check" type="radio" name="github-publish-mode" id="github-publish-merge" value="merge" checked aria-describedby="github-publish-mode-help">
+              <label class="btn btn-outline-primary" for="github-publish-merge">Merge</label>
+              <input class="btn-check" type="radio" name="github-publish-mode" id="github-publish-overwrite" value="overwrite" aria-describedby="github-publish-mode-help">
+              <label class="btn btn-outline-danger" for="github-publish-overwrite">Overwrite</label>
+            </div>
+            <div class="form-text" id="github-publish-mode-help">Merge remote changes into this project before publishing. Conflicts must be resolved first.</div>
+          </fieldset>
           <div>
             <label class="form-label" for="github-commit-message">Commit message</label>
             <div class="github-commit-message-wrap">
               <textarea class="form-control" id="github-commit-message" name="commit_message"
-                        rows="2" maxlength="500" required>Update from Weaver</textarea>
+                        rows="2" maxlength="500" required></textarea>
             </div>
           </div>
           <p class="small text-muted mb-0 mt-3">Every visible file in this Playground project is included, along with the workflows and <code>pyproject.toml</code> set in the other tabs.</p>
@@ -414,6 +427,10 @@
             </details>
             <div class="small fw-semibold mb-1">Changes on the selected branch</div>
             <div class="border rounded p-2 small" id="github-publish-preview-changes"></div>
+            <div id="github-publish-resolution" class="mt-3" hidden>
+              <p>Check the repository and branch above. Choose another branch or create a new one to keep the remote work separate. To bring remote changes into this project, use Pull from GitHub in the Interview menu.</p>
+              <button type="button" class="btn btn-sm btn-outline-primary" id="github-publish-merge-remote">Merge from GitHub…</button>
+            </div>
           </div>
         </div>
         <div class="modal-footer justify-content-between">
@@ -521,7 +538,17 @@
         <p class="small text-muted mb-3">Repository: <a id="github-pull-repository" target="_blank" rel="noopener"></a></p>
         <label class="form-label" for="github-pull-branch">Branch</label>
         <select class="form-select font-monospace" id="github-pull-branch" required disabled></select>
-        <div class="form-text">Pull merges that branch into this project; pulling a different branch makes it the one this project publishes to. To integrate a branch by hand instead, create a separate project from it.</div>
+        <div class="form-text">Pulling a different branch makes it the one this project publishes to. To integrate a branch by hand instead, create a separate project from it.</div>
+          <fieldset class="mt-3 mb-3">
+            <legend class="form-label fs-6">Sync mode</legend>
+            <div class="btn-group" role="group" aria-label="Sync mode">
+              <input class="btn-check" type="radio" name="github-pull-mode" id="github-pull-merge" value="merge" checked aria-describedby="github-pull-mode-help">
+              <label class="btn btn-outline-primary" for="github-pull-merge">Merge</label>
+              <input class="btn-check" type="radio" name="github-pull-mode" id="github-pull-overwrite" value="overwrite" aria-describedby="github-pull-mode-help">
+              <label class="btn btn-outline-danger" for="github-pull-overwrite">Overwrite</label>
+            </div>
+            <div class="form-text" id="github-pull-mode-help">Merge GitHub changes with local edits. If changes conflict, no files are changed.</div>
+          </fieldset>
         <div class="mt-3"><div class="alert py-2 d-none" id="github-pull-status" role="status" aria-live="polite"></div></div>
       </div>
       <div class="modal-footer">

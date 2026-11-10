@@ -47,6 +47,13 @@ const ids = [
   'github-new-branch-name',
   'github-branch-retry',
   'github-owner',
+  'github-publish-overwrite',
+  'github-publish-merge',
+  'github-repository-help',
+  'github-owner-help',
+  'github-linked-repository',
+  'github-repository-input',
+  'github-publish-resolution',
 ];
 const elements = Object.fromEntries(ids.map((id) => [id, element()]));
 let branches = ['main', 'feature/housing'];
@@ -70,8 +77,13 @@ context.githubBranchTimer = null;
 context.githubPublishBlocked = false;
 context.githubPreviewInFlight = false;
 context.githubPublishInFlight = false;
+context.state.projectSyncs = {};
 for (const name of [
   'updateGithubPublishButtons',
+  'githubOverwriteConfirmed',
+  'clearGithubPublishPreview',
+  'setGithubPullAvailability',
+  'refreshGithubSyncAction',
   'setGithubPublishStatus',
   'showGithubPublishedTarget',
   'githubBranchValue',
@@ -108,9 +120,59 @@ const connected = {
   ],
 };
 async function run() {
+context.githubPublishPreviewToken = 'reviewed';
+context.githubPublishBlocked = true;
+context.updateGithubPublishButtons();
+assert.strictEqual(elements['github-publish-submit'].disabled, true);
+elements['github-publish-overwrite'].checked = true;
+context.updateGithubPublishButtons();
+assert.strictEqual(elements['github-publish-submit'].disabled, false);
+context.githubPublishBlocked = false;
+assert.strictEqual(context.githubOverwriteConfirmed(), false);
+context.updateGithubPublishButtons();
+assert.strictEqual(elements['github-publish-submit'].disabled, false);
+context.githubPublishBlocked = true;
+context.githubPublishPreviewToken = null;
+context.updateGithubPublishButtons();
+assert.strictEqual(elements['github-publish-submit'].disabled, true);
+context.clearGithubPublishPreview();
+assert.strictEqual(elements['github-publish-overwrite'].checked, false);
+assert.strictEqual(elements['github-publish-resolution'].hidden, true);
+
+const pullButtons = [element(), element()];
+context.document.querySelectorAll = () => pullButtons.map(button => ({ querySelector: () => button }));
+context.state.projectSyncs = {};
+context.state.canvasMode = 'question';
+const originalGet = context.apiGet;
+context.apiGet = async () => ({success: true, data: {sync}});
+context.refreshGithubSyncAction();
+assert.ok(pullButtons.every(button => button.disabled));
+await Promise.resolve();
+assert.ok(pullButtons.every(button => !button.disabled));
+assert.strictEqual(context.state.projectSyncs.Housing, sync);
+context.apiGet = async () => ({success: true, data: {sync: null}});
+context.refreshGithubSyncAction();
+await Promise.resolve();
+assert.ok(pullButtons.every(button => button.disabled && /Commit this project/.test(button.title)));
+let completeOldRequest;
+context.apiGet = () => new Promise(resolve => { completeOldRequest = resolve; });
+context.refreshGithubSyncAction();
+context.state.project = 'Other';
+context.setGithubPullAvailability(sync);
+completeOldRequest({success: true, data: {sync: null}});
+await Promise.resolve();
+assert.ok(pullButtons.every(button => !button.disabled));
+context.state.project = 'Housing';
+context.apiGet = originalGet;
 context.applyGithubIntegrationStatus({ ...connected, sync });
 await Promise.resolve();
 assert.strictEqual(elements['github-package-name'].value, 'HousingForms');
+assert.strictEqual(elements['github-linked-repository'].href, sync.repository_url);
+assert.strictEqual(elements['github-linked-repository'].textContent, 'LegalAid/docassemble-HousingForms');
+assert.ok(elements['github-repository-input'].classList.contains('d-none'));
+assert.ok(!elements['github-linked-repository'].classList.contains('d-none'));
+assert.strictEqual(elements['github-package-name'].readOnly, true);
+assert.strictEqual(elements['github-owner'].disabled, true);
 assert.strictEqual(elements['github-branch-name'].value, 'feature/housing');
 assert.deepStrictEqual(
   elements['github-branch-name'].options.map((option) => option.value),
@@ -130,6 +192,11 @@ assert.strictEqual(elements['github-publish-preview-button'].disabled, false);
 context.applyGithubIntegrationStatus({ ...connected, sync: null });
 await Promise.resolve();
 assert.strictEqual(elements['github-package-name'].value, 'NewProject');
+assert.ok(elements['github-linked-repository'].classList.contains('d-none'));
+assert.strictEqual(elements['github-linked-repository'].href, undefined);
+assert.ok(!elements['github-repository-input'].classList.contains('d-none'));
+assert.strictEqual(elements['github-package-name'].readOnly, false);
+assert.strictEqual(elements['github-owner'].disabled, false);
 assert.strictEqual(elements['github-branch-name'].value, 'main');
 assert.ok(elements['github-publish-existing'].classList.contains('d-none'));
 assert.ok(elements['github-repository-link'].classList.contains('d-none'));
@@ -141,6 +208,12 @@ context.applyGithubIntegrationStatus({
 });
 await Promise.resolve();
 assert.strictEqual(elements['github-package-name'].value, 'HousingForms');
+assert.strictEqual(elements['github-linked-repository'].href, sync.repository_url);
+assert.strictEqual(elements['github-linked-repository'].textContent, 'LegalAid/docassemble-HousingForms');
+assert.ok(elements['github-repository-input'].classList.contains('d-none'));
+assert.ok(!elements['github-linked-repository'].classList.contains('d-none'));
+assert.strictEqual(elements['github-package-name'].readOnly, true);
+assert.strictEqual(elements['github-owner'].disabled, true);
 assert.strictEqual(elements['github-branch-name'].value, 'feature/housing');
 assert.ok(elements['github-publish-existing'].classList.contains('d-none'));
 assert.ok(elements['github-commit-link'].classList.contains('d-none'));
