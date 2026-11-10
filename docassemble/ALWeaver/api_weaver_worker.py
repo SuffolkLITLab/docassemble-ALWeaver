@@ -269,3 +269,16 @@ def weaver_editor_field_labeling_task(
         from .api_editor import _complete_field_labeling_job
 
         _complete_field_labeling_job(job_id=job_id, filename=filename, content=content)
+
+
+@workerapp.task(
+    name="docassemble.ALWeaver.api_weaver_worker.weaver_editor_report_task",
+    soft_time_limit=1800,
+    time_limit=1860,
+)
+def weaver_editor_report_task(*, job_id: str, uid: int) -> None:
+    """Scan interviews and process wording workbooks outside HTTP workers."""
+    with bg_context():
+        from .api_editor import _complete_report_job
+
+        _complete_report_job(job_id, uid)

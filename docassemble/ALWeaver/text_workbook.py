@@ -469,7 +469,7 @@ def text_inventory(filename: str, source: str) -> List[Dict[str, Any]]:
 
 
 def export_workbook(
-    sources: Dict[str, str], previews: Dict[str, str], context: Any = None
+    sources: Dict[str, str], previews: Dict[str, Any], context: Any = None
 ) -> bytes:
     """Write instructions, screen tabs with PNGs, and hidden round-trip metadata."""
     import xlsxwriter
@@ -569,26 +569,30 @@ def export_workbook(
         )
         png = previews.get(screen_id)
         if png:
-            raw = base64.b64decode(png.split(",")[-1], validate=True)
-            image = Image.open(BytesIO(raw))
-            if image.format != "PNG" or image.width * image.height > 16000000:
-                raise ValueError("Invalid or oversized preview PNG.")
-            image.verify()
-            scale = min(1, 480 / image.width)
-            sheet.insert_image(
-                "D4",
-                "screen.png",
-                {
-                    "image_data": BytesIO(raw),
-                    "description": items[0]["screen"] + " — static screen preview",
-                    "x_scale": scale,
-                    "y_scale": scale,
-                    "object_position": 1,
-                },
-            )
+            y_offset = 0
+            for png in (png if isinstance(png, list) else [png]):
+                raw = base64.b64decode(png.split(",")[-1], validate=True)
+                image = Image.open(BytesIO(raw))
+                if image.format != "PNG" or image.width * image.height > 16000000:
+                    raise ValueError("Invalid or oversized preview PNG.")
+                image.verify()
+                scale = min(1, 480 / image.width)
+                sheet.insert_image(
+                    "D4",
+                    "screen.png",
+                    {
+                        "image_data": BytesIO(raw),
+                        "description": items[0]["screen"] + " — static screen preview",
+                        "x_scale": scale,
+                        "y_scale": scale,
+                        "object_position": 1,
+                        "y_offset": y_offset,
+                    },
+                )
+                y_offset += round(image.height * scale)
         else:
             sheet.write_string(
-                3, 3, "No standalone screen preview for this text.", fixed
+                3, 3, "No screen image included in this workbook.", fixed
             )
         for row, item in enumerate(items, 3):
             sheet.write_string(row, 0, item["label"], fixed)
@@ -749,10 +753,22 @@ def import_workbook(
     """Preflight every row, then return exact source patches without writing."""
     import openpyxl
 
+    # Never hand excluded media to the XML parser: a malicious relationship
+    # can point at XML stored under xl/media/, regardless of its extension.
+    # read_only imports need no images, so strip them before openpyxl opens it.
+    sanitized = BytesIO()
     with zipfile.ZipFile(BytesIO(content)) as archive:
-        if sum(info.file_size for info in archive.infolist()) > MAX_UNCOMPRESSED:
+        xml_parts = [
+            info
+            for info in archive.infolist()
+            if not info.filename.startswith("xl/media/")
+        ]
+        if sum(info.file_size for info in xml_parts) > MAX_UNCOMPRESSED:
             raise ValueError("The workbook is too large.")
-    workbook = openpyxl.load_workbook(BytesIO(content), data_only=False, read_only=True)
+        with zipfile.ZipFile(sanitized, "w", zipfile.ZIP_DEFLATED) as cleaned:
+            for info in xml_parts:
+                cleaned.writestr(info.filename, archive.read(info))
+    workbook = openpyxl.load_workbook(sanitized, data_only=False, read_only=True)
     try:
         if "_ALWeaver" not in workbook or workbook["_ALWeaver"]["A1"].value != SCHEMA:
             raise ValueError("This is not a Weaver wording workbook.")
@@ -801,7 +817,7 @@ def import_workbook(
                     )
                 seen.add(identity)
                 item = inventory[identity]
-                if row[1].value != (item["original"] or None):
+                if ("" if row[1].value is None else row[1].value) != item["original"]:
                     raise ValueError(f"{sheet.title}: original wording was changed.")
                 if row[2].data_type == "f":
                     raise ValueError(

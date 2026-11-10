@@ -80,6 +80,34 @@ async function run() {
     { message: 'Worker failed' },
   );
 
+  let transientPolls = 0;
+  const recovered = await api.waitForJob(queued, {
+    wait: async () => {},
+    get: async () => {
+      transientPolls++;
+      if (transientPolls < 3) throw new api.EditorApiError('temporary outage', {status: 502});
+      return {data: {status: 'succeeded', result: 'saved'}};
+    },
+  });
+  assert.strictEqual(recovered.data, 'saved');
+  assert.strictEqual(transientPolls, 3);
+  await expectError(api.waitForJob(queued, {
+    wait: async () => {},
+    get: async () => { throw new api.EditorApiError('sign in again', {status: 401}); },
+  }), {message: 'sign in again'});
+
+  const slowClient = api.createClient({
+    timeoutMs: 1,
+    fetchImpl: (_url, options) => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => resolve(jsonResponse({success: true, data: 'downloaded'})), 20);
+      options.signal.addEventListener('abort', () => {
+        clearTimeout(timer);
+        reject(Object.assign(new Error('aborted'), {name: 'AbortError'}));
+      });
+    }),
+  });
+  assert.strictEqual((await slowClient.get('/result', {timeoutMs: 1000})).data, 'downloaded');
+
   const originalNow = Date.now;
   let clock = 0;
   Date.now = () => clock;
@@ -93,7 +121,7 @@ async function run() {
     await expectError(api.waitForJob(longJob, {
       wait: async () => { clock += 28 * 60 * 1000; },
       get: async () => { throw new Error('Must stop polling expired jobs'); },
-    }), {message: 'The AI request timed out.'});
+    }), {message: 'The background request timed out.'});
   } finally {
     Date.now = originalNow;
   }

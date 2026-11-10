@@ -7082,6 +7082,29 @@ class TestTemplateFieldReadWithoutInterview(unittest.TestCase):
                 )
 
 
+def _run_report_inline(uid, operation, payload, request_id):
+    # Exercise operation validation in these focused tests; queue lifecycle and
+    # authorization are covered separately in test_editor_reports_jobs.py.
+    if operation == "archive":
+        try:
+            return jsonify(
+                {
+                    "success": True,
+                    "data": api_editor._archive_report_result(uid, payload),
+                }
+            )
+        except ValueError as exc:
+            return jsonify({"success": False, "error": {"message": str(exc)}}), 400
+    result = (
+        api_editor._scan_report_result(uid, payload)
+        if operation == "scan"
+        else api_editor._wording_report_result(
+            uid, operation.removeprefix("wording-"), payload
+        )
+    )
+    return jsonify({"success": True, "data": result})
+
+
 class TestInterviewReportScan(unittest.TestCase):
     def test_scan_requires_authentication(self):
         with patch.object(api_editor, "_editor_auth_check", return_value=False):
@@ -7091,6 +7114,9 @@ class TestInterviewReportScan(unittest.TestCase):
 
     def test_scan_reads_only_the_authenticated_project(self):
         with (
+            patch.object(
+                api_editor, "_queue_report_job", side_effect=_run_report_inline
+            ),
             patch.object(api_editor, "_editor_auth_check", return_value=True),
             patch.object(api_editor, "_current_user_id", return_value=7),
             patch.object(
@@ -7149,6 +7175,10 @@ class TestRepositoryReports(unittest.TestCase):
 
         with (
             patch.object(api_editor, "_editor_auth_check", return_value=True),
+            patch.object(api_editor, "_current_user_id", return_value=7),
+            patch.object(
+                api_editor, "_queue_report_job", side_effect=_run_report_inline
+            ),
             api_editor.app.test_client() as client,
         ):
             response = client.post(
@@ -7210,6 +7240,11 @@ class TestWordingWorkbookApi(unittest.TestCase):
                 side_effect=lambda uid, project, name, text: self.files.update(
                     {name: text}
                 ),
+            )
+        )
+        self.patches.enter_context(
+            patch.object(
+                api_editor, "_queue_report_job", side_effect=_run_report_inline
             )
         )
         self.client = api_editor.app.test_client()

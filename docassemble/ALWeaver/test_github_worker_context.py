@@ -262,3 +262,16 @@ def test_readiness_capacity_retry_preserves_long_worker_limits(publish_worker):
     editor._ai_job_limits.assert_called_once_with("readiness-check")
     assert task.retry.call_args.kwargs["soft_time_limit"] == 1200
     assert task.retry.call_args.kwargs["time_limit"] == 1260
+
+
+def test_report_task_runs_in_background_context(publish_worker):
+    worker, app, editor, native, functions = publish_worker
+
+    def complete(job_id, uid):
+        assert has_app_context()
+        assert not has_request_context()
+
+    editor._complete_report_job = Mock(side_effect=complete)
+    with patch.object(worker, "bg_context", app.app_context):
+        worker.weaver_editor_report_task(job_id="report-job", uid=7)
+    editor._complete_report_job.assert_called_once_with("report-job", 7)

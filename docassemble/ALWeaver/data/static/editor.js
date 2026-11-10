@@ -4407,6 +4407,25 @@
     });
     return apiClient
       .post(path, body, options)
+      .then(function (response) {
+        if (path.indexOf('/api/reports/') === 0) {
+          return window.ALWeaverApiClient.waitForJob(response, {
+            get: function (url) {
+              return runtimeApiClient.get(url, { timeoutMs: 30 * 60 * 1000 });
+            },
+          }).then(function (result) {
+            if (response.data && response.data.job_url) {
+              // Acknowledge only after the result arrived intact. Lost polls
+              // can retry; unacknowledged results expire after 15 minutes.
+              runtimeApiClient
+                .post(response.data.job_url + '/ack', {})
+                .catch(function () {});
+            }
+            return result;
+          });
+        }
+        return response;
+      })
       .catch(function (error) {
         if (
           !error ||
@@ -16454,6 +16473,9 @@
         });
       },
       apiPost: apiPost,
+      apiQuietPost: function (path, body, options) {
+        return runtimeApiClient.post(path, body, options);
+      },
       prepareSaved: promptAndSaveUnsavedChanges,
       previewOptions: function (blocks) {
         var resolved = _screenPreviewContext(blocks);
@@ -16529,7 +16551,7 @@
           whole_interview: true,
         });
       })
-      .then(function (response) {
+      .then(async function (response) {
         if (!response) {
           if (!win.closed) win.close();
           return;
@@ -16549,7 +16571,7 @@
         var interviewName = collected.filename
           ? collected.filename.replace(/\.ya?ml$/, '')
           : '';
-        var html = ALWeaverInterviewReport.buildReport(steps, blocks, {
+        var html = await ALWeaverReports.buildFlowReport(steps, blocks, {
           assets: resolved.assets,
           widgetStyle: BOOT.previewWidgetStyle,
           extraCss: resolved.extraCss,
