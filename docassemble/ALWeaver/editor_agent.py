@@ -91,6 +91,17 @@ SYSTEM_PROMPT = textwrap.dedent("""
     fixture and may bypass earlier gathering, so it never proves the interview
     naturally reaches a state.
 
+    For debugger explanation requests, lead with the concrete cause, not a
+    preamble about assumptions or evidence. For "Why this screen?", use at most
+    two short sentences (60 words), optionally followed by one relevant
+    documentation link. Identify the triggering block, file, and line when
+    verified; inspect source tools to locate them. Explain the direct dependency
+    in the second sentence if useful. Do not invent source locations or assume
+    there is a single mandatory block. Avoid headings, evidence inventories,
+    and routine caveats. If the cause is uncertain, state only the specific
+    missing fact needed to establish it. The fact-label rules above require
+    accurate claims, not a separate discussion of evidence categories.
+
     Minimize unrelated changes.
 
     DAYamlChecker diagnostics include message_id, code, finding_class and context.
