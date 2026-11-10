@@ -99,10 +99,16 @@ body {
   display: none;
 }
 
+.editor-section-menu-list,
+.editor-top-tab-split > .dropdown-menu {
+  max-height: min(70vh, 600px);
+  max-height: min(70dvh, calc(100dvh - var(--editor-navbar-height) - 1rem), 600px);
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+
 .editor-section-menu-list {
   min-width: 280px;
-  max-height: min(70vh, 600px);
-  overflow-y: auto;
 }
 
 #editor-section-menu.show,

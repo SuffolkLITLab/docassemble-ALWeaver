@@ -110,16 +110,24 @@ class TestEditorFrontend(unittest.TestCase):
         template = (self.package_dir / "data/templates/editor.html").read_text()
         self.assertIn('<option value="ALAddress">An address</option>', template)
 
-    def test_project_download_is_in_its_own_interview_menu_section(self):
+    def test_project_actions_share_a_section_in_both_interview_menus(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
-        menu = template.split('aria-labelledby="interview-menu">', 1)[1].split(
-            "</ul>", 1
-        )[0]
-        self.assertRegex(
-            menu,
-            r'dropdown-divider.*?</li>\s*<li><button[^>]*data-action="download-project"',
-        )
-        self.assertIn("Download project (.zip)", menu)
+        for marker in (
+            'aria-labelledby="interview-menu">',
+            'id="editor-interview-submenu">',
+        ):
+            menu = template.split(marker, 1)[1].split("</ul>", 1)[0]
+            groups = [
+                re.findall(r'data-action="([^"]+)"', group)
+                for group in menu.split('<li><hr class="dropdown-divider"></li>')
+            ]
+            self.assertIn(
+                ["open-github-publish", "pull-github", "download-project"], groups
+            )
+            self.assertIn(["open-assemblyline-settings"], groups)
+            self.assertIn(["open-standard-playground", "open-tests-overview"], groups)
+            self.assertNotIn('class="d-none js-github-pull-menu-item"', menu)
+            self.assertIn("Download project (.zip)", menu)
         editor = (self.package_dir / "data/static/editor.js").read_text()
         action = editor.split("if (uiAction === 'download-project')", 1)[1].split(
             "if (uiAction ===", 1
@@ -449,6 +457,18 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("color: var(--editor-primary);", section_button)
         self.assertIn("background-color: #f8f9fa;", section_button)
 
+    def test_github_sync_modes_are_explicit_accessible_toggles(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        for prefix in ("github-publish", "github-pull"):
+            for mode in ("merge", "overwrite"):
+                self.assertIn(
+                    f'name="{prefix}-mode" id="{prefix}-{mode}" value="{mode}"',
+                    template,
+                )
+                self.assertIn(f'for="{prefix}-{mode}">{mode.title()}</label>', template)
+            self.assertIn(f'id="{prefix}-mode-help"', template)
+        self.assertIn('id="github-publish-merge-remote"', template)
+
     def test_github_partial_publish_shows_warning_and_setup_guidance(self):
         source = (Path(__file__).parent / "data/static/editor.js").read_text()
         self.assertIn("warnings.length ? 'warning' : 'success'", source)
@@ -474,7 +494,7 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn('rows="2"', attributes)
         self.assertIn('maxlength="500"', attributes)
         self.assertIn("required", attributes)
-        self.assertEqual(default, "Update from Weaver")
+        self.assertEqual(default, "")
         self.assertIn(
             ".github-commit-message-wrap textarea {\n  resize: vertical;", css
         )
@@ -784,6 +804,15 @@ class TestEditorFrontend(unittest.TestCase):
                         f"{relative_path}:{index + 1} uses the magic icon "
                         "without using AI: " + line.strip(),
                     )
+
+    def test_interview_menus_scroll_within_the_viewport(self):
+        css = (self.package_dir / "data/static/editor.css").read_text()
+        rule = css.split(
+            ".editor-section-menu-list,\n.editor-top-tab-split > .dropdown-menu {", 1
+        )[1].split("}", 1)[0]
+        self.assertIn("100dvh - var(--editor-navbar-height)", rule)
+        self.assertIn("overflow-y: auto", rule)
+        self.assertIn("overscroll-behavior-y: contain", rule)
 
     def test_full_yaml_is_first_interview_menu_destination(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
