@@ -1331,9 +1331,11 @@
         var host = content.querySelector('#runtime-frame-host');
         if (!liveFrame || !host.clientHeight || !host.clientWidth) return;
         // Account for Weaver's toolbar without changing the interview's own
-        // header. Its layout viewport matches a standalone tab.
+        // header. Desktop matches a standalone tab; mobile uses the available
+        // pane at native size so form controls remain readable and tappable.
         var fitViewport =
           zoomChoice === 'auto' &&
+          !window.matchMedia('(max-width: 760px)').matches &&
           workbench.classList.contains('editor-runtime-fullscreen');
         var scale = zoomChoice === 'auto' ? 1 : Number(zoomChoice) / 100;
         if (fitViewport) {
@@ -1367,6 +1369,15 @@
           node.removeAttribute('inert');
         });
         inertNodes = [];
+        var statusNode = wrapper.querySelector('#runtime-status');
+        if (expanded)
+          content
+            .querySelector('.editor-runtime-interview')
+            .insertBefore(
+              statusNode,
+              content.querySelector('#runtime-frame-host'),
+            );
+        else wrapper.insertBefore(statusNode, content);
         workbench.classList.toggle('editor-runtime-fullscreen', expanded);
         updateSidebar();
         fullscreen.textContent = expanded ? 'Exit full screen' : 'Full screen';
@@ -1397,12 +1408,24 @@
       exitFullscreen = function () {
         setFullscreen(false);
       };
-      workbench.addEventListener('keydown', function (event) {
-        if (/** @type {KeyboardEvent} */ (event).key === 'Escape') {
+      function handleFullscreenEscape(event) {
+        var target = /** @type {Element} */ (event.target);
+        var dropdown = target.closest('.dropdown');
+        if (
+          /** @type {KeyboardEvent} */ (event).key === 'Escape' &&
+          workbench.classList.contains('editor-runtime-fullscreen') &&
+          !event.defaultPrevented &&
+          !target.closest('.modal, .offcanvas, [role="dialog"], dialog') &&
+          !target.closest(
+            'input, textarea, select, [contenteditable], [role="combobox"]',
+          ) &&
+          !(dropdown && dropdown.querySelector('.show'))
+        ) {
           setFullscreen(false);
           fullscreen.focus();
         }
-      });
+      }
+      workbench.addEventListener('keydown', handleFullscreenEscape);
       fillActions.appendChild(fullscreen);
       if (options.onExplain && (!options.canExplain || options.canExplain())) {
         var explain = document.createElement('div');
@@ -1569,15 +1592,10 @@
       frame.src = session.target_url;
       frame.addEventListener('load', function () {
         try {
-          frame.contentDocument.addEventListener('keydown', function (event) {
-            if (
-              event.key === 'Escape' &&
-              workbench.classList.contains('editor-runtime-fullscreen')
-            ) {
-              setFullscreen(false);
-              fullscreen.focus();
-            }
-          });
+          frame.contentDocument.addEventListener(
+            'keydown',
+            handleFullscreenEscape,
+          );
         } catch {
           /* Cross-origin interviews still have the visible exit button. */
         }

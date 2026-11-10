@@ -15624,12 +15624,14 @@
     updateTopbarProject();
     updateTopbarSaveState();
     if (routeApplying) {
+      runtimeInspector.hide();
       canvasContent.innerHTML =
         '<p class="text-muted p-4" role="status">Loading editor location…</p>';
       return;
     }
     if (routeError) {
       if (routeError.path === router.routeForState(editorRoute())) {
+        runtimeInspector.hide();
         canvasContent.innerHTML =
           '<div class="alert alert-warning" role="alert">' +
           esc(routeError.message) +

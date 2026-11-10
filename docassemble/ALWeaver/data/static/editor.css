@@ -6634,3 +6634,28 @@ body:has(.editor-runtime-fullscreen) { overflow: hidden; }
   .runtime-regenerate-label { display: none; }
   #runtime-regenerate-samples svg { margin-right: 0 !important; }
 }
+
+.editor-runtime-fullscreen #runtime-status {
+  flex-shrink: 0;
+  max-height: 20dvh;
+  overflow-y: auto;
+}
+
+@media (max-width: 760px) {
+  .editor-runtime-inspector,
+  #runtime-session-content,
+  .editor-runtime-frame-bar {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .editor-runtime-fill-actions {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    margin-left: 0;
+  }
+  .editor-runtime-primary-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}

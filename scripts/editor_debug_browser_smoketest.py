@@ -6,6 +6,7 @@ Sends one synthetic ask-only request to the configured assistant.
 """
 
 import os, secrets, time
+import re
 from pathlib import Path
 import requests, yaml
 from playwright.sync_api import sync_playwright, expect  # type: ignore[import-not-found]
@@ -113,6 +114,11 @@ fields:
         ).not_to_be_visible()
         print("PASS compact session controls and More menu", flush=True)
 
+        search = page.locator("#runtime-variable-search")
+        search.fill("test")
+        search.press("Escape")
+        expect(search).to_be_focused()
+        search.fill("")
         page.get_by_role("button", name="Full screen", exact=True).click()
         expect(page.get_by_role("button", name="Exit full screen")).to_be_visible()
         box = page.locator(".editor-runtime-fullscreen").bounding_box()
@@ -123,10 +129,49 @@ fields:
         expect(sidebar_toggle).to_have_attribute("aria-expanded", "false")
         sidebar_toggle.click()
         expect(sidebar_toggle).to_have_attribute("aria-expanded", "true")
+        search.press("Escape")
+        expect(search).to_be_focused()
+        expect(page.locator(".editor-runtime-fullscreen")).to_be_visible()
+        frame.locator("body").evaluate("""(body) => {
+            const dialog = document.createElement('dialog');
+            dialog.id = 'debug-test-dialog';
+            dialog.innerHTML = '<button type="button">Dialog action</button>';
+            body.appendChild(dialog);
+            dialog.showModal();
+        }""")
+        frame.get_by_role("button", name="Dialog action").press("Escape")
+        expect(frame.locator("#debug-test-dialog")).not_to_be_visible()
+        expect(page.locator(".editor-runtime-fullscreen")).to_be_visible()
+        frame.locator("#debug-test-dialog").evaluate("(el) => el.remove()")
+        frame.locator("input[type=text]").first.press("Escape")
+        expect(page.locator(".editor-runtime-fullscreen")).to_be_visible()
         expect(page.locator("#runtime-sidebar-panels")).to_be_visible()
         expect(
             frame.get_by_role("heading", name="What is your name?", exact=True)
         ).to_be_visible()
+        page.get_by_role("button", name="Explain", exact=True).click()
+        page.get_by_role("button", name="Why this screen?", exact=True).focus()
+        page.keyboard.press("Escape")
+        expect(page.locator(".editor-runtime-fullscreen")).to_be_visible()
+        expect(
+            page.get_by_role("button", name="Why this screen?", exact=True)
+        ).not_to_be_visible()
+        scenario = page.locator("details").filter(has=page.locator("#runtime-scenario"))
+        scenario.locator("summary").click()
+        page.locator("#runtime-scenario").fill("variables: [")
+        page.locator("#runtime-apply-scenario").click()
+        expect(page.locator("#runtime-status")).to_have_class(
+            re.compile(".*alert-danger.*")
+        )
+        expect(page.locator("#runtime-status")).to_be_visible()
+        assert not page.locator("#runtime-status").evaluate(
+            "(el) => Boolean(el.closest('[inert]'))"
+        )
+        scenario.locator("summary").click()
+        print(
+            "PASS host Escape, dropdown Escape and fullscreen scenario error visibility",
+            flush=True,
+        )
         sidebar_toggle.click()
         expect(sidebar_toggle).to_have_attribute("aria-expanded", "false")
         print("PASS fullscreen debugging rail expands and collapses", flush=True)
@@ -152,7 +197,31 @@ fields:
             page.set_viewport_size({"width": mobile_width, "height": 700})
             sidebar_toggle.click()
             expect(page.locator("#runtime-sidebar-panels")).to_be_visible()
+            expect(page.locator("#runtime-status")).to_be_visible()
+            assert not page.locator("#runtime-status").evaluate(
+                "(el) => Boolean(el.closest('[inert]'))"
+            )
+            for selector in (
+                ".editor-runtime-workbench",
+                ".editor-runtime-frame-bar",
+                ".editor-runtime-fill-actions",
+            ):
+                assert page.locator(selector).evaluate(
+                    "(el) => el.scrollWidth <= el.clientWidth + 1"
+                ), selector
+
+            expect(page.locator("#runtime-interview-frame")).to_have_css(
+                "transform", "matrix(1, 0, 0, 1, 0, 0)"
+            )
             sidebar_toggle.click()
+            for selector in (
+                ".editor-runtime-workbench",
+                ".editor-runtime-frame-bar",
+                ".editor-runtime-fill-actions",
+            ):
+                assert page.locator(selector).evaluate(
+                    "(el) => el.scrollWidth <= el.clientWidth + 1"
+                ), selector
             assert page.evaluate(
                 "document.documentElement.scrollWidth <= window.innerWidth"
             )
@@ -162,7 +231,7 @@ fields:
         frame.get_by_role("heading", name="What is your name?", exact=True).click()
         page.keyboard.press("Escape")
         expect(page.locator(".editor-runtime-fullscreen")).to_have_count(0)
-        assert page.locator("[inert]").count() == 0
+        expect(page.locator("[inert]")).to_have_count(0)
         page.set_viewport_size({"width": 1440, "height": 900})
         print("PASS mobile fullscreen, iframe Escape and inert cleanup", flush=True)
         page.get_by_role("button", name="Explain", exact=True).click()
@@ -178,7 +247,10 @@ fields:
             print("PASS assistant screen draft", flush=True)
         else:
             raise AssertionError("Assistant did not open")
+        page.get_by_role("button", name="Full screen", exact=True).click()
+        sidebar_toggle.click()
         page.get_by_role("button", name="Open source block").click()
+        expect(page.locator("[inert]")).to_have_count(0)
         expect(page.locator(".editor-runtime-inspector")).not_to_be_visible()
         page.locator('[data-action="open-runtime-inspector"]:visible').first.click()
         expect(
@@ -200,6 +272,45 @@ fields:
             abs(regenerate_box["x"] + regenerate_box["width"] + 8 - after_fill["x"]) < 1
         )
         print("PASS Fill/Continue position stays fixed", flush=True)
+        for width in (320, 390, 430):
+            page.set_viewport_size({"width": width, "height": 700})
+            for full in (False, True):
+                if full:
+                    page.get_by_role("button", name="Full screen", exact=True).click()
+                for selector in (
+                    "#runtime-zoom",
+                    "#runtime-explain-menu",
+                    "#runtime-regenerate-samples",
+                    "#runtime-fill-samples",
+                ):
+                    control = page.locator(selector)
+                    control.scroll_into_view_if_needed()
+                    box = control.bounding_box()
+                    assert box["x"] >= 0 and box["x"] + box["width"] <= width, (
+                        width,
+                        full,
+                        selector,
+                        box,
+                    )
+                if full:
+                    page.get_by_role(
+                        "button", name="Exit full screen", exact=True
+                    ).click()
+                else:
+                    page.get_by_role(
+                        "button", name="Full screen", exact=True
+                    ).scroll_into_view_if_needed()
+                    box = page.get_by_role(
+                        "button", name="Full screen", exact=True
+                    ).bounding_box()
+                    assert box["x"] >= 0 and box["x"] + box["width"] <= width, box
+                page.screenshot(path=f"/tmp/debug-toolbar-{width}-{full}.png")
+        page.set_viewport_size({"width": 1440, "height": 900})
+        print(
+            "PASS mobile toolbar button bounds in normal and fullscreen modes",
+            flush=True,
+        )
+
         fill.click()
         page.wait_for_timeout(3000)
         print(
@@ -239,7 +350,7 @@ fields:
         expect(
             page.get_by_role("button", name="Start debugging", exact=True)
         ).to_be_visible(timeout=60000)
-        assert page.locator("[inert]").count() == 0
+        expect(page.locator("[inert]")).to_have_count(0)
         print("PASS expired session fullscreen cleanup", flush=True)
         print("errors", errors, flush=True)
         assert not errors
