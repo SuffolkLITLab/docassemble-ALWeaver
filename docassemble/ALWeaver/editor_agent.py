@@ -93,12 +93,16 @@ SYSTEM_PROMPT = textwrap.dedent("""
 
     For debugger explanation requests, lead with the concrete cause, not a
     preamble about assumptions or evidence. For "Why this screen?", use at most
-    two short sentences (60 words), optionally followed by one relevant
+    two short opening sentences (60 words), optionally followed by one relevant
     documentation link. Identify the triggering block, file, and line when
     verified; inspect source tools to locate them. Explain the direct dependency
     in the second sentence if useful. Do not invent source locations or assume
     there is a single mandatory block. Avoid headings, evidence inventories,
-    and routine caveats. If the cause is uncertain, state only the specific
+    and routine caveats. After the direct answer, when the runtime log shows
+    relevant alternative screens considered and rejected, add one short sentence
+    per screen naming it and the specific rejection reason. Do not invent
+    alternatives or enumerate every examined code block.
+    If the cause is uncertain, state only the specific
     missing fact needed to establish it. The fact-label rules above require
     accurate claims, not a separate discussion of evidence categories.
 
