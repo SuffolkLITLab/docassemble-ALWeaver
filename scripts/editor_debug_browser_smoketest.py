@@ -114,6 +114,39 @@ fields:
         ).not_to_be_visible()
         print("PASS compact session controls and More menu", flush=True)
 
+        scenario_panel = page.locator("details").filter(
+            has=page.locator("#runtime-scenario")
+        )
+        scenario_panel.locator("summary").click()
+        for height in (600, 900):
+            page.set_viewport_size({"width": 1440, "height": height})
+            page.locator("#runtime-scenario").fill("variables: [")
+            page.locator("#runtime-sidebar").evaluate(
+                "(el) => { el.scrollTop = el.scrollHeight; }"
+            )
+            button = page.locator("#runtime-apply-scenario")
+            box = button.bounding_box()
+            drawer = page.locator("#validation-drawer").bounding_box()
+            assert box["y"] + box["height"] <= drawer["y"], (box, drawer)
+            assert button.evaluate(
+                "(el) => { const b = el.getBoundingClientRect(); return el.contains(document.elementFromPoint(b.x + b.width / 2, b.bottom - 2)); }"
+            )
+            with page.expect_response(
+                lambda response: "/variables" in response.url
+                and response.request.method == "POST"
+            ):
+                page.mouse.click(
+                    box["x"] + box["width"] / 2, box["y"] + box["height"] - 2
+                )
+            expect(page.locator("#runtime-status")).to_have_class(
+                re.compile(".*alert-danger.*")
+            )
+        scenario_panel.locator("summary").click()
+        page.locator("#runtime-sidebar").evaluate("(el) => { el.scrollTop = 0; }")
+        print(
+            "PASS scenario action remains clickable above the findings drawer",
+            flush=True,
+        )
         search = page.locator("#runtime-variable-search")
         search.fill("test")
         search.press("Escape")

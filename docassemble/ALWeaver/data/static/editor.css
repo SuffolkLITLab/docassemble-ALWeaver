@@ -6659,3 +6659,21 @@ body:has(.editor-runtime-fullscreen) { overflow: hidden; }
     justify-content: flex-end;
   }
 }
+
+/* The breadcrumb takes space above the debugger. Size its canvas from the
+   remaining height, so the sidebar's scrollport ends above the findings drawer. */
+@media (min-width: 901px) and (min-height: 501px) {
+  .editor-main:has(.editor-runtime-inspector) {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .editor-main:has(.editor-runtime-inspector) > .editor-location {
+    flex-shrink: 0;
+  }
+  .editor-canvas:has(.editor-runtime-inspector) {
+    flex: 1 1 0;
+    height: auto;
+    min-height: 0;
+  }
+}
