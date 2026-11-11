@@ -33,6 +33,7 @@ jobs:
           echo "::add-mask::$ADMIN_API_KEY"
           echo "::add-mask::$DEVELOPER_API_KEY"
       - name: Seed editor accessibility fixture
+        id: seed_a11y
         env:
           SERVER_URL: "${{ steps.github_server.outputs.SERVER_URL }}"
           ADMIN_API_KEY: "${{ steps.github_server.outputs.DOCASSEMBLE_DEVELOPER_API_KEY }}"
@@ -63,6 +64,7 @@ jobs:
             -F file=@.github/fixtures/editor_a11y/editor_accessibility.txt \
             "$SERVER_URL/api/playground"
       - name: Install accessibility test dependencies
+        id: install_a11y
         run: |
           mkdir -p /tmp/alweaver-a11y
           cd /tmp/alweaver-a11y
@@ -86,6 +88,7 @@ jobs:
           path: /tmp/alweaver-navigation-screenshots
           if-no-files-found: ignore
       - name: Check graphical Markdown fields
+        if: ${{ !cancelled() && steps.install_a11y.outcome == 'success' }}
         env:
           SERVER_URL: "${{ steps.github_server.outputs.SERVER_URL }}"
           NODE_PATH: /tmp/alweaver-a11y/node_modules
@@ -96,6 +99,7 @@ jobs:
             -o "$DOCASSEMBLE_CM6" "$SERVER_URL/static/app/cm6.min.js"
           node scripts/editor_markdown_smoketest.js
       - name: Check /al/editor accessibility
+        if: ${{ !cancelled() && steps.install_a11y.outcome == 'success' && steps.seed_a11y.outcome == 'success' }}
         env:
           SERVER_URL: "${{ steps.github_server.outputs.SERVER_URL }}"
           EDITOR_EMAIL: "${{ steps.github_server.outputs.DA_ADMIN_EMAIL }}"

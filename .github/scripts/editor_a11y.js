@@ -194,6 +194,31 @@ async function main() {
     await page.locator('.editor-top-tab[data-view="interview"]').click();
     await page.locator("#outline-list .editor-outline-item").first().waitFor();
 
+    // Exercise the translation controls without requiring an AI provider or
+    // generating workbooks. Check both the initial and validation states.
+    const translationMenu = await openInterviewMenu(page);
+    await translationMenu.locator('[data-action="open-translations"]').click();
+    const translations = page.getByRole("dialog", { name: "Interview translations", exact: true });
+    await translations.waitFor({ state: "visible" });
+    await page.waitForFunction(() =>
+      !document.querySelector("#translation-scope").textContent.includes("Finding")
+    );
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "interview translations dialog")
+    );
+    await translations.getByRole("textbox", { name: "Flow report language code", exact: true }).fill("invalid code");
+    await translations.getByRole("button", { name: "Preview translated flow report", exact: true }).click();
+    await page.waitForFunction(() =>
+      document.querySelector("#translation-status").textContent === "Enter a language code such as es."
+    );
+    // Bootstrap animates button focus/hover colors after the click.
+    await page.waitForTimeout(250);
+    blockingViolations = blockingViolations.concat(
+      await audit(page, "interview translations validation message")
+    );
+    await page.keyboard.press("Escape");
+    await translations.waitFor({ state: "hidden" });
+
     // Project selector and the new-project editing form.
     blockingViolations = blockingViolations.concat(
       await auditAfter(
