@@ -169,3 +169,7 @@ dev = [
     "docassemblecli",
     "pip",
 ]
+
+[[tool.mypy.overrides]]
+module = "docassemble.ALDashboard.api_dashboard_utils"
+ignore_missing_imports = true

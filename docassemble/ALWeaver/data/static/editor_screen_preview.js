@@ -534,6 +534,7 @@
    * inline code — an author reading the preview still sees where the value
    * lands, and nothing silently disappears. */
   function renderMarkdown(text, report, context) {
+    if (context && context.translations && typeof text === 'string' && Object.prototype.hasOwnProperty.call(context.translations, text)) text = context.translations[text];
     var source = String(text === undefined || text === null ? '' : text);
     if (!source.trim()) return '';
     var lines = source.split('\n');
@@ -1496,7 +1497,7 @@
       '" id="' + attr(id) + '" /></div>';
   }
 
-  function renderYesNoRadio(desc, id, widgetStyle) {
+  function renderYesNoRadio(desc, id, widgetStyle, languageLabels) {
     var order = desc.datatype.indexOf('noyes') === 0
       ? [{ label: 'No', value: 'False' }, { label: 'Yes', value: 'True' }]
       : [{ label: 'Yes', value: 'True' }, { label: 'No', value: 'False' }];
@@ -1506,7 +1507,7 @@
     var html = '<div class="da-field-group da-field-radio">';
     order.forEach(function (choice, index) {
       html += labelautyInput({
-        label: choice.label,
+        label: (languageLabels && languageLabels[choice.label]) || choice.label,
         classes: 'da-to-labelauty',
         id: id + '_' + index,
         name: id,
@@ -1537,9 +1538,9 @@
   var YESNO_CHECKBOX_TYPES = ['yesno', 'noyes', 'yesnowide', 'noyeswide'];
   var YESNO_RADIO_TYPES = ['yesnoradio', 'noyesradio', 'yesnomaybe', 'noyesmaybe'];
 
-  function renderInput(desc, id, widgetStyle) {
+  function renderInput(desc, id, widgetStyle, languageLabels) {
     if (YESNO_CHECKBOX_TYPES.indexOf(desc.datatype) !== -1) return renderYesNoCheckbox(desc, id, widgetStyle);
-    if (YESNO_RADIO_TYPES.indexOf(desc.datatype) !== -1) return renderYesNoRadio(desc, id, widgetStyle);
+    if (YESNO_RADIO_TYPES.indexOf(desc.datatype) !== -1) return renderYesNoRadio(desc, id, widgetStyle, languageLabels);
     if (desc.datatype === 'checkboxes' || desc.datatype === 'object_checkboxes') {
       return renderChoiceGroup(desc, id, 'checkbox', widgetStyle);
     }
@@ -1676,6 +1677,14 @@
   function renderFieldItem(desc, index, options) {
     var opts = options || {};
     var layout = LABEL_LAYOUTS.indexOf(opts.labelLayout) !== -1 ? opts.labelLayout : 'horizontal';
+    var words = opts.context && opts.context.translations;
+    if (words) {
+      desc = Object.assign({}, desc, {
+        label: words[desc.label] || desc.label,
+        help: words[desc.help] || desc.help,
+        choices: (desc.choices || []).map(function (choice) { return Object.assign({}, choice, {label: words[choice.label] || choice.label}); })
+      });
+    }
     var report = opts.report;
     var id = fieldId(index);
 
@@ -1712,7 +1721,7 @@
       useFieldset: useFieldset,
       labelId: 'da-label-' + index,
       labelFor: labelFor,
-      content: renderInput(desc, id, opts.widgetStyle),
+      content: renderInput(desc, id, opts.widgetStyle, opts.languageLabels),
     };
 
     function build(extra) {
@@ -1761,7 +1770,7 @@
         floating: true,
         classes: [requiredClass, fieldClass],
         labelContent: labelContent,
-        content: renderInput(floatingDesc, id, opts.widgetStyle),
+        content: renderInput(floatingDesc, id, opts.widgetStyle, opts.languageLabels),
       });
     }
 
@@ -2161,6 +2170,7 @@
         report: report,
         context: context,
         widgetStyle: opts.widgetStyle,
+        languageLabels: opts.languageLabels,
       });
     });
 
@@ -2175,7 +2185,7 @@
     }
     if (booleanKind) {
       ['Yes', 'No'].concat(booleanKind.indexOf('maybe') !== -1 ? ["I don’t know"] : []).forEach(function (label) {
-        html += '<button type="button" class="btn btn-primary btn-da">' + esc(label) + '</button> ';
+        html += '<button type="button" class="btn btn-primary btn-da">' + esc((opts.languageLabels && opts.languageLabels[label]) || label) + '</button> ';
       });
     } else if (Object.prototype.hasOwnProperty.call(block, 'buttons')) {
       if (Array.isArray(block.buttons)) block.buttons.forEach(function (item) {
