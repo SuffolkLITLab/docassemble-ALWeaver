@@ -21,6 +21,11 @@ jobs:
         with:
           SHOW_DOCKER_OUTPUT: "${{ github.event.inputs.show_docker_output }}"
           DOCASSEMBLECLI_VERSION: "0.0.25"
+          # Source editing loads the variable browser, whose report scans run
+          # in Weaver's worker. Exercise those requests against a real worker.
+          CONFIG_CONTENTS: |
+            celery modules:
+              - docassemble.ALWeaver.api_weaver_worker
       - name: Mask temporary server credentials
         env:
           ADMIN_EMAIL: "${{ steps.github_server.outputs.DA_ADMIN_EMAIL }}"
