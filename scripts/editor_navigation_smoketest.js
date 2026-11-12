@@ -88,11 +88,9 @@ async function main() {
   }
   async function audit(label) {
     const result = await new AxeBuilder({ page })
-      .withTags(['wcag2a', 'wcag2aa'])
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
       .analyze();
-    const blocking = result.violations.filter((v) =>
-      ['serious', 'critical'].includes(v.impact),
-    );
+    const blocking = result.violations;
     assert.deepEqual(
       blocking.map((v) => ({
         id: v.id,
@@ -101,7 +99,7 @@ async function main() {
       [],
       label,
     );
-    results.push(`${label}: zero serious/critical accessibility violations`);
+    results.push(`${label}: zero WCAG 2.1 A/AA accessibility violations`);
   }
   async function load(url) {
     await page.goto(url, { waitUntil: 'networkidle' });

@@ -14547,8 +14547,8 @@
         state.validationErrors.indexOf(err) +
         '" data-source-filename="' +
         esc(String(err.filename || state.validationFilename || '')) +
-        '" aria-label="' +
-        esc(findingLabel + String(err.message || 'Unknown issue')) +
+        '" title="' +
+        esc(findingLabel) +
         '">';
       html +=
         '<i class="fa-solid ' +
@@ -19739,7 +19739,7 @@
       esc(branch || 'then') +
       '" data-insert-index="' +
       index +
-      '" title="Insert here" aria-label="Insert a step here">';
+      '" title="Insert here" aria-label="Insert here: add a step">';
     html += '<span>Insert here</span>';
     html += '</button>';
     html += '</div>';

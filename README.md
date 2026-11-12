@@ -330,3 +330,32 @@ running a readiness check alone.
 This integration targets [issue #1209](https://github.com/SuffolkLITLab/docassemble-ALWeaver/issues/1209).
 The integration uses DAYamlChecker 1.9.0, which includes readiness and the
 AI second-opinion report.
+
+### Editor accessibility coverage
+
+The `Editor accessibility tests` workflow builds an isolated Docassemble server
+with Weaver's Celery module enabled. It uses fixture projects and runs each
+browser suite independently, so a navigation failure does not skip the remaining
+audits. HTTP failures retain their URLs in the navigation artifact.
+
+| Suite | Coverage |
+| --- | --- |
+| `.github/scripts/editor_a11y.js` | Interview and all file editors; populated order builder; tests overview; translation controls and validation; readiness and GitHub setup dialogs; repository report selection; project search; validation findings; question/field/options authoring; YAML search, block actions and full screen; settings; previews; insertion and unsaved-change dialogs; compact and phone menus. |
+| `scripts/editor_navigation_smoketest.js` | Project switching, unsaved-change protection, five editor sections, responsive menus, 200% text, breadcrumb hover/focus, and project lists. |
+| `scripts/editor_markdown_smoketest.js` | Actual Docassemble CodeMirror bundle; editing, keyboard behavior, accessible names, required fields, Mako expressions, light/dark contrast and fallback controls. |
+| `scripts/editor_variable_browser_smoketest.js` | Populated variable catalog, pagination and keyboard fallback, filters, status groups, insertion, and axe audit. |
+| `scripts/editor_source_workbench_smoketest.js` | Tools-menu keyboard behavior and focus, variable declaration links, changes/undo, example picker, insertion, full screen, and narrow layout audits. |
+| `scripts/editor_help_templates_smoketest.js` | Help picker, graphical shared-template editing, variants, nested help, and rendered disclosure controls in an interview. |
+
+The page, navigation, workbench and help/template audits fail on every axe finding
+tagged WCAG 2.0 or 2.1 A/AA, regardless of severity. Markdown and variable-browser
+audits also check axe's best-practice rules. Hidden controls are tested by opening
+their UI; inspecting HTML alone does not replace these browser checks.
+
+Coverage is still incomplete: AI-generated result/review states, runtime debugger
+sessions, attachment mapping and document setup, completed report output,
+authenticated shared-Playground interactions, and external publishing outcomes
+need dedicated accessibility scenarios. Keyboard tests cover selected workflows,
+not every action. Manual screen-reader testing, reading order, meaningful content,
+and WCAG 2.2 criteria remain separate work; a passing workflow is not a complete
+accessibility conformance claim.
