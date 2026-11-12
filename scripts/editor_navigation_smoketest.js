@@ -21,6 +21,7 @@ const userParams = process.env.EDITOR_USER_ID
   : {};
 const projects = [];
 const errors = [];
+const failedResponses = [];
 const results = [];
 let completed = false;
 const prefix = `NavRegression${Date.now()}`;
@@ -67,7 +68,20 @@ async function main() {
   const page = await context.newPage();
   page.on('pageerror', (error) => errors.push(String(error)));
   page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(message.text());
+    if (message.type() === 'error')
+      errors.push({ message: message.text(), location: message.location() });
+  });
+  page.on('response', (response) => {
+    if (response.status() >= 400) {
+      const failure = {
+        status: response.status(),
+        url: response.url(),
+        method: response.request().method(),
+        resourceType: response.request().resourceType(),
+      };
+      failedResponses.push(failure);
+      console.error('HTTP response failure:', JSON.stringify(failure));
+    }
   });
   async function screenshot(name) {
     await page.screenshot({ path: path.join(output, `${name}.png`) });
@@ -394,7 +408,10 @@ async function main() {
     await expect(page.locator('#canvas-content')).toContainText(
       'No projects matched your search.',
     );
-    assert.deepEqual(errors, []);
+    assert.deepEqual(
+      { errors, failedResponses },
+      { errors: [], failedResponses: [] },
+    );
     completed = true;
     results.push(
       'PASS project switching, unsaved changes, search, sidebar collapse, all five sections, desktop/tablet/phone menus, 200% text, unique small/large project lists, Default project protection',
@@ -416,7 +433,11 @@ async function main() {
     await browser.close();
     fs.writeFileSync(
       path.join(output, 'results.json'),
-      JSON.stringify({ server, passed: completed, results, errors }, null, 2),
+      JSON.stringify(
+        { server, passed: completed, results, errors, failedResponses },
+        null,
+        2,
+      ),
     );
   }
   console.log(results.join('\n'));

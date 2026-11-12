@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "docassemble.ALWeaver"
-version = "2.4.0"
+version = "2.5.0"
 description = "Quickly turn a PDF or Word form into a draft Docassemble interview."
 readme = "README.md"
 authors = [
@@ -169,3 +169,7 @@ dev = [
     "docassemblecli",
     "pip",
 ]
+
+[[tool.mypy.overrides]]
+module = "docassemble.ALDashboard.api_dashboard_utils"
+ignore_missing_imports = true

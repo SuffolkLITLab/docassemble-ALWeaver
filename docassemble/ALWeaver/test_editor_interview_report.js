@@ -505,3 +505,14 @@ console.log('editor_interview_report.js: all assertions passed');
     defines: ['needs_fee_waiver']};
   assert.strictEqual(report.findBlock('needs_fee_waiver', report.buildBlockMap([code, question])), question);
 }
+
+// Requested report language and supplied Docassemble labels reach screen rendering.
+{
+  const block = {id: 'agree', defines: ['agree'], data: {question: '¿Está de acuerdo?', yesno: 'agree'}};
+  const html = report.buildReport([{kind: 'screen', invoke: 'agree'}], [block], {language: 'es', languageLabels: {Yes: 'Sí', No: 'No'}, backButtonLabel: 'Deshacer'});
+  assert.ok(html.includes('lang="es"'));
+  assert.ok(html.includes('>Sí</button>'));
+  assert.ok(html.includes('Deshacer'));
+  const rtl = report.buildReport([], [], {language: 'ar'});
+  assert.ok(rtl.includes('dir="rtl"'));
+}

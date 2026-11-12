@@ -4408,7 +4408,10 @@
     return apiClient
       .post(path, body, options)
       .then(function (response) {
-        if (path.indexOf('/api/reports/') === 0) {
+        if (
+          path.indexOf('/api/reports/') === 0 ||
+          path === '/api/translations/generate'
+        ) {
           return window.ALWeaverApiClient.waitForJob(response, {
             get: function (url) {
               return runtimeApiClient.get(url, { timeoutMs: 30 * 60 * 1000 });
@@ -16477,6 +16480,7 @@
         return runtimeApiClient.post(path, body, options);
       },
       prepareSaved: promptAndSaveUnsavedChanges,
+      previewFlow: openInterviewFlowReport,
       previewOptions: function (blocks) {
         var resolved = _screenPreviewContext(blocks);
         return {
@@ -16517,7 +16521,9 @@
     };
   }
 
-  function openInterviewFlowReport() {
+  function openInterviewFlowReport(reportLanguage) {
+    reportLanguage =
+      typeof reportLanguage === 'string' ? reportLanguage.trim() : '';
     if (typeof ALWeaverInterviewReport === 'undefined') {
       window.alert(
         'Flow report module not loaded. Please refresh the editor and try again.',
@@ -16549,6 +16555,7 @@
           project: state.project,
           filename: state.filename,
           whole_interview: true,
+          language: reportLanguage,
         });
       })
       .then(async function (response) {
@@ -16572,6 +16579,7 @@
           ? collected.filename.replace(/\.ya?ml$/, '')
           : '';
         var html = await ALWeaverReports.buildFlowReport(steps, blocks, {
+          language: collected.language || 'en',
           assets: resolved.assets,
           widgetStyle: BOOT.previewWidgetStyle,
           extraCss: resolved.extraCss,
@@ -16579,8 +16587,19 @@
           // Draw the screens the way the preview modal is currently drawing
           // them, falling back to whatever the interview itself declares.
           labelLayout: _screenPreviewLabelLayout || resolved.declaredLayout,
-          continueLabel: resolved.continueLabel,
-          backButtonLabel: _screenPreviewBackLabel || resolved.backLabel,
+          languageLabels: collected.language_labels,
+          translations: collected.translations,
+          continueLabel: collected.language_labels
+            ? collected.language_labels[resolved.continueLabel || 'Continue'] ||
+              resolved.continueLabel
+            : resolved.continueLabel,
+          backButtonLabel: collected.language_labels
+            ? collected.language_labels[
+                _screenPreviewBackLabel || resolved.backLabel || 'Undo'
+              ] ||
+              _screenPreviewBackLabel ||
+              resolved.backLabel
+            : _screenPreviewBackLabel || resolved.backLabel,
           interview:
             typeof ALWeaverScreenPreview !== 'undefined'
               ? ALWeaverScreenPreview.buildInterviewContext(blocks)
@@ -16590,6 +16609,7 @@
             'Interview flow report',
           subtitle:
             collected.filename +
+            (collected.language ? ' · Language: ' + collected.language : '') +
             (collected.warnings.length
               ? ' · ' + collected.warnings.join(' ')
               : ''),
@@ -26109,6 +26129,10 @@
     }
     if (uiAction === 'open-variable-report') {
       window.ALWeaverReports.openVariables(reportBridge());
+      return;
+    }
+    if (uiAction === 'open-translations') {
+      ALWeaverTranslations.open(reportBridge());
       return;
     }
     if (uiAction === 'open-interview-flow-report') {

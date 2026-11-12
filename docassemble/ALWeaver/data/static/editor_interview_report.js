@@ -1456,10 +1456,11 @@
       sectionLabels: sectionLabels(blocks),
       previewOpts: {
         widgetStyle:        opts.widgetStyle,
+        languageLabels: opts.languageLabels,
         labelLayout:         opts.labelLayout,
         backButtonLabel:     opts.backButtonLabel,
         continueButtonLabel: opts.continueLabel,
-        interview:           opts.interview,
+        interview:           Object.assign({}, opts.interview || {}, {translations: Object.assign({}, opts.languageLabels, opts.translations)}),
         notes:               [],
       },
       screenCount: 0,
@@ -1568,7 +1569,7 @@
     body += '</div>\n';
 
     return '<!DOCTYPE html>\n' +
-      '<html lang="en" data-bs-theme="' + theme + '">\n' +
+      '<html lang="' + esc(opts.language || 'en') + '" dir="' + (/^(ar|he|fa|ur)(-|$)/.test(opts.language || '') ? 'rtl' : 'ltr') + '" data-bs-theme="' + theme + '">\n' +
       '<head>\n' + head + '</head>\n' +
       '<body class="dabody">\n' + body + scripts + '</body>\n' +
       '</html>\n';

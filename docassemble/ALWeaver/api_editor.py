@@ -5790,7 +5790,161 @@ def _scan_report_result(uid: int, body: Dict[str, Any]) -> Dict[str, Any]:
         + str(uid)
         + (project if project != "default" else ""),
     )
+    if body.get("language"):
+        from .editor_translations import localize_report
+
+        result = localize_report(
+            result, playground_yaml_filename(uid, project, filename), body["language"]
+        )
     return result
+
+
+def _translation_result(uid: int, body: Dict[str, Any]) -> Dict[str, Any]:
+    from .editor_translations import dashboard_translation, language_code
+    from io import BytesIO
+    from zipfile import ZipFile, ZIP_DEFLATED
+
+    project = _normalize_project(body.get("project"))
+    filename = _normalize_filename(body.get("filename"))
+    playground_read_yaml(uid, project, filename)
+    result = dashboard_translation(
+        playground_yaml_filename(uid, project, filename),
+        body.get("tr_langs", body.get("language")),
+        body.get("use_gpt") is True,
+    )
+    if len(result["translations"]) > 1:
+        # One browser download avoids multiple-download permission prompts.
+        archive = BytesIO()
+        stem = os.path.splitext(filename)[0]
+        with ZipFile(archive, "w", ZIP_DEFLATED) as bundle:
+            for item in result["translations"]:
+                name = stem + "_" + language_code(item["language"]) + ".xlsx"
+                bundle.writestr(
+                    name, base64.b64decode(item["xlsx_base64"], validate=True)
+                )
+        result["archive_base64"] = base64.b64encode(archive.getvalue()).decode("ascii")
+        result["archive_filename"] = stem + "_translations.zip"
+        # Keep per-language statistics, without duplicating the archive bytes.
+        for item in result["translations"]:
+            item.pop("xlsx_base64", None)
+    return result
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/translations/scope", methods=["POST"])
+def editor_api_translation_scope() -> Response:
+    """Name the interview root before generating or connecting translations."""
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        body = request.get_json(silent=True) or {}
+        project = _normalize_project(body.get("project"))
+        current = _normalize_filename(body.get("filename"))
+        uid = _current_user_id()
+        filename = _report_entrypoint(uid, project, current)
+        source = playground_read_yaml(uid, project, filename)
+        return jsonify(
+            {
+                "success": True,
+                "data": {
+                    "project": project,
+                    "filename": filename,
+                    "expected_revision": source_revision(source),
+                },
+            }
+        )
+    except (ValueError, OSError) as exc:
+        return jsonify_with_status(
+            {"success": False, "error": {"message": str(exc)}}, 400
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/translations/generate", methods=["POST"])
+def editor_api_translation_generate() -> Response:
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        from .editor_translations import language_codes
+
+        body = request.get_json(silent=True) or {}
+        payload = {
+            "project": _normalize_project(body.get("project")),
+            "filename": _normalize_filename(body.get("filename")),
+            "tr_langs": language_codes(
+                body.get("tr_langs", body.get("languages", body.get("language")))
+            ),
+            "use_gpt": body.get("use_gpt") is True,
+        }
+        playground_read_yaml(
+            _current_user_id(), payload["project"], payload["filename"]
+        )
+        return _queue_report_job(_current_user_id(), "translation", payload, request_id)
+    except (ValueError, OSError) as exc:
+        return jsonify_with_status(
+            {"success": False, "error": {"message": str(exc)}}, 400
+        )
+
+
+@app.route(f"{EDITOR_BASE_PATH}/api/translations/import", methods=["POST"])
+def editor_api_translation_import() -> Response:
+    request_id = str(uuid.uuid4())
+    if not _editor_auth_check():
+        return _auth_fail(request_id)
+    try:
+        from .editor_translations import add_translation_reference, validate_workbook
+
+        body = request.get_json(silent=True) or {}
+        project = _normalize_project(body.get("project"))
+        filename = _normalize_filename(body.get("filename"))
+        uid = _current_user_id()
+        source = playground_read_yaml(uid, project, filename)
+        if not body.get("expected_revision"):
+            raise ValueError("Reload the interview before importing a translation.")
+        conflict = _check_expected_source_revision(body, source, request_id)
+        if conflict is not None:
+            return conflict
+        encoded = body.get("content")
+        if not isinstance(encoded, str) or len(encoded) > 28 * 1024 * 1024:
+            raise ValueError("Choose an XLSX translation workbook smaller than 20 MB.")
+        content = base64.b64decode(encoded, validate=True)
+        validation = validate_workbook(encoded, "translation.xlsx")
+        # Never overwrite an existing workbook. The new reference and old files
+        # remain recoverable even when two authors import concurrently.
+        saved_name = "translation_" + uuid.uuid4().hex + ".xlsx"
+        area, directory = _editor_storage_directory(
+            uid, project, EDITOR_SECTION_TO_STORAGE["data"]
+        )
+        path = os.path.join(directory, saved_name)
+        with open(path, "xb") as handle:
+            handle.write(content)
+        area.finalize()
+        candidate = add_translation_reference(source, saved_name)
+        conflict = _write_source_content(
+            uid, project, filename, candidate, body, request_id
+        )
+        if conflict is not None:
+            os.remove(path)
+            area.finalize()
+            return conflict
+        return jsonify(
+            {
+                "success": True,
+                "data": {
+                    "filename": saved_name,
+                    "revision": source_revision(candidate),
+                    "validation": validation,
+                },
+            }
+        )
+    except ALDashboardUnavailable as exc:
+        return jsonify_with_status(
+            {"success": False, "error": {"message": str(exc)}}, 503
+        )
+    except (ValueError, OSError) as exc:
+        return jsonify_with_status(
+            {"success": False, "error": {"message": str(exc)}}, 400
+        )
 
 
 @app.route(f"{EDITOR_BASE_PATH}/api/reports/scan", methods=["POST"])
@@ -12134,7 +12288,9 @@ def _complete_report_job_locked(job_id: str, uid: int) -> None:
         payload = json.loads(raw)
         _update_job_state(REPORT_JOB, job_id, status="running", started_at=time.time())
         operation = state["operation"]
-        if operation == "scan":
+        if operation == "translation":
+            result = _translation_result(uid, payload)
+        elif operation == "scan":
             result = _scan_report_result(uid, payload)
         elif operation == "archive":
             result = _archive_report_result(uid, payload)

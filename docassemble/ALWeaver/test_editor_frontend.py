@@ -10,6 +10,7 @@ import unittest
 
 NODE_TESTS = (
     "test_editor_full_screen.js",
+    "test_editor_translations.js",
     "test_editor_source_tools.js",
     "test_editor_field_labeling.js",
     "test_editor_markdown.js",
@@ -63,6 +64,21 @@ class _TemplateCollector(HTMLParser):
 
 
 class TestEditorFrontend(unittest.TestCase):
+    def test_translation_controls_use_dashboard_routes_and_report_bridge(self):
+        template = (self.package_dir / "data/templates/editor.html").read_text()
+        editor = (self.package_dir / "data/static/editor.js").read_text()
+        translations = (
+            self.package_dir / "data/static/editor_translations.js"
+        ).read_text()
+        self.assertIn('data-action="open-translations"', template)
+        self.assertIn("editor_translations.js", template)
+        self.assertIn("ALWeaverTranslations.open(reportBridge())", editor)
+        self.assertIn("/api/translations/generate", translations)
+        self.assertIn("/api/translations/import", translations)
+        self.assertIn("bridge.previewFlow(language)", translations)
+        self.assertIn("/api/translations/scope", translations)
+        self.assertIn("body.expected_revision = data.revision", translations)
+
     def test_source_mode_uses_compact_variable_sidebar_and_tools_menu(self):
         editor = (self.package_dir / "data/static/editor.js").read_text()
         reports = (self.package_dir / "data/static/editor_reports.js").read_text()
