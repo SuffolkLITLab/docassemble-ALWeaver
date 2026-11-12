@@ -1611,6 +1611,17 @@ body {
   margin: 0 auto;
 }
 
+.editor-order-shell .btn-outline-secondary {
+  --bs-btn-color: #5c636a;
+  --bs-btn-border-color: #5c636a;
+  --bs-btn-hover-bg: #5c636a;
+  --bs-btn-hover-border-color: #5c636a;
+}
+
+.editor-order-block-switcher .btn-primary .editor-inline-meta {
+  opacity: 1;
+}
+
 .editor-order-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

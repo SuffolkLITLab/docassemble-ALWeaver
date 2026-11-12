@@ -169,6 +169,14 @@ const source =
       name: 'Insert answer_name',
       exact: true,
     });
+    // The immediate symbol catalog has no source locations. Wait for the
+    // background scan before testing navigation to a declaration.
+    await rail
+      .locator('.variable-browser-row:not([data-symbol-status="provided"])')
+      .filter({
+        has: page.getByRole('button', { name: 'Insert answer_name', exact: true }),
+      })
+      .waitFor();
     await insertName.hover();
     assert.equal(
       await insertName.evaluate(
@@ -286,12 +294,10 @@ const source =
     await page.screenshot({ path: output + '/recipe-tree.png' });
     const recipeAxe = await new AxeBuilder({ page })
       .include('.editor-source-workbench-dialog')
-      .withTags(['wcag2a', 'wcag2aa'])
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
       .analyze();
     assert.deepEqual(
-      recipeAxe.violations
-        .filter((item) => ['critical', 'serious'].includes(item.impact))
-        .map((item) => item.id),
+      recipeAxe.violations.map((item) => item.id),
       [],
     );
     await recipeDialog
@@ -474,13 +480,11 @@ const source =
     await page.screenshot({ path: output + '/narrow-source.png' });
     assert.equal(await rail.isVisible(), true);
     const axe = await new AxeBuilder({ page })
-      .withTags(['wcag2a', 'wcag2aa'])
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
       .analyze();
-    const severe = axe.violations.filter((item) =>
-      ['critical', 'serious'].includes(item.impact),
-    );
+    const violations = axe.violations;
     assert.deepEqual(
-      severe.map((item) => ({
+      violations.map((item) => ({
         id: item.id,
         targets: item.nodes.map((node) => node.target),
       })),

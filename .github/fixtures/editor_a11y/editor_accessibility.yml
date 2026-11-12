@@ -3,6 +3,12 @@ metadata:
   short title: Accessibility fixture
   description: A small interview used to exercise the Weaver editor in CI.
 ---
+id: interview_order
+mandatory: True
+code: |
+  editor_fixture_name
+  editor_fixture_color
+---
 code: |
   editor_fixture_value = "ready"
 ---

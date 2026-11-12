@@ -9,7 +9,6 @@ if (!serverUrl || !email || !password) {
   throw new Error("SERVER_URL, EDITOR_EMAIL, and EDITOR_PASSWORD are required");
 }
 
-const blockingImpacts = new Set(["critical", "serious"]);
 const pageErrors = [];
 
 async function signInIfNeeded(page) {
@@ -32,12 +31,14 @@ async function signInIfNeeded(page) {
 }
 
 async function audit(page, label, include) {
-  let builder = new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]);
+  const apiError = page.locator("#editor-api-error");
+  if (await apiError.isVisible()) {
+    throw new Error(`${label}: unexpected API error: ${await apiError.innerText()}`);
+  }
+  let builder = new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]);
   if (include) builder = builder.include(include);
   const result = await builder.analyze();
-  const blocking = result.violations.filter((violation) =>
-    blockingImpacts.has(violation.impact)
-  );
+  const blocking = result.violations;
 
   console.log(
     `${label}: ${result.violations.length} total violation(s), ` +
@@ -52,6 +53,7 @@ async function audit(page, label, include) {
         helpUrl: violation.helpUrl,
         targets: violation.nodes.map((node) => node.target),
         details: violation.nodes.map((node) => node.failureSummary),
+        html: violation.nodes.map((node) => node.html),
       })
     );
   }
@@ -154,6 +156,9 @@ async function main() {
   let blockingViolations = [];
   try {
     await signInIfNeeded(page);
+    if (process.env.STORAGE_STATE_OUTPUT) {
+      await context.storageState({ path: process.env.STORAGE_STATE_OUTPUT });
+    }
     await page.locator("#editor-app").waitFor({ state: "visible", timeout: 30_000 });
 
     // Open a real Playground interview and its file-backed editing areas.
@@ -194,6 +199,17 @@ async function main() {
     await page.locator('.editor-top-tab[data-view="interview"]').click();
     await page.locator("#outline-list .editor-outline-item").first().waitFor();
 
+    // Use a populated order builder, then the tests overview's empty state.
+    const orderMenu = await openInterviewMenu(page);
+    await orderMenu.locator('[data-action="open-interview-order"]').click();
+    await page.locator(".editor-order-step").first().waitFor();
+    blockingViolations = blockingViolations.concat(await audit(page, "interview order builder"));
+    const testsMenu = await openInterviewMenu(page);
+    await testsMenu.locator('[data-action="open-tests-overview"]').click();
+    await page.getByRole("heading", { name: "No tests yet", exact: true }).waitFor();
+    blockingViolations = blockingViolations.concat(await audit(page, "tests overview"));
+    await page.locator(".editor-outline-item").filter({ hasText: "What is your name?" }).first().click();
+
     // Exercise the translation controls without requiring an AI provider or
     // generating workbooks. Check both the initial and validation states.
     const translationMenu = await openInterviewMenu(page);
@@ -218,6 +234,28 @@ async function main() {
     );
     await page.keyboard.press("Escape");
     await translations.waitFor({ state: "hidden" });
+
+    // Configuration dialogs must be usable before any external AI or GitHub
+    // action runs. Opening and closing them performs no publishing or AI work.
+    for (const [action, selector, label] of [
+      ["open-readiness-check", "#readiness-modal", "readiness check dialog"],
+      ["open-github-publish", "#github-publish-modal", "GitHub publishing dialog"],
+    ]) {
+      const menu = await openInterviewMenu(page);
+      await menu.locator(`[data-action="${action}"]`).click();
+      await page.locator(selector).waitFor({ state: "visible" });
+      await page.waitForTimeout(350);
+      blockingViolations = blockingViolations.concat(await audit(page, label));
+      await closeModal(page, selector);
+    }
+
+    const reportsMenu = await openInterviewMenu(page);
+    await reportsMenu.locator('[data-action="open-repository-reports"]').click();
+    const reports = page.getByRole("dialog", { name: "Repository flow reports", exact: true });
+    await reports.getByRole("button", { name: "Download selected reports (ZIP)", exact: true }).waitFor();
+    blockingViolations = blockingViolations.concat(await audit(page, "repository flow report choices"));
+    await page.keyboard.press("Escape");
+    await reports.waitFor({ state: "hidden" });
 
     // Project selector and the new-project editing form.
     blockingViolations = blockingViolations.concat(

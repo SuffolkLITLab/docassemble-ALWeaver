@@ -130,13 +130,11 @@ async function main() {
   async function audit(label) {
     await page.mouse.move(0, 0);
     const auditResult = await new AxeBuilder({ page })
-      .withTags(['wcag2a', 'wcag2aa'])
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
       .analyze();
-    const serious = auditResult.violations.filter((violation) =>
-      ['serious', 'critical'].includes(violation.impact),
-    );
+    const violations = auditResult.violations;
     assert.deepEqual(
-      serious.map((violation) => ({
+      violations.map((violation) => ({
         id: violation.id,
         nodes: violation.nodes.map((node) => ({
           target: node.target,
@@ -146,7 +144,7 @@ async function main() {
       [],
       label,
     );
-    pass(`${label}: no serious or critical accessibility violations`);
+    pass(`${label}: no WCAG 2.1 A/AA accessibility violations`);
   }
   try {
     await page.goto(`${server}/al/editor`);
@@ -277,7 +275,7 @@ async function main() {
     await page.goto(`${fileUrl}/blocks/${encodeURIComponent(shared.id)}`);
     await expect(page.locator('#template-name')).toHaveValue('address_help');
     await page
-      .locator('#template-content')
+      .getByRole('textbox', { name: 'Content', exact: true })
       .fill(
         'Updated **shared help**.\n\n- Café\n- Second item\n\nThe computed value is ${ 2 + 2 }.\n\n',
       );
@@ -399,7 +397,7 @@ async function main() {
       'Plain help without a subject.\n',
     );
     await page
-      .locator('#template-content')
+      .getByRole('textbox', { name: 'Content', exact: true })
       .fill('Edited plain help with pending changes.');
     await page
       .getByRole('button', { name: 'Add subject', exact: true })
@@ -407,7 +405,7 @@ async function main() {
     await expect(page.locator('#template-content')).toHaveValue(
       'Edited plain help with pending changes.',
     );
-    await page.locator('#template-subject').fill('Extra details');
+    await page.getByRole('textbox', { name: 'Subject (disclosure label)', exact: true }).fill('Extra details');
     await save();
     model = await getFile();
     assert.ok(model.raw_yaml.includes('# Preserve this author comment.'));
@@ -427,8 +425,8 @@ async function main() {
     await expect(page.locator('#insert-modal')).toBeHidden();
     await expect(page.locator('#template-name')).toHaveValue(/^help_text_/);
     await page.locator('#template-name').fill('standalone_help');
-    await page.locator('#template-subject').fill('Standalone details');
-    await page.locator('#template-content').fill('Nested introduction.');
+    await page.getByRole('textbox', { name: 'Subject (disclosure label)', exact: true }).fill('Standalone details');
+    await page.getByRole('textbox', { name: 'Content', exact: true }).fill('Nested introduction.');
     await save();
     await openInsertion('template-content');
     const choices = await page

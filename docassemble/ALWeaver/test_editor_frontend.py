@@ -241,6 +241,9 @@ class TestEditorFrontend(unittest.TestCase):
         css = (self.package_dir / "data/static/editor.css").read_text()
         self.assertIn('<li><button type="button" class="editor-validation-item', source)
         self.assertIn("Open full file YAML: ", source)
+        # The visible message, file/line and variable form the native button
+        # name; an overriding aria-label can omit or reorder that content.
+        self.assertIn("esc(findingLabel)", source)
         self.assertIn("data-source-filename=", source)
         self.assertIn("target.closest('.editor-validation-item')", source)
         self.assertIn("sourceFilename !== state.filename", source)
@@ -694,6 +697,12 @@ class TestEditorFrontend(unittest.TestCase):
     def test_project_menu_shortcuts_and_unloaded_controls(self):
         template = (self.package_dir / "data/templates/editor.html").read_text()
         css = (self.package_dir / "data/static/editor.css").read_text()
+        # Speech input must be able to target the visible current project.
+        self.assertIn(
+            'aria-labelledby="editor-project-switch-label topbar-project-name"',
+            template,
+        )
+        self.assertIn('id="editor-project-switch-label"', template)
         self.assertIn('id="editor-app" class="editor-no-project"', template)
         for control in (
             ".editor-section-switcher",

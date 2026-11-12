@@ -110,4 +110,40 @@ jobs:
           EDITOR_EMAIL: "${{ steps.github_server.outputs.DA_ADMIN_EMAIL }}"
           EDITOR_PASSWORD: "${{ steps.github_server.outputs.DA_ADMIN_PASSWORD }}"
           NODE_PATH: /tmp/alweaver-a11y/node_modules
+          STORAGE_STATE_OUTPUT: /tmp/alweaver-a11y/storage.json
         run: node .github/scripts/editor_a11y.js
+      - name: Check variable browser accessibility and keyboard pagination
+        if: ${{ !cancelled() && steps.install_a11y.outcome == 'success' && steps.seed_a11y.outcome == 'success' }}
+        env:
+          SERVER_URL: "${{ steps.github_server.outputs.SERVER_URL }}"
+          NODE_PATH: /tmp/alweaver-a11y/node_modules
+          STORAGE_STATE: /tmp/alweaver-a11y/storage.json
+        run: node scripts/editor_variable_browser_smoketest.js
+      - name: Check source workbench accessibility and keyboard workflows
+        if: ${{ !cancelled() && steps.install_a11y.outcome == 'success' && steps.seed_a11y.outcome == 'success' }}
+        env:
+          SERVER_URL: "${{ steps.github_server.outputs.SERVER_URL }}"
+          NODE_PATH: /tmp/alweaver-a11y/node_modules
+          STORAGE_STATE: /tmp/alweaver-a11y/storage.json
+          SCREENSHOT_DIR: /tmp/alweaver-source-workbench
+        run: node scripts/editor_source_workbench_smoketest.js
+      - name: Check help insertion and template authoring accessibility
+        if: ${{ !cancelled() && steps.install_a11y.outcome == 'success' && steps.seed_a11y.outcome == 'success' }}
+        env:
+          SERVER_URL: "${{ steps.github_server.outputs.SERVER_URL }}"
+          EDITOR_EMAIL: "${{ steps.github_server.outputs.DA_ADMIN_EMAIL }}"
+          EDITOR_PASSWORD: "${{ steps.github_server.outputs.DA_ADMIN_PASSWORD }}"
+          ADMIN_API_KEY: "${{ steps.github_server.outputs.DOCASSEMBLE_DEVELOPER_API_KEY }}"
+          NODE_PATH: /tmp/alweaver-a11y/node_modules
+          SCREENSHOT_DIR: /tmp/alweaver-help-templates
+        run: node scripts/editor_help_templates_smoketest.js
+      - name: Upload authoring workflow screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: editor-authoring-screenshots
+          path: |
+            /tmp/alweaver-source-workbench
+            /tmp/alweaver-help-templates
+            /tmp/weaver-variable-groups*.png
+          if-no-files-found: ignore
