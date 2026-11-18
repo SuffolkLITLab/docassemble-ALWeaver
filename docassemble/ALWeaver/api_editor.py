@@ -5538,7 +5538,26 @@ def _wording_report_result(
         for screen in workbook_screens(sources, context):
             if screen["id"] not in previews:
                 raise ValueError("A screen preview is missing. Export again.")
-        content = export_workbook(sources, previews, context)
+        if body.get("translation_language"):
+            from .editor_translations import (
+                dashboard_translation,
+                contextual_workbook,
+                language_code,
+            )
+
+            language = language_code(body["translation_language"])
+            generated = dashboard_translation(
+                playground_yaml_filename(uid, project, filename),
+                [language],
+                body.get("use_gpt") is True,
+            )
+            content = contextual_workbook(
+                base64.b64decode(generated["translations"][0]["xlsx_base64"]),
+                workbook_screens(sources, context),
+                previews,
+            )
+        else:
+            content = export_workbook(sources, previews, context)
         result = {"content": base64.b64encode(content).decode()}
     else:
         if body.get("upload_id"):
@@ -5904,10 +5923,22 @@ def editor_api_translation_import() -> Response:
         conflict = _check_expected_source_revision(body, source, request_id)
         if conflict is not None:
             return conflict
-        encoded = body.get("content")
-        if not isinstance(encoded, str) or len(encoded) > 28 * 1024 * 1024:
-            raise ValueError("Choose an XLSX translation workbook smaller than 20 MB.")
-        content = base64.b64decode(encoded, validate=True)
+        if body.get("upload_id"):
+            parts = _report_upload_parts(
+                uid, body["upload_id"], "workbook", body.get("manifest")
+            )
+            content = b"".join(parts[str(i)] for i in range(len(parts)))
+        else:
+            encoded = body.get("content")
+            if not isinstance(encoded, str) or len(encoded) > 28 * 1024 * 1024:
+                raise ValueError(
+                    "Choose an XLSX translation workbook smaller than 20 MB."
+                )
+            content = base64.b64decode(encoded, validate=True)
+        from .editor_translations import runtime_workbook
+
+        content = runtime_workbook(content)
+        encoded = base64.b64encode(content).decode("ascii")
         validation = validate_workbook(encoded, "translation.xlsx")
         # Never overwrite an existing workbook. The new reference and old files
         # remain recoverable even when two authors import concurrently.

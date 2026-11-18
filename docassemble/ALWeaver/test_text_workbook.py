@@ -43,7 +43,7 @@ code: |
 def edit_workbook(raw, edits):
     book = openpyxl.load_workbook(BytesIO(raw))
     for sheet in book:
-        if sheet.title.startswith("Screen "):
+        if sheet.title == "Screens":
             for row in sheet.iter_rows(min_row=4):
                 if row[1].value in edits:
                     row[2].value = edits[row[1].value]
@@ -112,7 +112,7 @@ def test_multiline_blank_and_formula_text():
 def test_missing_rows_and_duplicate_ids_rejected():
     raw = export_workbook({"main.yml": SOURCE}, {})
     book = openpyxl.load_workbook(BytesIO(raw))
-    book["Screen 001"].delete_rows(4)
+    book["Screens"].delete_rows(4)
     out = BytesIO()
     book.save(out)
     with pytest.raises(ValueError, match="removed"):
@@ -141,11 +141,11 @@ def test_png_is_embedded_and_highlighting_survives_export():
         {"main.yml#0": base64.b64encode(image.getvalue()).decode()},
     )
     book = openpyxl.load_workbook(BytesIO(raw), rich_text=True)
-    assert len(book["Screen 001"]._images) == 1
-    assert book["Screen 001"]["C4"].value[1].font.color.rgb == "FF0000FF"
+    assert len(book["Screens"]._images) == 1
+    assert book["Screens"]["C4"].value[1].font.color.rgb == "FF0000FF"
     assert book["_ALWeaver"].sheet_state == "hidden"
-    assert book["Screen 001"]["C4"].protection.locked is False
-    assert book["Screen 001"]["B4"].protection.locked is True
+    assert book["Screens"]["C4"].protection.locked is False
+    assert book["Screens"]["B4"].protection.locked is True
 
 
 def test_duplicate_edited_labels_do_not_overwrite_fields():

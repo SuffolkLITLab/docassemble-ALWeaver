@@ -315,3 +315,37 @@ def test_scope_names_owned_root_and_its_revision_for_import():
         }
         resolve.assert_called_once_with(7, "default", "details.yml")
         read.assert_called_once_with(7, "default", "main.yml")
+
+
+def test_contextual_workbook_flattens_review_into_dashboard_row():
+    from io import BytesIO
+
+    import openpyxl
+    from .editor_translations import contextual_workbook, runtime_workbook
+
+    book = openpyxl.Workbook()
+    book.active.append(
+        "interview question_id index_num hash orig_lang tr_lang orig_text tr_text".split()
+    )
+    book.active.append(["main.yml", "greeting", 0, "hash", "en", "es", "Hello", None])
+    out = BytesIO()
+    book.save(out)
+    review = openpyxl.load_workbook(
+        BytesIO(contextual_workbook(out.getvalue(), [], {}))
+    )
+    assert not review.active["B3"].protection.locked
+    review.active["B3"] = "Hola"
+    edited = BytesIO()
+    review.save(edited)
+    runtime = openpyxl.load_workbook(BytesIO(runtime_workbook(edited.getvalue())))
+    assert runtime.sheetnames == ["Sheet"]
+    assert list(runtime.active.values)[1] == (
+        "main.yml",
+        "greeting",
+        0,
+        "hash",
+        "en",
+        "es",
+        "Hello",
+        "Hola",
+    )

@@ -16,6 +16,10 @@ const context = {
   document: {body: {appendChild() {}}, activeElement: null, createElement(tag) { return tag === 'dialog' ? dialog : {click() { downloads.push(this.download); }}; }}
 };
 vm.runInNewContext(fs.readFileSync(__dirname + '/data/static/editor_translations.js', 'utf8'), context);
+context.ALWeaverReports = {
+  uploadParts: async () => ({chunks: 1, bytes: 10}),
+  releaseUpload: async () => {}
+};
 const api = context.ALWeaverTranslations;
 assert.deepStrictEqual(Array.from(api.languageCodes('es\nfr es')), ['es', 'fr']);
 assert.throws(() => api.languageCodes('es ../fr'));
@@ -32,6 +36,7 @@ assert.throws(() => api.languageCodes('es ../fr'));
     previewFlow: language => { preview = language; },
     apiPost: async (path, body) => {
       if (path.endsWith('/scope')) return {success: true, data: {project: 'default', filename: 'main.yml', expected_revision: 'v1'}};
+      if (path.endsWith("/uploads")) return {success: true, data: {upload_id: "upload"}};
       requests.push({path, body: JSON.parse(JSON.stringify(body))});
       if (path.endsWith('/generate')) return {success: true, data: {archive_base64: btoa('zip bytes'), archive_filename: 'main_translations.zip', translations: [{language: 'es', untranslated_segments: 2}, {language: 'fr', untranslated_segments: 3}]}};
       imports++;
