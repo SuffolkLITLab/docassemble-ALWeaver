@@ -246,3 +246,151 @@ def localize_report(scan, interview_path, language):
             f"{remaining} untranslated segments use their original language. This is a simulated report, not a runtime language verification."
         )
     return result
+
+
+def _preserved_translation(cell):
+    # ALDashboard marks stable values with a gray fill in its exported XLSX.
+    return cell.fill.fgColor.type == "rgb" and cell.fill.fgColor.rgb[-6:] == "D9D9D9"
+
+
+def contextual_workbook(content, screens, previews):
+    """Keep Dashboard's original rows and link each visible edit to one row."""
+    import base64
+    from io import BytesIO
+    from collections import defaultdict
+    import openpyxl
+    from openpyxl.drawing.image import Image
+    from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, OneCellAnchor
+    from openpyxl.drawing.xdr import XDRPositiveSize2D
+    from openpyxl.utils.units import pixels_to_EMU
+    from openpyxl.styles import Alignment, PatternFill, Font, Protection
+
+    book = openpyxl.load_workbook(BytesIO(content), rich_text=True)
+    runtime = book.worksheets[0]
+    sheet = book.create_sheet("Translator review", 0)
+    runtime.sheet_view.tabSelected = False
+    runtime.sheet_state = "hidden"
+    book.active = 0
+    for col, width in zip("ABCD", (52, 52, 65, 12)):
+        sheet.column_dimensions[col].width = width
+    sheet.column_dimensions["D"].hidden = True
+    sheet.append(
+        ["Original wording", "Translation (edit yellow cells)", "Screen preview"]
+    )
+    sheet.freeze_panes = "A2"
+    screen_images = defaultdict(list)
+    for screen in screens:
+        screen_images[screen["data"].get("id")].append(screen["id"])
+    titles = defaultdict(list)
+    for screen in screens:
+        title = screen["data"].get("question")
+        if isinstance(title, str):
+            titles[title].append(screen["id"])
+    groups = defaultdict(list)
+    for row in range(2, runtime.max_row + 1):
+        key = tuple(runtime.cell(row, col).value for col in (1, 2))
+        groups[key].append(row)
+    start = 2
+    for (source, question), rows in groups.items():
+        sheet.merge_cells(start_row=start, start_column=1, end_row=start, end_column=3)
+        title = sheet.cell(start, 1, f"{question} · {source}")
+        title.fill = PatternFill("solid", fgColor="17365D")
+        title.font = Font(bold=True, color="FFFFFF")
+        start += 1
+        ids = screen_images.get(question, [])
+        if len(ids) != 1:
+            ids = list(
+                {
+                    screen_id
+                    for row in rows
+                    for screen_id in titles.get(str(runtime.cell(row, 7).value), [])
+                }
+            )
+        tiles = previews.get(ids[0], []) if len(ids) == 1 else []
+        if not tiles:
+            sheet.cell(start, 3, "No matching screen preview.")
+        image_height = 0
+        for tile in tiles if isinstance(tiles, list) else [tiles]:
+            image = Image(BytesIO(base64.b64decode(tile.split(",")[-1])))
+            scale = min(1, 440 / image.width)
+            image.width *= scale
+            image.height *= scale
+            image.anchor = OneCellAnchor(
+                _from=AnchorMarker(
+                    col=2, row=start - 1, rowOff=pixels_to_EMU(image_height)
+                ),
+                ext=XDRPositiveSize2D(
+                    pixels_to_EMU(image.width), pixels_to_EMU(image.height)
+                ),
+            )
+            sheet.add_image(image)
+            image_height += round(image.height)
+        wording_height = 0
+        for offset, row in enumerate(rows):
+            target = start + offset
+            for col in (1, 2):
+                original = runtime.cell(row, col + 6)
+                cell = sheet.cell(target, col, original.value)
+                cell.alignment = Alignment(wrap_text=True, vertical="top")
+                if col == 2 and not _preserved_translation(original):
+                    cell.protection = Protection(locked=False)
+                    cell.fill = PatternFill("solid", fgColor="FFF2CC")
+            sheet.cell(target, 4, row)
+            sheet.row_dimensions[target].height = min(
+                300, max(50, 16 * (2 + len(str(runtime.cell(row, 7).value)) // 48))
+            )
+            wording_height += int(sheet.row_dimensions[target].height * 4 / 3)
+        start += len(rows) + (max(0, image_height - wording_height) + 19) // 20 + 1
+    sheet.protection.sheet = True
+    out = BytesIO()
+    book.save(out)
+    return out.getvalue()
+
+
+def runtime_workbook(content):
+    """Flatten reviewed translations before running Dashboard validation."""
+    from io import BytesIO
+    import openpyxl
+
+    from zipfile import BadZipFile
+
+    try:
+        book = openpyxl.load_workbook(BytesIO(content), read_only=True)
+    except (BadZipFile, KeyError, OSError, ValueError) as exc:
+        raise ValueError("Choose a readable XLSX translation workbook.") from exc
+    enhanced = "Translator review" in book.sheetnames
+    book.close()
+    if not enhanced:
+        return content
+    book = openpyxl.load_workbook(BytesIO(content))
+    review = book["Translator review"]
+    del book["Translator review"]
+    runtime = book.worksheets[0]
+    runtime.sheet_state = "visible"
+    seen = set()
+    last_row = runtime.max_row
+    for source, translation, _, identity in review.iter_rows(min_row=2, max_col=4):
+        row = identity.value
+        if row is None:
+            continue
+        if (
+            type(row) is not int
+            or not 2 <= row <= last_row
+            or row in seen
+            or source.value != runtime.cell(row, 7).value
+        ):
+            raise ValueError("Invalid translation row identity or changed source text.")
+        seen.add(row)
+        cell = runtime.cell(row, 8)
+        if translation.data_type == "f" or (
+            _preserved_translation(cell) and cell.value != translation.value
+        ):
+            raise ValueError("Invalid formula or change to protected translation.")
+        cell.value = translation.value
+        if isinstance(cell.value, str):
+            cell.data_type = "s"
+    if len(seen) != runtime.max_row - 1:
+        raise ValueError("Translation rows are missing.")
+    out = BytesIO()
+    book.save(out)
+    return out.getvalue()

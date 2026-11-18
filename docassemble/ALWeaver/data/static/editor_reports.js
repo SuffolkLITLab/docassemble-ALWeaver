@@ -509,16 +509,17 @@
     }
     return {chunks: index, bytes: blob.size};
   }
-  async function exportWording(options) {
+  async function exportWording(options, translation) {
     if (!await options.prepareSaved('export the wording workbook')) return;
     var state = options.getState();
     var payload = {project: state.project, filename: state.filename};
-    var dialog = reportDialog('Export wording workbook');
+    var dialog = reportDialog(translation ? 'Export translation workbook' : 'Export wording workbook');
     var status = document.createElement('p');
     status.setAttribute('role', 'status');
     status.textContent = 'Reading the interview…';
     dialog.appendChild(status);
     try {
+      if (translation) Object.assign(payload, translation);
       var prepared = checked(await options.apiPost('/api/reports/wording/prepare', payload));
       if (prepared.warnings.length) {
         var warning = document.createElement('p');
@@ -545,9 +546,9 @@
       status.textContent = 'Building the workbook…';
       var exported = checked(await options.apiPost('/api/reports/wording/export', Object.assign({}, payload,
         {revisions: prepared.revisions, upload_id: transfer.upload_id, manifest: manifest})));
-      download(exported.content, payload.filename.replace(/\.ya?ml$/i, '') + '-wording.xlsx',
+      download(exported.content, payload.filename.replace(/\.ya?ml$/i, '') + (translation ? '_' + translation.translation_language + '-review.xlsx' : '-wording.xlsx'),
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      status.textContent = 'Workbook downloaded with screen images. Give it to your reviewer, then use Import wording workbook to review and apply their edits.';
+      status.textContent = translation ? 'Download complete. Import the reviewed file under Interview translations.' : 'Workbook downloaded with screen images. Give it to your reviewer, then use Import wording workbook to review and apply their edits.';
     } catch (error) { status.textContent = error.message; }
     finally { await releaseUpload(options, transfer); }
   }
@@ -713,7 +714,7 @@
       }
     };
   }
-  root.ALWeaverReports = {closeSource: closeSource, refreshSourceSymbols: function () { if (sourceHost) render(); }, openVariables: openVariables, openRepository: openRepository,
+  root.ALWeaverReports = {uploadParts: uploadParts, releaseUpload: releaseUpload, closeSource: closeSource, refreshSourceSymbols: function () { if (sourceHost) render(); }, openVariables: openVariables, openRepository: openRepository,
     exportWording: exportWording, importWording: importWording, captureScreen: captureScreen,
     fitPreviews: fitPreviews, buildFlowReport: buildFlowReport, wordingDiff: wordingDiff, fillWordingDiff: fillWordingDiff};
 })(globalThis);

@@ -19,6 +19,7 @@
       '<label class="d-block mb-2"><input type="checkbox" id="translation-ai"> Draft translations with AI</label>' +
       '<p class="small">AI drafting sends interview wording to the configured AI provider and may incur a charge. Review the machine translation before publishing.</p>' +
       '<button type="button" class="btn btn-primary" id="translation-generate">Download workbooks</button>' +
+      '<button type="button" class="btn btn-outline-primary" id="translation-context">Download with screen previews (one language)</button>' +
       '<hr><label for="translation-language">Flow report language code</label><input id="translation-language" class="form-control mb-2" value="es" aria-describedby="translation-report-help">' +
       '<p id="translation-report-help" class="small">Choose one language for this report. Import its reviewed workbook first.</p>' +
       '<button type="button" class="btn btn-outline-primary" id="translation-preview">Preview translated flow report</button>' +
@@ -48,6 +49,11 @@
       } catch (error) { status.textContent = error.message || String(error); }
       finally { buttons.forEach(function (button) { button.disabled = false; }); }
     }
+    dialog.querySelector('#translation-context').onclick = function () { return run(async function (scope) {
+      var languages = languageCodes(dialog.querySelector('#translation-languages').value);
+      if (languages.length !== 1) throw new Error('Choose one language for a workbook with screen previews.');
+      await root.ALWeaverReports.exportWording(bridge, {project: scope.project, filename: scope.filename, translation_language: languages[0], use_gpt: dialog.querySelector('#translation-ai').checked});
+    }); };
     dialog.querySelector('#translation-generate').onclick = function () { return run(async function (body) {
       body.tr_langs = languageCodes(dialog.querySelector('#translation-languages').value);
       body.use_gpt = dialog.querySelector('#translation-ai').checked;
@@ -61,13 +67,16 @@
     }); };
     dialog.querySelector('#translation-import').onclick = function () { return run(async function (body) {
       var files = Array.from(dialog.querySelector('#translation-upload').files);
-      if (!files.length || files.some(function (file) { return !/\.xlsx$/i.test(file.name) || file.size > 20 * 1024 * 1024; })) throw new Error('Choose XLSX workbooks smaller than 20 MB each.');
+      if (!files.length || files.some(function (file) { return !/\.xlsx$/i.test(file.name); })) throw new Error('Choose XLSX workbooks.');
       var completed = 0, blank = 0;
       try {
         for (var file of files) {
           status.textContent = 'Importing ' + (completed + 1) + ' of ' + files.length + ': ' + file.name;
-          body.content = await new Promise(function (resolve, reject) { var reader = new FileReader(); reader.onload = function () { resolve(String(reader.result).split(',')[1]); }; reader.onerror = reject; reader.readAsDataURL(file); });
-          var data = checked(await bridge.apiPost('/api/translations/import', body));
+          var transfer = checked(await bridge.apiPost('/api/reports/uploads', {kind: 'workbook'}));
+          try {
+            var uploaded = await root.ALWeaverReports.uploadParts(bridge, transfer, file, '');
+            var data = checked(await bridge.apiPost('/api/translations/import', Object.assign({}, body, {upload_id: transfer.upload_id, manifest: {'': uploaded}})));
+          } finally { await root.ALWeaverReports.releaseUpload(bridge, transfer); }
           body.expected_revision = data.revision;
           completed++;
           blank += data.validation.summary.empty_row_count;

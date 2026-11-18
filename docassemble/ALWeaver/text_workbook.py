@@ -496,7 +496,7 @@ def export_workbook(
     instructions.set_column("A:A", 110)
     instructions.write(0, 0, "Review and update the interview wording", heading)
     notes = [
-        "Each screen tab shows an illustrative PNG preview beside its wording. Yellow cells are yours to edit. Only display text is included; interview logic and metadata stay in the source.",
+        "Each screen section shows an illustrative PNG preview beside its wording. Yellow cells are yours to edit. Only display text is included; interview logic and metadata stay in the source.",
         "Edit the Revised wording column. Leave the original wording, row IDs, sheet names and other cells alone. Do not add or delete rows or sheets. To remove wording, clear its yellow cell.",
         "Green text is a control line or code tag. Blue text is an expression, HTML tag or display directive. Leave highlighted code exactly as written, including spaces, punctuation and capitalization.",
         "You may move a whole blue expression within the same paragraph/control region: Hello ${ users[0] } → ${ users[0] }, hello. Keep the entire ${ ... } together.",
@@ -526,6 +526,16 @@ def export_workbook(
         raise ValueError("No editable user-facing wording was found.")
     if sum(len(items) for items in groups.values()) > MAX_ROWS:
         raise ValueError("Too many wording rows for one workbook.")
+    sheet = workbook.add_worksheet("Screens")
+    sheet.freeze_panes(0, 1)
+    sheet.hide_gridlines(2)
+    sheet.set_landscape()
+    sheet.fit_to_pages(1, 0)
+    sheet.set_column("A:A", 18)
+    sheet.set_column("B:C", 55)
+    sheet.set_column("D:D", 70)
+    sheet.set_column("E:E", 10, None, {"hidden": True})
+    start = 0
     for index, (screen_id, items) in enumerate(groups.items(), 1):
         filename, document_text = screen_id.rsplit("#", 1)
         document = int(document_text)
@@ -533,20 +543,12 @@ def export_workbook(
             (item["screen"] for item in items if item["label"] != "Action title"),
             items[0]["screen"],
         )
-        sheet = workbook.add_worksheet(f"Screen {index:03d}")
-        sheet.freeze_panes(3, 2)
-        sheet.hide_gridlines(2)
-        sheet.set_landscape()
-        sheet.fit_to_pages(1, 0)
-        sheet.set_row(0, 36)
-        sheet.set_row(1, 30)
-        sheet.set_column("A:A", 18)
-        sheet.set_column("B:C", 55)
-        sheet.set_column("D:D", 70)
-        sheet.set_column("E:E", 10, None, {"hidden": True})
-        sheet.merge_range("A1:D1", screen_title, heading)
+        sheet.merge_range(start, 0, start, 3, screen_title, heading)
         sheet.merge_range(
-            "A2:D2",
+            start + 1,
+            0,
+            start + 1,
+            3,
             f"{filename} · block {document + 1} · "
             + (
                 "Inherited wording is read-only; the yellow action title is editable"
@@ -556,7 +558,7 @@ def export_workbook(
             fixed,
         )
         sheet.write_row(
-            2,
+            start + 2,
             0,
             [
                 "Text part",
@@ -568,8 +570,8 @@ def export_workbook(
             heading,
         )
         png = previews.get(screen_id)
+        y_offset = 0
         if png:
-            y_offset = 0
             for png in (png if isinstance(png, list) else [png]):
                 raw = base64.b64decode(png.split(",")[-1], validate=True)
                 image = Image.open(BytesIO(raw))
@@ -578,7 +580,8 @@ def export_workbook(
                 image.verify()
                 scale = min(1, 480 / image.width)
                 sheet.insert_image(
-                    "D4",
+                    start + 3,
+                    3,
                     "screen.png",
                     {
                         "image_data": BytesIO(raw),
@@ -592,9 +595,10 @@ def export_workbook(
                 y_offset += round(image.height * scale)
         else:
             sheet.write_string(
-                3, 3, "No screen image included in this workbook.", fixed
+                start + 3, 3, "No screen image included in this workbook.", fixed
             )
-        for row, item in enumerate(items, 3):
+        wording_height = 0
+        for row, item in enumerate(items, start + 3):
             sheet.write_string(row, 0, item["label"], fixed)
             sheet.write_string(row, 4, item["id"])
             parts = protected_parts(item["original"])
@@ -623,21 +627,10 @@ def export_workbook(
                         }
                     )
                     sheet.write_string(row, col, item["original"], single_format)
-            sheet.set_row(
-                row,
-                min(
-                    300,
-                    max(
-                        65,
-                        18
-                        * (
-                            len(item["original"]) // 55
-                            + item["original"].count("\n")
-                            + 2
-                        ),
-                    ),
-                ),
-            )
+            lines = len(item["original"]) // 55 + item["original"].count("\n") + 2
+            height = min(300, max(65, 18 * lines))
+            sheet.set_row(row, height)
+            wording_height += int(height * 4 / 3)
             metadata = {
                 k: v
                 for k, v in item.items()
@@ -648,7 +641,8 @@ def export_workbook(
                 manifest_row, 0, json.dumps(metadata, ensure_ascii=False)
             )
             manifest_row += 1
-        sheet.protect("", {"select_locked_cells": True, "select_unlocked_cells": True})
+        start += 4 + len(items) + (max(0, y_offset - wording_height) + 19) // 20
+    sheet.protect("", {"select_locked_cells": True, "select_unlocked_cells": True})
     workbook.close()
     return output.getvalue()
 
@@ -799,12 +793,14 @@ def import_workbook(
         edits: Dict[str, List[tuple]] = {}
         changes = []
         for sheet in workbook:
-            if sheet.max_row > MAX_ROWS + 4:
+            if sheet.max_row > (1048576 if sheet.title == "Screens" else MAX_ROWS + 4):
                 raise ValueError("Too many rows in the workbook.")
             if sheet.title in {"Instructions", "_ALWeaver"}:
                 continue
             for row in sheet.iter_rows(min_row=4, max_col=5):
                 if all(cell.value is None for cell in row):
+                    continue
+                if sheet.title == "Screens" and row[4].value in (None, "Row ID"):
                     continue
                 identity = row[4].value
                 if (
