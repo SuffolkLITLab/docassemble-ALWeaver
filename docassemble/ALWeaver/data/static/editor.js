@@ -7603,6 +7603,23 @@
     html +=
       '<button type="button" class="editor-md-btn dropdown-toggle editor-md-dropdown-toggle" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="Heading" aria-label="Heading"><i class="fa-solid fa-heading" aria-hidden="true"></i><span class="editor-md-fallback">Heading</span></button>';
     html += '<ul class="dropdown-menu editor-md-overflow-menu">';
+    html += '<li><h6 class="dropdown-header">Accessible</h6></li>';
+    if (targetId === 'q-subquestion') {
+      html +=
+        '<li><span class="dropdown-item-text small text-muted">Start with Heading 2 in subquestions.</span></li>';
+    }
+    for (let level = 1; level <= 6; level++) {
+      html +=
+        '<li><button type="button" class="dropdown-item" data-md-insert="html-heading' +
+        level +
+        '" data-target-id="' +
+        esc(targetId) +
+        '">Heading ' +
+        level +
+        '</button></li>';
+    }
+    html += '<li><hr class="dropdown-divider"></li>';
+    html += '<li><h6 class="dropdown-header">Markdown default</h6></li>';
     for (let level = 1; level <= 6; level++) {
       html +=
         '<li><button type="button" class="dropdown-item" data-md-insert="heading' +
@@ -7611,17 +7628,7 @@
         esc(targetId) +
         '">Heading ' +
         level +
-        ' (Markdown)</button></li>';
-      html +=
-        '<li><button type="button" class="dropdown-item" data-md-insert="html-heading' +
-        level +
-        '" data-target-id="' +
-        esc(targetId) +
-        '">Heading ' +
-        level +
-        ' (HTML, size ' +
-        Math.min(level + 2, 6) +
-        ')</button></li>';
+        '</button></li>';
     }
     html += '</ul></div>';
     // List dropdown

@@ -432,7 +432,20 @@ class TestEditorFrontend(unittest.TestCase):
         source = (self.package_dir / "data/static/editor.js").read_text()
         self.assertIn("level <= 6", source)
         self.assertIn('data-md-insert="html-heading', source)
-        self.assertIn("(Markdown)</button>", source)
+        self.assertLess(
+            source.index('dropdown-header">Accessible'),
+            source.index('data-md-insert="html-heading'),
+        )
+        self.assertLess(
+            source.index('data-md-insert="html-heading'),
+            source.index('dropdown-header">Markdown default'),
+        )
+        self.assertLess(
+            source.index('dropdown-header">Markdown default'),
+            source.index('data-md-insert="heading'),
+        )
+        self.assertNotIn("(HTML, size ", source)
+        self.assertNotIn("(Markdown)</button>", source)
         self.assertIn("Math.min(level + 2, 6)", source)
         self.assertIn("'</h' + level + '>' + (after.startsWith", source)
         self.assertIn("'#'.repeat(level) + ' '", source)
