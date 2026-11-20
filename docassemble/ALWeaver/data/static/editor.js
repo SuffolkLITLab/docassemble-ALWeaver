@@ -7603,22 +7603,33 @@
     html +=
       '<button type="button" class="editor-md-btn dropdown-toggle editor-md-dropdown-toggle" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="Heading" aria-label="Heading"><i class="fa-solid fa-heading" aria-hidden="true"></i><span class="editor-md-fallback">Heading</span></button>';
     html += '<ul class="dropdown-menu editor-md-overflow-menu">';
-    html +=
-      '<li><button type="button" class="dropdown-item" data-md-insert="heading1" data-target-id="' +
-      esc(targetId) +
-      '">Heading 1</button></li>';
-    html +=
-      '<li><button type="button" class="dropdown-item" data-md-insert="heading2" data-target-id="' +
-      esc(targetId) +
-      '">Heading 2</button></li>';
-    html +=
-      '<li><button type="button" class="dropdown-item" data-md-insert="heading3" data-target-id="' +
-      esc(targetId) +
-      '">Heading 3</button></li>';
-    html +=
-      '<li><button type="button" class="dropdown-item" data-md-insert="heading4" data-target-id="' +
-      esc(targetId) +
-      '">Heading 4</button></li>';
+    html += '<li><h6 class="dropdown-header">Visually consistent</h6></li>';
+    if (targetId === 'q-subquestion') {
+      html +=
+        '<li><span class="dropdown-item-text small text-muted">Start with Heading 2 in subquestions.</span></li>';
+    }
+    for (let level = 1; level <= 6; level++) {
+      html +=
+        '<li><button type="button" class="dropdown-item" data-md-insert="html-heading' +
+        level +
+        '" data-target-id="' +
+        esc(targetId) +
+        '">Heading ' +
+        level +
+        '</button></li>';
+    }
+    html += '<li><hr class="dropdown-divider"></li>';
+    html += '<li><h6 class="dropdown-header">Markdown default</h6></li>';
+    for (let level = 1; level <= 6; level++) {
+      html +=
+        '<li><button type="button" class="dropdown-item" data-md-insert="heading' +
+        level +
+        '" data-target-id="' +
+        esc(targetId) +
+        '">Heading ' +
+        level +
+        '</button></li>';
+    }
     html += '</ul></div>';
     // List dropdown
     html += '<div class="dropdown d-inline-block">';
@@ -8325,14 +8336,25 @@
         wrapSelectionSuffix: '*',
         defaultSelection: 'italic text',
       });
-    } else if (action === 'heading' || action === 'heading2') {
-      insertTextAtCursor(targetEl, '## ');
-    } else if (action === 'heading1') {
-      insertTextAtCursor(targetEl, '# ');
-    } else if (action === 'heading3') {
-      insertTextAtCursor(targetEl, '### ');
-    } else if (action === 'heading4') {
-      insertTextAtCursor(targetEl, '#### ');
+    } else if (/^html-heading[1-6]$/.test(action)) {
+      const level = Number(action.slice(-1));
+      const before = targetEl.value.slice(0, targetEl.selectionStart);
+      const after = targetEl.value.slice(targetEl.selectionEnd);
+      insertTextAtCursor(targetEl, '', {
+        wrapSelectionPrefix:
+          (before && !before.endsWith('\n\n') ? '\n\n' : '') +
+          '<h' +
+          level +
+          ' class="h' +
+          Math.min(level + 2, 6) +
+          '">',
+        wrapSelectionSuffix:
+          '</h' + level + '>' + (after.startsWith('\n\n') ? '' : '\n\n'),
+        defaultSelection: 'Heading',
+      });
+    } else if (action === 'heading' || /^heading[1-6]$/.test(action)) {
+      const level = action === 'heading' ? 2 : Number(action.slice(-1));
+      insertTextAtCursor(targetEl, '#'.repeat(level) + ' ');
     } else if (action === 'list-bullet') {
       insertTextAtCursor(targetEl, '* Item 1\n* Item 2\n* Item 3');
     } else if (action === 'list-numbered') {
