@@ -428,6 +428,15 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("blankQuestionNeedsDecision() ||", source)
         self.assertIn("Add a question label before saving.", source)
 
+    def test_heading_selector_supports_markdown_and_sized_html(self):
+        source = (self.package_dir / "data/static/editor.js").read_text()
+        self.assertIn("level <= 6", source)
+        self.assertIn('data-md-insert="html-heading', source)
+        self.assertIn("(Markdown)</button>", source)
+        self.assertIn("Math.min(level + 2, 6)", source)
+        self.assertIn("'</h' + level + '>' + (after.startsWith", source)
+        self.assertIn("'#'.repeat(level) + ' '", source)
+
     def test_markdown_toolbar_has_labels_when_icons_do_not_load(self):
         editor = (self.package_dir / "data/static/editor.js").read_text()
         css = (self.package_dir / "data/static/editor.css").read_text()
