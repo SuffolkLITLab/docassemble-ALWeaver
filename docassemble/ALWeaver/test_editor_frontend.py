@@ -433,7 +433,7 @@ class TestEditorFrontend(unittest.TestCase):
         self.assertIn("level <= 6", source)
         self.assertIn('data-md-insert="html-heading', source)
         self.assertLess(
-            source.index('dropdown-header">Accessible'),
+            source.index('dropdown-header">Visually consistent'),
             source.index('data-md-insert="html-heading'),
         )
         self.assertLess(

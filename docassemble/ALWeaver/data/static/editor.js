@@ -7603,7 +7603,7 @@
     html +=
       '<button type="button" class="editor-md-btn dropdown-toggle editor-md-dropdown-toggle" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-display="dynamic" aria-expanded="false" title="Heading" aria-label="Heading"><i class="fa-solid fa-heading" aria-hidden="true"></i><span class="editor-md-fallback">Heading</span></button>';
     html += '<ul class="dropdown-menu editor-md-overflow-menu">';
-    html += '<li><h6 class="dropdown-header">Accessible</h6></li>';
+    html += '<li><h6 class="dropdown-header">Visually consistent</h6></li>';
     if (targetId === 'q-subquestion') {
       html +=
         '<li><span class="dropdown-item-text small text-muted">Start with Heading 2 in subquestions.</span></li>';
